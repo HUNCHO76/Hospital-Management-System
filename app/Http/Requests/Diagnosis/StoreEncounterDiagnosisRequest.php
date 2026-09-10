@@ -1,0 +1,38 @@
+<?php
+
+namespace App\Http\Requests\Diagnosis;
+
+use App\Models\DiagnosisCode;
+use App\Models\EncounterDiagnosis;
+use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class StoreEncounterDiagnosisRequest extends FormRequest
+{
+    /**
+     * The 'diagnosis.create' permission plus hospital/ownership scoping is
+     * enforced by EncounterDiagnosisPolicy::create() in the controller,
+     * which receives the route-bound encounter as extra context.
+     */
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, ValidationRule|array<mixed>|string>
+     */
+    public function rules(): array
+    {
+        return [
+            'diagnosis_code_id' => [
+                'required',
+                'integer',
+                Rule::exists(DiagnosisCode::class, 'id')->where('status', DiagnosisCode::STATUS_ACTIVE),
+            ],
+            'diagnosis_type' => ['required', 'string', Rule::in([EncounterDiagnosis::TYPE_PRIMARY, EncounterDiagnosis::TYPE_SECONDARY])],
+            'clinical_note' => ['nullable', 'string', 'max:2000'],
+        ];
+    }
+}

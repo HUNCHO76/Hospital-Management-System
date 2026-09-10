@@ -1,0 +1,93 @@
+<?php
+
+use App\Http\Middleware\ApiRequestContext;
+use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\SecurityHeaders;
+use App\Support\Api\ApiResponse;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
+
+return Application::configure(basePath: dirname(__DIR__))
+    ->withRouting(
+        web: __DIR__.'/../routes/web.php',
+        api: __DIR__.'/../routes/api.php',
+        commands: __DIR__.'/../routes/console.php',
+        health: '/up',
+    )
+    ->withMiddleware(function (Middleware $middleware) {
+        // Baseline security headers on every response (web and API).
+        $middleware->append(SecurityHeaders::class);
+
+        $middleware->web(append: [
+            HandleInertiaRequests::class,
+            AddLinkHeadersForPreloadedAssets::class,
+        ]);
+
+        $middleware->api(append: [
+            ApiRequestContext::class,
+        ]);
+    })
+    ->withExceptions(function (Exceptions $exceptions) {
+        // Convert exceptions on API/JSON requests into the standard envelope,
+        // never leaking stack traces, SQL, or internal details to clients.
+        $exceptions->render(function (Throwable $exception, Request $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
+            return match (true) {
+                $exception instanceof ValidationException => ApiResponse::validation($exception->errors(), $exception->getMessage()),
+                $exception instanceof AuthenticationException => ApiResponse::unauthorized(),
+                $exception instanceof AuthorizationException => ApiResponse::forbidden($exception->getMessage() ?: 'You are not authorized to perform this action.'),
+                $exception instanceof ModelNotFoundException, $exception instanceof NotFoundHttpException => ApiResponse::notFound(),
+                $exception instanceof TooManyRequestsHttpException => ApiResponse::error('Too many requests. Please slow down.', 429),
+                $exception instanceof HttpExceptionInterface => ApiResponse::error(
+                    $exception->getMessage() ?: 'Request could not be completed.',
+                    $exception->getStatusCode(),
+                ),
+                default => ApiResponse::error(
+                    config('app.debug') ? $exception->getMessage() : 'An unexpected error occurred.',
+                    500,
+                ),
+            };
+        });
+
+        // Render branded Inertia error pages for the web application. API and
+        // JSON requests are handled by the standard envelope above.
+        $exceptions->respond(function (Response $response, Throwable $exception, Request $request) {
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return $response;
+            }
+
+            $status = $response->getStatusCode();
+
+            $pages = [
+                403 => 'errors/403',
+                404 => 'errors/404',
+                500 => 'errors/500',
+                503 => 'errors/500',
+            ];
+
+            // Only intercept real error responses in production; keep Laravel's
+            // detailed debug page while developing.
+            if (isset($pages[$status]) && (! app()->hasDebugModeEnabled() || $status === 403 || $status === 404)) {
+                return Inertia::render($pages[$status])
+                    ->toResponse($request)
+                    ->setStatusCode($status);
+            }
+
+            return $response;
+        });
+    })->create();
