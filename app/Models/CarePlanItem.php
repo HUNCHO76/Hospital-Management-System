@@ -34,21 +34,18 @@ class CarePlanItem extends Model
 
     public const TYPE_FOLLOW_UP = 'follow_up';
 
-    /**
-     * A request for radiology/imaging — a clinical handoff boundary only
-     * (Step 27, spec §4-6/20), for a future Radiology module. Laboratory
-     * testing was originally modeled the same way (Step 27-28) but was
-     * restructured in Step 30 into its own first-class `LaboratoryOrder`
-     * belonging directly to the ClinicalEncounter — spec's explicit "do NOT
-     * make Prescription -> Laboratory" — so no TYPE_LABORATORY exists here
-     * anymore; see LaboratoryOrder/LaboratoryOrderItem.
-     */
-    public const TYPE_RADIOLOGY = 'radiology';
-
     public const TYPE_OTHER = 'other';
 
     /**
      * The controlled set of item types recognized by the system.
+     *
+     * No TYPE_RADIOLOGY exists here: it was a clinical handoff boundary
+     * only (Step 27, spec §4-6/20) for a future Radiology module, but
+     * Radiology is now its own first-class `RadiologyOrder` belonging
+     * directly to the ClinicalEncounter (Phase 5, Step 36) — the exact
+     * same restructuring Laboratory went through in Step 30 ("do NOT make
+     * Prescription -> Laboratory/Radiology"). See RadiologyOrder/
+     * RadiologyOrderItem.
      *
      * @var list<string>
      */
@@ -59,7 +56,6 @@ class CarePlanItem extends Model
         self::TYPE_REFERRAL,
         self::TYPE_MONITORING,
         self::TYPE_FOLLOW_UP,
-        self::TYPE_RADIOLOGY,
         self::TYPE_OTHER,
     ];
 

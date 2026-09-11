@@ -8,6 +8,7 @@ import {
 import { type ClinicalNote } from '@/types/clinical-note';
 import { type Consultation } from '@/types/consultation';
 import { type EncounterDiagnosis } from '@/types/diagnosis';
+import { type RadiologyBodySite, type RadiologyModality, type RadiologyOrderPriority, type RadiologyOrderStatus } from '@/types/radiology';
 import { type TriageAssessment } from '@/types/triage';
 
 export interface ClinicalHistoryPractitioner {
@@ -35,6 +36,29 @@ export interface ClinicalHistoryLaboratoryResult {
     active_report_id: number | null;
 }
 
+/**
+ * Radiology has no result/finding/report concept yet (those are Steps
+ * 41-43) — unlike laboratory_results above, this surfaces the order itself
+ * (with its own status) rather than a released result.
+ */
+export interface ClinicalHistoryRadiologyOrderItem {
+    id: number;
+    procedure_code: string;
+    procedure_name: string;
+    modality_snapshot: RadiologyModality | null;
+    body_site_snapshot: RadiologyBodySite[] | null;
+    status: string;
+}
+
+export interface ClinicalHistoryRadiologyOrder {
+    id: number;
+    order_number: string;
+    priority: RadiologyOrderPriority;
+    status: RadiologyOrderStatus;
+    ordered_at: string | null;
+    items: ClinicalHistoryRadiologyOrderItem[];
+}
+
 export interface ClinicalHistoryEncounter {
     id: number;
     encounter_number: string;
@@ -52,6 +76,7 @@ export interface ClinicalHistoryEncounter {
     care_plan: CarePlan | null;
     clinical_notes: ClinicalNote[];
     laboratory_results: ClinicalHistoryLaboratoryResult[];
+    radiology_orders: ClinicalHistoryRadiologyOrder[];
 }
 
 export interface ClinicalHistoryFilters {

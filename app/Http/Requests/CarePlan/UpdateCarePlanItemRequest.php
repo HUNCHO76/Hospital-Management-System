@@ -44,7 +44,7 @@ class UpdateCarePlanItemRequest extends FormRequest
 
             'prescription' => ['nullable', 'array'],
             'prescription.medication_id' => [
-                'sometimes',
+                'nullable',
                 'integer',
                 Rule::exists(Medication::class, 'id')->where('status', Medication::STATUS_ACTIVE),
             ],

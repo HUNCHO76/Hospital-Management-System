@@ -125,3 +125,27 @@ test('an encounter with an engaged consultation but no diagnosis can still produ
         $this->assertDatabaseHas('audit_logs', ['action' => $action]);
     }
 });
+
+/**
+ * LaboratoryOrderItem::status never advances past "result_pending" once
+ * processing completes — Steps 33-35 track submit/verify/authorize/release
+ * entirely on the linked LaboratoryResult instead. The order detail page
+ * must therefore surface the result's own status once one exists, or a
+ * fully released result would appear stuck at "Result Pending" forever.
+ */
+test('the order detail page shows the linked result\'s own status, not the permanently-stale item status', function () {
+    $test = activeLaboratoryTest(['specimen_type' => 'serum', 'result_type' => 'numeric']);
+    $ctx = releasedForItem($test);
+    $item = $ctx['result']->item;
+
+    expect($item->fresh()->status)->toBe('result_pending');
+
+    $technician = userWithRole('laboratory-technician');
+    $response = $this->actingAs($technician)->get(route('laboratory.orders.show', $ctx['order']));
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->component('laboratory/show')
+        ->where('order.items.0.status', 'result_pending')
+        ->where('order.items.0.result.status', 'released')
+        ->where('order.items.0.result.id', $ctx['result']->id));
+});

@@ -1,6 +1,6 @@
 export type CarePlanStatus = 'draft' | 'active' | 'completed' | 'cancelled';
 
-export type CarePlanItemType = 'medication' | 'procedure' | 'clinical_intervention' | 'referral' | 'monitoring' | 'follow_up' | 'radiology' | 'other';
+export type CarePlanItemType = 'medication' | 'procedure' | 'clinical_intervention' | 'referral' | 'monitoring' | 'follow_up' | 'other';
 
 export type CarePlanItemStatus = 'planned' | 'active' | 'completed' | 'cancelled';
 

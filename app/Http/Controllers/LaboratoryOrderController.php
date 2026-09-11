@@ -25,7 +25,13 @@ class LaboratoryOrderController extends Controller
     protected function eagerLoads(): array
     {
         return [
-            'items',
+            // LaboratoryOrderItem::status never advances past
+            // "result_pending" once processing completes — Steps 33-35
+            // (result entry, verification, authorization, release) track
+            // that progress entirely on the linked LaboratoryResult
+            // instead, so the actual up-to-date status must be read from
+            // there, not from the item's own (permanently stale) status.
+            'items.result',
             'orderedBy:id,UserName',
             'cancelledBy:id,UserName',
             'clinicalEncounter:id,encounter_number,patient_id,department_id',

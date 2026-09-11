@@ -35,7 +35,6 @@ export const carePlanItemTypeLabel: Record<CarePlanItemType, string> = {
     referral: 'Referral',
     monitoring: 'Monitoring',
     follow_up: 'Follow-up',
-    radiology: 'Radiology Order',
     other: 'Other',
 };
 

@@ -46,6 +46,13 @@ class PermissionSeeder extends Seeder
         'laboratory-reports' => ['view', 'print', 'download'],
         'laboratory-tests' => ['view', 'create', 'update', 'activate', 'deactivate'],
         'laboratory-categories' => ['view', 'manage'],
+        'radiology' => ['view'],
+        'radiology-orders' => ['view', 'create', 'update', 'cancel'],
+        'radiology-procedures' => ['view', 'create', 'update', 'activate', 'deactivate'],
+        'radiology-scheduling' => ['view', 'create', 'reschedule', 'confirm', 'cancel', 'no_show'],
+        'radiology-reception' => ['view', 'manage'],
+        'radiology-examination' => ['view', 'start', 'update', 'complete', 'abort'],
+        'radiology-results' => ['view', 'create', 'update', 'submit', 'review', 'verify', 'return'],
         'audit-logs' => ['view'],
     ];
 

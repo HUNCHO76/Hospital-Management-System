@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\LaboratoryOrder;
 use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryResult;
 use App\Models\LaboratorySample;
@@ -387,6 +388,8 @@ class LaboratoryResultService
             $request,
         );
 
+        $this->recomputeOrderCompletion($result->item->laboratoryOrder, $request);
+
         return $result;
     }
 
@@ -566,6 +569,8 @@ class LaboratoryResultService
                 $result->only(['value_numeric', 'value_text', 'value_code', 'abnormal_flag', 'result_comment']),
                 $request,
             );
+
+            $this->revertOrderCompletionIfNeeded($result->item->laboratoryOrder, $request);
         }
 
         return $result;
@@ -725,5 +730,70 @@ class LaboratoryResultService
         }
 
         return $comment;
+    }
+
+    /**
+     * Roll the parent order up to COMPLETED once every one of its
+     * non-cancelled items has a released result — the only order-level
+     * signal that a whole order's clinical work is genuinely finished,
+     * distinct from RESULT_PENDING (which only means processing finished,
+     * not that results have since been reviewed and released).
+     * LaboratoryOrderItem::status has no transition beyond RESULT_PENDING
+     * (Steps 33-35 track that progress entirely on LaboratoryResult
+     * instead), so this reads each item's linked result directly rather
+     * than the item's own status. Mirrors the exact bypass-canTransitionTo()
+     * pattern LaboratorySampleService/LaboratoryProcessingService's own
+     * order-rollup helpers use — this is derived state, never a
+     * user-facing transition. Symmetrically reverted by
+     * revertOrderCompletionIfNeeded() below when a released result is
+     * later amended.
+     */
+    protected function recomputeOrderCompletion(LaboratoryOrder $order, Request $request): void
+    {
+        if (in_array($order->status, [LaboratoryOrder::STATUS_COMPLETED, LaboratoryOrder::STATUS_CANCELLED], true)) {
+            return;
+        }
+
+        $items = $order->items()->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED)->with('result')->get();
+
+        if ($items->isEmpty() || $items->contains(fn (LaboratoryOrderItem $item) => $item->result?->status !== LaboratoryResult::STATUS_RELEASED)) {
+            return;
+        }
+
+        $oldStatus = $order->status;
+        $order->update(['status' => LaboratoryOrder::STATUS_COMPLETED]);
+
+        $this->auditLog->record(
+            'laboratory_order_status_changed',
+            $order,
+            ['status' => $oldStatus],
+            ['status' => LaboratoryOrder::STATUS_COMPLETED],
+            $request,
+        );
+    }
+
+    /**
+     * Revert a COMPLETED order back to its item-progress rollup once one of
+     * its released results is amended — a completed order can no longer
+     * claim every result is final once one of them has been reopened.
+     */
+    protected function revertOrderCompletionIfNeeded(LaboratoryOrder $order, Request $request): void
+    {
+        if ($order->status !== LaboratoryOrder::STATUS_COMPLETED) {
+            return;
+        }
+
+        $itemStatuses = $order->items()->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED)->pluck('status');
+        $newStatus = LaboratoryOrder::statusFromItemProgress($itemStatuses);
+
+        $order->update(['status' => $newStatus]);
+
+        $this->auditLog->record(
+            'laboratory_order_status_changed',
+            $order,
+            ['status' => LaboratoryOrder::STATUS_COMPLETED],
+            ['status' => $newStatus],
+            $request,
+        );
     }
 }

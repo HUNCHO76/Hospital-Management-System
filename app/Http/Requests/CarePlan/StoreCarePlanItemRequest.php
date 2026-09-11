@@ -42,6 +42,7 @@ class StoreCarePlanItemRequest extends FormRequest
             'prescription' => ['required_if:type,'.CarePlanItem::TYPE_MEDICATION, 'nullable', 'array'],
             'prescription.medication_id' => [
                 'required_if:type,'.CarePlanItem::TYPE_MEDICATION,
+                'nullable',
                 'integer',
                 Rule::exists(Medication::class, 'id')->where('status', Medication::STATUS_ACTIVE),
             ],

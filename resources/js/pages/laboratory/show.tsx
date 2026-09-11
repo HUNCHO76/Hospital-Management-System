@@ -1,8 +1,16 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { usePermissions } from '@/hooks/use-permissions';
 import AppLayout from '@/layouts/app-layout';
-import { laboratoryOrderPriorityLabel, laboratoryOrderStatusLabel, laboratoryOrderStatusVariant } from '@/lib/laboratory-status';
+import {
+    laboratoryOrderPriorityLabel,
+    laboratoryOrderStatusLabel,
+    laboratoryOrderStatusVariant,
+    laboratoryResultStatusLabel,
+    laboratoryResultStatusVariant,
+    orderResultsSummary,
+} from '@/lib/laboratory-status';
 import { type BreadcrumbItem } from '@/types';
 import { type LaboratoryOrder } from '@/types/laboratory';
 import { Head, Link } from '@inertiajs/react';
@@ -17,14 +25,17 @@ function formatDateTime(value: string): string {
 
 /**
  * Laboratory order detail — the minimum context spec §25/39 asks for.
- * Sample/result/verification/report fields are deliberately absent: they
- * are Steps 31-34's job, and this step must not fabricate placeholder data
- * for them.
+ * Each item's own `status` never advances past "result_pending" once
+ * processing completes (Steps 33-35 track submit/verify/authorize/release
+ * entirely on the linked LaboratoryResult) — so once a result exists, its
+ * own status is shown instead, linking through to the result detail page.
  */
 export default function LaboratoryShow({ order }: LaboratoryShowProps) {
+    const { can } = usePermissions();
     const patientName = order.patient
         ? [order.patient.first_name, order.patient.middle_name, order.patient.last_name].filter(Boolean).join(' ')
         : '—';
+    const resultsSummary = orderResultsSummary(order.items);
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Laboratory', href: '/laboratory' },
@@ -41,7 +52,11 @@ export default function LaboratoryShow({ order }: LaboratoryShowProps) {
                         <h1 className="text-2xl font-semibold">{order.order_number}</h1>
                         <p className="text-muted-foreground text-sm">{patientName}</p>
                     </div>
-                    <Badge variant={laboratoryOrderStatusVariant[order.status]}>{laboratoryOrderStatusLabel[order.status]}</Badge>
+                    <div className="flex items-center gap-2">
+                        <Badge variant={laboratoryOrderStatusVariant[order.status]}>{laboratoryOrderStatusLabel[order.status]}</Badge>
+                        {resultsSummary === 'released' && <Badge variant={laboratoryResultStatusVariant.released}>Results Released</Badge>}
+                        {resultsSummary === 'in_progress' && <Badge variant="outline">Results In Progress</Badge>}
+                    </div>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -143,7 +158,22 @@ export default function LaboratoryShow({ order }: LaboratoryShowProps) {
                                     <span className={item.status === 'cancelled' ? 'text-muted-foreground line-through' : ''}>
                                         {item.test_code} — {item.test_name}
                                     </span>
-                                    <Badge variant={laboratoryOrderStatusVariant[item.status]}>{laboratoryOrderStatusLabel[item.status]}</Badge>
+
+                                    {item.result ? (
+                                        can('laboratory-results.view') ? (
+                                            <Link href={route('laboratory.results.show', item.result.id)}>
+                                                <Badge variant={laboratoryResultStatusVariant[item.result.status]} className="hover:underline">
+                                                    {laboratoryResultStatusLabel[item.result.status]}
+                                                </Badge>
+                                            </Link>
+                                        ) : (
+                                            <Badge variant={laboratoryResultStatusVariant[item.result.status]}>
+                                                {laboratoryResultStatusLabel[item.result.status]}
+                                            </Badge>
+                                        )
+                                    ) : (
+                                        <Badge variant={laboratoryOrderStatusVariant[item.status]}>{laboratoryOrderStatusLabel[item.status]}</Badge>
+                                    )}
                                 </li>
                             ))}
 

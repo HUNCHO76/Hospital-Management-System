@@ -8,7 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { usePermissions } from '@/hooks/use-permissions';
-import { laboratoryOrderPriorityLabel, laboratoryOrderStatusLabel, laboratoryOrderStatusVariant } from '@/lib/laboratory-status';
+import {
+    laboratoryOrderPriorityLabel,
+    laboratoryOrderStatusLabel,
+    laboratoryOrderStatusVariant,
+    laboratoryResultStatusLabel,
+    laboratoryResultStatusVariant,
+} from '@/lib/laboratory-status';
 import { type Consultation } from '@/types/consultation';
 import {
     type LaboratoryOrder,
@@ -115,6 +121,19 @@ function LaboratoryOrderRow({ encounterId, order }: { encounterId: number; order
                         <span className={item.status === 'cancelled' ? 'text-muted-foreground line-through' : ''}>
                             {item.test_code} — {item.test_name}
                         </span>
+
+                        {item.result &&
+                            (can('laboratory-results.view') ? (
+                                <Link href={route('laboratory.results.show', item.result.id)}>
+                                    <Badge variant={laboratoryResultStatusVariant[item.result.status]} className="hover:underline">
+                                        {laboratoryResultStatusLabel[item.result.status]}
+                                    </Badge>
+                                </Link>
+                            ) : (
+                                <Badge variant={laboratoryResultStatusVariant[item.result.status]}>
+                                    {laboratoryResultStatusLabel[item.result.status]}
+                                </Badge>
+                            ))}
 
                         {mutable && item.status === 'ordered' && can('laboratory-orders.update') && (
                             <CancelLaboratoryOrderItemDialog

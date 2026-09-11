@@ -82,6 +82,10 @@ export interface LaboratoryOrderItem {
     specimen_type?: LaboratorySpecimenType | null;
     specimen_container?: LaboratorySpecimenContainer | null;
     samples?: LaboratoryOrderItemSampleSummary[];
+    // The authoritative up-to-date progress once a result exists — `status`
+    // above never advances past "result_pending" (Steps 33-35 track
+    // submit/verify/authorize/release entirely on LaboratoryResult).
+    result?: { id: number; status: LaboratoryResultStatus } | null;
     cancelled_at: string | null;
     cancelled_by: LaboratoryOrderUser | null;
     cancellation_reason: string | null;

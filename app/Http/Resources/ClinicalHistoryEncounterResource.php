@@ -58,6 +58,21 @@ class ClinicalHistoryEncounterResource extends JsonResource
                 : null),
             'clinical_notes' => $this->whenLoaded('clinicalNotes', fn () => ClinicalNoteResource::collection($this->clinicalNotes)->resolve($request)),
             'laboratory_results' => $this->whenLoaded('laboratoryOrders', fn () => $this->releasedLaboratoryResults()),
+            'radiology_orders' => $this->whenLoaded('radiologyOrders', fn () => $this->radiologyOrders->map(fn ($order) => [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'priority' => $order->priority,
+                'status' => $order->status,
+                'ordered_at' => optional($order->ordered_at)->toIso8601String(),
+                'items' => $order->items->map(fn ($item) => [
+                    'id' => $item->id,
+                    'procedure_code' => $item->procedure_code,
+                    'procedure_name' => $item->procedure_name,
+                    'modality_snapshot' => $item->modality_snapshot,
+                    'body_site_snapshot' => $item->body_site_snapshot,
+                    'status' => $item->status,
+                ])->values()->all(),
+            ])->values()->all()),
         ];
     }
 

@@ -11,6 +11,7 @@ use App\Http\Resources\ClinicalNoteResource;
 use App\Http\Resources\ConsultationResource;
 use App\Http\Resources\EncounterDiagnosisResource;
 use App\Http\Resources\LaboratoryOrderResource;
+use App\Http\Resources\RadiologyOrderResource;
 use App\Http\Resources\TriageAssessmentResource;
 use App\Models\ClinicalEncounter;
 use App\Models\Department;
@@ -123,6 +124,17 @@ class ClinicalEncounterController extends Controller
         ])->get();
 
         $laboratoryOrders = $clinicalEncounter->laboratoryOrders()->with([
+            // item.result is what actually carries the doctor-visible
+            // draft/verified/authorized/released progress — the item's own
+            // `status` never advances past "result_pending" once
+            // processing completes (Steps 33-35 track that entirely on the
+            // linked LaboratoryResult instead).
+            'items.result',
+            'orderedBy:id,UserName',
+            'cancelledBy:id,UserName',
+        ])->get();
+
+        $radiologyOrders = $clinicalEncounter->radiologyOrders()->with([
             'items',
             'orderedBy:id,UserName',
             'cancelledBy:id,UserName',
@@ -135,6 +147,7 @@ class ClinicalEncounterController extends Controller
             'diagnoses' => EncounterDiagnosisResource::collection($diagnoses)->resolve($request),
             'carePlan' => $carePlan ? (new CarePlanResource($carePlan))->resolve($request) : null,
             'laboratoryOrders' => LaboratoryOrderResource::collection($laboratoryOrders)->resolve($request),
+            'radiologyOrders' => RadiologyOrderResource::collection($radiologyOrders)->resolve($request),
             'clinicalNotes' => ClinicalNoteResource::collection($clinicalNotes)->resolve($request),
             // Only needed for the care plan's referral item form.
             'departments' => Department::active()->orderBy('name')->get(['id', 'name', 'code']),

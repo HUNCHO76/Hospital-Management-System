@@ -267,4 +267,15 @@ class ClinicalEncounter extends Model
     {
         return $this->hasMany(LaboratoryOrder::class)->orderBy('ordered_at');
     }
+
+    /**
+     * This encounter's radiology orders (Phase 5, Step 36), oldest first.
+     * Radiology is its own sibling branch off the encounter, alongside
+     * Prescription/Laboratory/Diagnosis/Clinical Notes — never nested under
+     * a CarePlanItem, mirroring laboratoryOrders() above exactly.
+     */
+    public function radiologyOrders(): HasMany
+    {
+        return $this->hasMany(RadiologyOrder::class)->orderBy('ordered_at');
+    }
 }

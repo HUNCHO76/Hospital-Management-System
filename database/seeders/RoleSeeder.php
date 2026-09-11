@@ -50,6 +50,14 @@ class RoleSeeder extends Seeder
             'laboratory-reports.view', 'laboratory-reports.print', 'laboratory-reports.download',
             'laboratory-tests.view', 'laboratory-tests.create', 'laboratory-tests.update', 'laboratory-tests.activate', 'laboratory-tests.deactivate',
             'laboratory-categories.view', 'laboratory-categories.manage',
+            'radiology.view', 'radiology-orders.view', 'radiology-orders.create', 'radiology-orders.update', 'radiology-orders.cancel',
+            'radiology-procedures.view', 'radiology-procedures.create', 'radiology-procedures.update', 'radiology-procedures.activate', 'radiology-procedures.deactivate',
+            'radiology-scheduling.view', 'radiology-scheduling.create', 'radiology-scheduling.reschedule',
+            'radiology-scheduling.confirm', 'radiology-scheduling.cancel', 'radiology-scheduling.no_show',
+            'radiology-reception.view', 'radiology-reception.manage',
+            'radiology-examination.view', 'radiology-examination.start', 'radiology-examination.update', 'radiology-examination.complete', 'radiology-examination.abort',
+            'radiology-results.view', 'radiology-results.create', 'radiology-results.update', 'radiology-results.submit',
+            'radiology-results.review', 'radiology-results.verify', 'radiology-results.return',
             'audit-logs.view',
         ],
 
@@ -73,6 +81,7 @@ class RoleSeeder extends Seeder
             'laboratory-processing.view',
             'laboratory-results.view',
             'laboratory-reports.view', 'laboratory-reports.print', 'laboratory-reports.download',
+            'radiology-orders.create', 'radiology-orders.update', 'radiology-orders.cancel', 'radiology-procedures.view',
         ],
 
         'nurse' => [
@@ -91,6 +100,38 @@ class RoleSeeder extends Seeder
         'pharmacist' => [
             'practitioners.view',
             'patients.view',
+        ],
+
+        // View access to the radiology worklist/orders (Step 36) plus full
+        // scheduling (Step 39), reception/preparation (Step 40), and
+        // examination (Step 41) ability — the incremental growth this
+        // role's own doc-comment always anticipated. This role performs the
+        // operational/technical work; interpreting the resulting images
+        // (Step 42) is a distinct clinical role — see 'radiologist' below.
+        'radiology-technician' => [
+            'practitioners.view',
+            'patients.view',
+            'radiology.view', 'radiology-orders.view', 'radiology-procedures.view',
+            'radiology-scheduling.view', 'radiology-scheduling.create', 'radiology-scheduling.reschedule',
+            'radiology-scheduling.confirm', 'radiology-scheduling.cancel', 'radiology-scheduling.no_show',
+            'radiology-reception.view', 'radiology-reception.manage',
+            'radiology-examination.view', 'radiology-examination.start', 'radiology-examination.update', 'radiology-examination.complete', 'radiology-examination.abort',
+        ],
+
+        // The clinical reporting role (Phase 5, Step 42) — interprets
+        // completed examinations and authors findings/impression. Kept
+        // deliberately separate from both 'doctor' (which only orders
+        // imaging, never interprets it) and 'radiology-technician' (which
+        // performs the operational/technical work, never the clinical
+        // interpretation), mirroring the same "doctor orders, specialist
+        // reports" separation Laboratory has between 'doctor' and
+        // 'laboratory-supervisor'.
+        'radiologist' => [
+            'practitioners.view',
+            'patients.view',
+            'radiology.view', 'radiology-orders.view', 'radiology-procedures.view',
+            'radiology-results.view', 'radiology-results.create', 'radiology-results.update', 'radiology-results.submit',
+            'radiology-results.review', 'radiology-results.verify', 'radiology-results.return',
         ],
 
         'laboratory-technician' => [

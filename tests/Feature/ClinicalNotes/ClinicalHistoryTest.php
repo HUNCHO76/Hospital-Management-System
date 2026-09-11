@@ -3,6 +3,7 @@
 use App\Models\Department;
 use App\Models\Patient;
 use App\Services\ClinicalNoteService;
+use App\Services\RadiologyOrderService;
 
 test('a guest is redirected to login for the clinical history page', function () {
     $ctx = carePlanReadyEncounter();
@@ -54,6 +55,21 @@ test('the clinical history page filters by department and encounter status', fun
         'department_id' => $otherDepartment->id,
     ]));
     $response->assertInertia(fn ($page) => $page->has('encounters.data', 0));
+});
+
+test('a patient\'s clinical history surfaces their radiology orders, including procedure and status', function () {
+    $ctx = carePlanReadyEncounter();
+    $procedure = activeRadiologyProcedure(['code' => 'XR-HIST', 'name' => 'History X-Ray', 'modality' => 'x_ray']);
+    $order = app(RadiologyOrderService::class)->create($ctx['encounter'], [
+        'procedure_ids' => [$procedure->id],
+    ], requestAs($ctx['doctor']['user']));
+
+    $response = $this->actingAs($ctx['doctor']['user'])->get(route('patients.clinical-history', $ctx['patient']));
+
+    $response->assertInertia(fn ($page) => $page
+        ->where('encounters.data.0.radiology_orders.0.id', $order->id)
+        ->where('encounters.data.0.radiology_orders.0.status', 'ordered')
+        ->where('encounters.data.0.radiology_orders.0.items.0.procedure_code', 'XR-HIST'));
 });
 
 test('requesting one patient\'s clinical history never returns another patient\'s encounters', function () {

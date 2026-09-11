@@ -1,5 +1,6 @@
 import {
     type LaboratoryAbnormalFlag,
+    type LaboratoryOrderItem,
     type LaboratoryOrderPriority,
     type LaboratoryOrderStatus,
     type LaboratoryProcessingStatus,
@@ -313,4 +314,30 @@ export function canAuthorizeResult(status: LaboratoryResultStatus): boolean {
 
 export function canReleaseResult(status: LaboratoryResultStatus): boolean {
     return status === 'authorized';
+}
+
+/**
+ * The order's own `status` is a rollup computed purely from item status
+ * (LaboratoryOrder::statusFromItemProgress()), which — like the item status
+ * it's built from — never advances past "result_pending" once processing
+ * completes; it has no way to reflect that every test's result has since
+ * been through verification and release. This gives the order header a
+ * second, results-focused signal to show alongside that (still-accurate,
+ * for the pre-result pipeline) rollup, without touching the persisted
+ * column or its well-tested transition logic.
+ *
+ * Returns null when no item has a result yet (the order status badge alone
+ * already tells the whole story), 'released' once every non-cancelled
+ * item's result has been released, or 'in_progress' when at least one
+ * result exists but not all of them are released yet.
+ */
+export function orderResultsSummary(items: LaboratoryOrderItem[]): 'released' | 'in_progress' | null {
+    const relevant = items.filter((item) => item.status !== 'cancelled');
+    const withResults = relevant.filter((item) => item.result);
+
+    if (withResults.length === 0) {
+        return null;
+    }
+
+    return relevant.every((item) => item.result?.status === 'released') ? 'released' : 'in_progress';
 }

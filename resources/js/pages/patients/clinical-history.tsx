@@ -10,6 +10,7 @@ import AppLayout from '@/layouts/app-layout';
 import { clinicalEncounterStatusLabel, clinicalEncounterStatusVariant } from '@/lib/clinical-encounter-status';
 import { clinicalNoteStatusLabel, clinicalNoteStatusVariant, clinicalNoteTypeLabel } from '@/lib/clinical-note-status';
 import { diagnosisStatusLabel, diagnosisStatusVariant } from '@/lib/diagnosis-status';
+import { radiologyModalityLabel, radiologyOrderStatusLabel, radiologyOrderStatusVariant } from '@/lib/radiology-status';
 import { type BreadcrumbItem, type Paginated } from '@/types';
 import { type ClinicalEncounterDepartment, type ClinicalEncounterPractitioner } from '@/types/clinical-encounter';
 import { type ClinicalHistoryEncounter, type ClinicalHistoryFilters } from '@/types/clinical-history';
@@ -339,6 +340,36 @@ function EncounterSummary({ encounter }: { encounter: ClinicalHistoryEncounter }
                                 </ul>
                             ) : (
                                 <p className="text-muted-foreground text-sm">No released laboratory results yet.</p>
+                            )}
+                        </div>
+
+                        <div>
+                            <h4 className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">Radiology</h4>
+                            {encounter.radiology_orders.length > 0 ? (
+                                <ul className="space-y-2">
+                                    {encounter.radiology_orders.map((order) => (
+                                        <li key={order.id} className="text-sm">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Link href={route('radiology.orders.show', order.id)} className="font-medium hover:underline">
+                                                    {order.order_number}
+                                                </Link>
+                                                <Badge variant={radiologyOrderStatusVariant[order.status]}>
+                                                    {radiologyOrderStatusLabel[order.status]}
+                                                </Badge>
+                                            </div>
+                                            <ul className="text-muted-foreground ml-1 space-y-0.5">
+                                                {order.items.map((item) => (
+                                                    <li key={item.id} className={item.status === 'cancelled' ? 'line-through' : ''}>
+                                                        {item.procedure_code} — {item.procedure_name}
+                                                        {item.modality_snapshot && ` (${radiologyModalityLabel[item.modality_snapshot]})`}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-muted-foreground text-sm">No radiology orders recorded.</p>
                             )}
                         </div>
                     </CardContent>

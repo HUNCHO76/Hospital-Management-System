@@ -124,6 +124,18 @@ test('a released result produces a report, appears in patient history, and can b
     expect($report->status)->toBe(LaboratoryReport::STATUS_ACTIVE);
     expect($report->results_snapshot)->toHaveCount(1);
 
+    // The released result is also visible directly on the clinical
+    // encounter screen the doctor was already working from — not only on
+    // the separate patient clinical-history page. item.status itself never
+    // advances past "result_pending", so the encounter page must read the
+    // linked LaboratoryResult's own status instead.
+    $encounterShow = $this->actingAs($doctor['user'])->get(route('clinical-encounters.show', $encounter));
+    $encounterShow->assertOk();
+    $encounterShow->assertInertia(fn ($page) => $page
+        ->component('clinical-encounters/show')
+        ->where('laboratoryOrders.0.items.0.status', 'result_pending')
+        ->where('laboratoryOrders.0.items.0.result.status', 'released'));
+
     // Released result appears through the authoritative patient history.
     $history = $this->actingAs($doctor['user'])->get(route('patients.clinical-history', $ctx['patient']));
     $history->assertOk();

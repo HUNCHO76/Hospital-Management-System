@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useToast } from '@/hooks/use-toast';
 import {
     allowedCarePlanItemStatusActions,
     allowedCarePlanStatusActions,
@@ -46,21 +47,36 @@ interface CarePlanSectionProps {
 const STATUS_ACTION_LABELS: Record<string, string> = { active: 'Activate', completed: 'Complete' };
 const ITEM_STATUS_ACTION_LABELS: Record<string, string> = { active: 'Start', completed: 'Complete' };
 
-const ITEM_TYPES: CarePlanItemType[] = [
-    'medication',
-    'procedure',
-    'clinical_intervention',
-    'referral',
-    'monitoring',
-    'follow_up',
-    'radiology',
-    'other',
-];
+/**
+ * Target CarePlan status -> route name suffix. The routes are named after
+ * the verb (`care-plan.activate`/`care-plan.complete`), not the resulting
+ * status noun (`active`/`completed`) — this map bridges the two so
+ * `runStatusAction()` never has to special-case individual statuses inline.
+ */
+const STATUS_ACTION_ROUTES: Record<string, string> = { active: 'activate', completed: 'complete' };
+
+const ITEM_TYPES: CarePlanItemType[] = ['medication', 'procedure', 'clinical_intervention', 'referral', 'monitoring', 'follow_up', 'other'];
 const PRIORITIES: ('low' | 'medium' | 'high')[] = ['low', 'medium', 'high'];
 const ROUTES: PrescriptionRoute[] = ['oral', 'intravenous', 'intramuscular', 'subcutaneous', 'topical', 'rectal', 'inhalation', 'other'];
 
 function formatDateTime(value: string): string {
     return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/**
+ * Surfaces a plain `router.post()` validation failure (e.g. "at least one
+ * treatment item must be added before activating the plan") via the same
+ * toast system FlashToaster already uses for session flashes — without
+ * this, a rejected status-transition action redirects back with the
+ * `errors` bag populated but nothing on screen ever reads it, so the
+ * action silently appears to do nothing.
+ */
+function reportValidationError(toast: ReturnType<typeof useToast>['toast'], errors: Record<string, string>): void {
+    const message = Object.values(errors)[0];
+
+    if (message) {
+        toast({ variant: 'error', description: message });
+    }
 }
 
 /**
@@ -71,6 +87,7 @@ function formatDateTime(value: string): string {
  */
 export function CarePlanSection({ encounterId, diagnoses, carePlan, departments, referralPractitioners }: CarePlanSectionProps) {
     const { can } = usePermissions();
+    const { toast } = useToast();
     const activeDiagnoses = diagnoses.filter((d) => d.status !== 'cancelled');
 
     if (activeDiagnoses.length === 0) {
@@ -87,7 +104,11 @@ export function CarePlanSection({ encounterId, diagnoses, carePlan, departments,
     }
 
     const startCarePlan = () => {
-        router.post(route('clinical-encounters.care-plan.store', encounterId), {}, { preserveScroll: true });
+        router.post(
+            route('clinical-encounters.care-plan.store', encounterId),
+            {},
+            { preserveScroll: true, onError: (errors) => reportValidationError(toast, errors) },
+        );
     };
 
     if (!carePlan) {
@@ -110,7 +131,11 @@ export function CarePlanSection({ encounterId, diagnoses, carePlan, departments,
     }
 
     const runStatusAction = (status: string) => {
-        router.post(route(`clinical-encounters.care-plan.${status === 'active' ? 'activate' : status}`, encounterId), {}, { preserveScroll: true });
+        router.post(
+            route(`clinical-encounters.care-plan.${STATUS_ACTION_ROUTES[status] ?? status}`, encounterId),
+            {},
+            { preserveScroll: true, onError: (errors) => reportValidationError(toast, errors) },
+        );
     };
 
     const mutable = isCarePlanMutable(carePlan.status);
@@ -280,9 +305,14 @@ function CarePlanGoalsForm({ encounterId, carePlan }: { encounterId: number; car
 
 function CarePlanItemRow({ encounterId, item }: { encounterId: number; item: CarePlanItem }) {
     const { can } = usePermissions();
+    const { toast } = useToast();
 
     const runStatusAction = (status: string) => {
-        router.post(route('clinical-encounters.care-plan.items.status', [encounterId, item.id]), { status }, { preserveScroll: true });
+        router.post(
+            route('clinical-encounters.care-plan.items.status', [encounterId, item.id]),
+            { status },
+            { preserveScroll: true, onError: (errors) => reportValidationError(toast, errors) },
+        );
     };
 
     return (

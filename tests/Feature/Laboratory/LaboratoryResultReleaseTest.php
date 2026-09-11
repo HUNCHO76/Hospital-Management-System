@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\LaboratoryOrder;
 use App\Models\LaboratoryProcessing;
 use App\Models\LaboratoryReport;
 use App\Models\LaboratoryResult;
@@ -167,4 +168,77 @@ test('a duplicate report row for the same order and version is rejected', functi
         'released_by' => $ctx['supervisor']->id,
         'released_at' => now(),
     ]))->toThrow(QueryException::class);
+});
+
+/**
+ * LaboratoryOrder::status is otherwise stuck at "result_pending" forever
+ * once processing completes (see LaboratoryOrderItem::TRANSITIONS) — the
+ * order only reaches COMPLETED once every one of its results has actually
+ * been released, computed and applied automatically by
+ * LaboratoryResultService::recomputeOrderCompletion(). No user ever sets
+ * this directly; it is a pure rollup, exactly like every other order/item
+ * status in this module.
+ */
+test('an order is not marked completed while one of its tests still has an unreleased result', function () {
+    $testA = activeLaboratoryTest(['specimen_type' => 'whole_blood', 'result_type' => 'numeric']);
+    $testB = activeLaboratoryTest(['specimen_type' => 'whole_blood', 'result_type' => 'numeric']);
+    $ctx = receivedSampleReadyForProcessing([$testA, $testB]);
+    $request = requestAs($ctx['doctor']['user']);
+    $processingService = app(LaboratoryProcessingService::class);
+    $resultService = app(LaboratoryResultService::class);
+    $supervisor = userWithRole('laboratory-supervisor');
+
+    $processingService->acceptSample($ctx['sample']->fresh(), $request);
+    $records = LaboratoryProcessing::where('laboratory_sample_id', $ctx['sample']->id)->get();
+
+    foreach ($records as $record) {
+        $processingService->start($record, [], $request);
+        $completed = $processingService->complete($record->fresh(), [], $request);
+        $resultService->initializeForItem($completed->item, $completed->sample, $request);
+    }
+
+    $results = LaboratoryResult::whereIn('laboratory_order_item_id', $records->pluck('laboratory_order_item_id'))->get();
+    $resultA = $results->first();
+
+    $resultService->saveDraft($resultA, ['value_numeric' => '5'], $request);
+    $resultService->submit($resultA->fresh(), $request);
+    $resultService->startReview($resultA->fresh(), requestAs($supervisor));
+    $resultService->verifyResult($resultA->fresh(), [], requestAs($supervisor));
+    $resultService->authorizeResult($resultA->fresh(), requestAs($supervisor));
+    $resultService->release($resultA->fresh(), [], requestAs($supervisor));
+
+    // Only one of the two tests has been released — the order must not
+    // claim to be fully completed yet.
+    expect($ctx['order']->fresh()->status)->not->toBe(LaboratoryOrder::STATUS_COMPLETED);
+
+    $resultB = $results->last();
+    $resultService->saveDraft($resultB, ['value_numeric' => '6'], $request);
+    $resultService->submit($resultB->fresh(), $request);
+    $resultService->startReview($resultB->fresh(), requestAs($supervisor));
+    $resultService->verifyResult($resultB->fresh(), [], requestAs($supervisor));
+    $resultService->authorizeResult($resultB->fresh(), requestAs($supervisor));
+    $resultService->release($resultB->fresh(), [], requestAs($supervisor));
+
+    // Now that both are released, the order rolls up to COMPLETED.
+    expect($ctx['order']->fresh()->status)->toBe(LaboratoryOrder::STATUS_COMPLETED);
+    $this->assertDatabaseHas('audit_logs', [
+        'action' => 'laboratory_order_status_changed',
+        'auditable_id' => $ctx['order']->id,
+        'auditable_type' => LaboratoryOrder::class,
+    ]);
+});
+
+test('amending a released result reverts a completed order back to its item-progress status', function () {
+    $test = activeLaboratoryTest(['specimen_type' => 'serum', 'result_type' => 'numeric']);
+    $ctx = releasedForItem($test);
+
+    expect($ctx['result']->item->laboratoryOrder->fresh()->status)->toBe(LaboratoryOrder::STATUS_COMPLETED);
+
+    app(LaboratoryResultService::class)->amend(
+        $ctx['result'],
+        ['value_numeric' => '14.0', 'amendment_reason' => 'Correction'],
+        requestAs($ctx['supervisor']),
+    );
+
+    expect($ctx['result']->item->laboratoryOrder->fresh()->status)->toBe(LaboratoryOrder::STATUS_RESULT_PENDING);
 });

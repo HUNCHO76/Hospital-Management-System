@@ -14,6 +14,11 @@ use App\Models\LaboratoryTest;
 use App\Models\Medication;
 use App\Models\Patient;
 use App\Models\Practitioner;
+use App\Models\RadiologyAppointment;
+use App\Models\RadiologyOrder;
+use App\Models\RadiologyOrderItem;
+use App\Models\RadiologyProcedure;
+use App\Models\RadiologyReport;
 use App\Models\Staff;
 use App\Models\TriageAssessment;
 use App\Models\User;
@@ -24,6 +29,11 @@ use App\Services\LaboratoryProcessingService;
 use App\Services\LaboratoryReportService;
 use App\Services\LaboratoryResultService;
 use App\Services\LaboratorySampleService;
+use App\Services\RadiologyExaminationService;
+use App\Services\RadiologyOrderService;
+use App\Services\RadiologyReceptionService;
+use App\Services\RadiologyReportService;
+use App\Services\RadiologySchedulingService;
 use App\Services\TriageService;
 use App\Services\VitalSignsService;
 use Database\Seeders\PermissionSeeder;
@@ -525,6 +535,168 @@ function activeLaboratoryTest(array $attributes = []): LaboratoryTest
         'status' => LaboratoryTest::STATUS_ACTIVE,
         ...$attributes,
     ]);
+}
+
+/**
+ * Create an active radiology procedure catalog entry for use in tests.
+ */
+function activeRadiologyProcedure(array $attributes = []): RadiologyProcedure
+{
+    return RadiologyProcedure::factory()->create([
+        'status' => RadiologyProcedure::STATUS_ACTIVE,
+        ...$attributes,
+    ]);
+}
+
+/**
+ * Create a fresh encounter with a placed, ORDERED radiology order (one
+ * item, an active procedure) — the minimum valid context for scheduling in
+ * a test. Mirrors laboratoryOrderReadyForSampling()'s shape exactly.
+ *
+ * @return array{hospital: Hospital, department: Department, patient: Patient, encounter: ClinicalEncounter, doctor: array{user: User, staff: Staff, practitioner: Practitioner}, order: RadiologyOrder, item: RadiologyOrderItem}
+ */
+function radiologyOrderReadyForScheduling(array $procedureAttributes = []): array
+{
+    $ctx = diagnosisReadyEncounter();
+    $procedure = activeRadiologyProcedure($procedureAttributes);
+
+    $order = app(RadiologyOrderService::class)->create($ctx['encounter'], [
+        'procedure_ids' => [$procedure->id],
+    ], requestAs($ctx['doctor']['user']));
+
+    return [
+        'hospital' => $ctx['hospital'],
+        'department' => $ctx['department'],
+        'patient' => $ctx['patient'],
+        'encounter' => $ctx['encounter'],
+        'doctor' => $ctx['doctor'],
+        'order' => $order->fresh('items'),
+        'item' => $order->items->sole(),
+    ];
+}
+
+/**
+ * Schedule a radiologyOrderReadyForScheduling() item and return its
+ * appointment, using a radiology-technician actor — the minimum valid
+ * context for a Step 40 reception test.
+ *
+ * @param  array{hospital: Hospital, department: Department, patient: Patient, encounter: ClinicalEncounter, doctor: array{user: User, staff: Staff, practitioner: Practitioner}, order: RadiologyOrder, item: RadiologyOrderItem}  $ctx
+ * @param  array<string, mixed>  $overrides
+ */
+function scheduledAppointmentFor(array $ctx, array $overrides = []): RadiologyAppointment
+{
+    $scheduler = userWithRole('radiology-technician');
+
+    return app(RadiologySchedulingService::class)->schedule($ctx['item'], array_merge([
+        'resource_name' => 'X-Ray Room 1',
+        'scheduled_start' => now()->addDay()->setTime(9, 0),
+        'scheduled_end' => now()->addDay()->setTime(9, 30),
+    ], $overrides), requestAs($scheduler));
+}
+
+/**
+ * Take a scheduledAppointmentFor() appointment all the way through
+ * reception (arrive -> verify -> preparation if required -> ready) to
+ * READY — the minimum valid context for a Step 41 examination test. Uses a
+ * fresh radiology-technician actor throughout, mirroring
+ * scheduledAppointmentFor()'s own actor choice.
+ *
+ * @param  array{hospital: Hospital, department: Department, patient: Patient, encounter: ClinicalEncounter, doctor: array{user: User, staff: Staff, practitioner: Practitioner}, order: RadiologyOrder, item: RadiologyOrderItem}  $ctx
+ * @param  array<string, mixed>  $scheduleOverrides
+ */
+function radiologyAppointmentReadyForExamination(array $ctx, array $scheduleOverrides = []): RadiologyAppointment
+{
+    $technician = userWithRole('radiology-technician');
+    $request = requestAs($technician);
+
+    $appointment = scheduledAppointmentFor($ctx, $scheduleOverrides);
+
+    $reception = app(RadiologyReceptionService::class);
+    $reception->markArrived($appointment, $request);
+    $reception->verify($appointment, $request);
+
+    $appointment->refresh();
+
+    if ($appointment->status === RadiologyAppointment::STATUS_PREPARATION_PENDING) {
+        $reception->startPreparation($appointment, $request);
+        $reception->completePreparation($appointment, ['completed' => true], $request);
+    }
+
+    $reception->markReady($appointment, $request);
+
+    return $appointment->refresh();
+}
+
+/**
+ * Take a radiologyAppointmentReadyForExamination() appointment through
+ * start() -> complete() — the minimum valid context for a Step 42 reporting
+ * test. Uses a fresh radiology-technician actor to perform the exam,
+ * distinct from whichever actor a test subsequently uses to report on it.
+ *
+ * @param  array{hospital: Hospital, department: Department, patient: Patient, encounter: ClinicalEncounter, doctor: array{user: User, staff: Staff, practitioner: Practitioner}, order: RadiologyOrder, item: RadiologyOrderItem}  $ctx
+ * @param  array<string, mixed>  $scheduleOverrides
+ */
+function radiologyExaminationCompleted(array $ctx, array $scheduleOverrides = []): RadiologyAppointment
+{
+    $appointment = radiologyAppointmentReadyForExamination($ctx, $scheduleOverrides);
+    $technician = userWithRole('radiology-technician');
+    $request = requestAs($technician);
+
+    $service = app(RadiologyExaminationService::class);
+    $service->start($appointment, [], $request);
+    $appointment->refresh();
+    $service->complete($appointment, [], $request);
+
+    return $appointment->refresh();
+}
+
+/**
+ * Create a user assigned the 'radiologist' role who also has a Staff +
+ * active Practitioner profile under the given hospital — the minimum valid
+ * actor for authoring a radiology report in tests.
+ *
+ * @return array{user: User, staff: Staff, practitioner: Practitioner}
+ */
+function radiologistWithPractitioner(Hospital $hospital): array
+{
+    $user = userWithRole('radiologist');
+    $staff = Staff::factory()->create(['hospital_id' => $hospital->id, 'user_id' => $user->id]);
+    $practitioner = Practitioner::factory()->create([
+        'staff_id' => $staff->id,
+        'practitioner_type' => 'radiologist',
+        'status' => Practitioner::STATUS_ACTIVE,
+    ]);
+
+    return compact('user', 'staff', 'practitioner');
+}
+
+/**
+ * Take a radiologyExaminationCompleted() appointment through a fresh
+ * report's create -> submit — the minimum valid context for a Step 43
+ * verification test. Uses a fresh radiologist actor (with its own
+ * practitioner profile) as the reporting practitioner unless one is given,
+ * so a caller can pass a *different* radiologistWithPractitioner() when a
+ * test specifically needs to control who the verifier is relative to the
+ * author (e.g. self-verification tests).
+ *
+ * @param  array{hospital: Hospital, department: Department, patient: Patient, encounter: ClinicalEncounter, doctor: array{user: User, staff: Staff, practitioner: Practitioner}, order: RadiologyOrder, item: RadiologyOrderItem}  $ctx
+ * @param  array{user: User, staff: Staff, practitioner: Practitioner}|null  $reporter
+ * @param  array<string, mixed>  $scheduleOverrides
+ */
+function submittedRadiologyReportFor(array $ctx, ?array $reporter = null, array $scheduleOverrides = []): RadiologyReport
+{
+    $appointment = radiologyExaminationCompleted($ctx, $scheduleOverrides);
+    $reporter ??= radiologistWithPractitioner($ctx['hospital']);
+    $request = requestAs($reporter['user']);
+
+    $service = app(RadiologyReportService::class);
+    $report = $service->createDraft($appointment, [
+        'technique' => 'Standard technique.',
+        'findings' => 'No acute findings.',
+        'impression' => 'Unremarkable study.',
+    ], $request);
+
+    return $service->submit($report, $request)->fresh();
 }
 
 /**

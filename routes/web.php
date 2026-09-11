@@ -12,6 +12,7 @@ use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DiagnosisCodeController;
 use App\Http\Controllers\EncounterDiagnosisController;
 use App\Http\Controllers\EncounterLaboratoryOrderController;
+use App\Http\Controllers\EncounterRadiologyOrderController;
 use App\Http\Controllers\HospitalController;
 use App\Http\Controllers\InsuranceProviderController;
 use App\Http\Controllers\InsuranceSchemeController;
@@ -27,6 +28,14 @@ use App\Http\Controllers\MedicationController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PatientInsuranceController;
 use App\Http\Controllers\PractitionerController;
+use App\Http\Controllers\RadiologyExaminationController;
+use App\Http\Controllers\RadiologyOrderController;
+use App\Http\Controllers\RadiologyProcedureController;
+use App\Http\Controllers\RadiologyReceptionController;
+use App\Http\Controllers\RadiologyReportController;
+use App\Http\Controllers\RadiologySchedulingController;
+use App\Http\Controllers\RadiologyVerificationController;
+use App\Http\Controllers\RadiologyWorklistController;
 use App\Http\Controllers\ReceptionVisitController;
 use App\Http\Controllers\StaffController;
 use App\Http\Controllers\TriageController;
@@ -185,11 +194,21 @@ Route::middleware(['auth'])->group(function () {
         Route::put('{clinicalEncounter}/laboratory-orders/{laboratoryOrder}', [EncounterLaboratoryOrderController::class, 'update'])->name('laboratory-orders.update');
         Route::post('{clinicalEncounter}/laboratory-orders/{laboratoryOrder}/cancel', [EncounterLaboratoryOrderController::class, 'cancel'])->name('laboratory-orders.cancel');
         Route::post('{clinicalEncounter}/laboratory-orders/{laboratoryOrder}/items/{item}/cancel', [EncounterLaboratoryOrderController::class, 'cancelItem'])->name('laboratory-orders.items.cancel');
+
+        // Radiology orders are presented as part of this same encounter
+        // screen, never a standalone page. Radiology is its own sibling
+        // branch off the encounter (Phase 5, Step 36) — never nested under
+        // care-plan.items, mirroring laboratory-orders above exactly.
+        Route::post('{clinicalEncounter}/radiology-orders', [EncounterRadiologyOrderController::class, 'store'])->name('radiology-orders.store');
+        Route::put('{clinicalEncounter}/radiology-orders/{radiologyOrder}', [EncounterRadiologyOrderController::class, 'update'])->name('radiology-orders.update');
+        Route::post('{clinicalEncounter}/radiology-orders/{radiologyOrder}/cancel', [EncounterRadiologyOrderController::class, 'cancel'])->name('radiology-orders.cancel');
+        Route::post('{clinicalEncounter}/radiology-orders/{radiologyOrder}/items/{item}/cancel', [EncounterRadiologyOrderController::class, 'cancelItem'])->name('radiology-orders.items.cancel');
     });
 
     Route::get('diagnosis-codes/search-json', [DiagnosisCodeController::class, 'searchJson'])->name('diagnosis-codes.search-json');
     Route::get('medications/search-json', [MedicationController::class, 'searchJson'])->name('medications.search-json');
     Route::get('laboratory-tests/search-json', [LaboratoryTestController::class, 'searchJson'])->name('laboratory-tests.search-json');
+    Route::get('radiology-procedures/search-json', [RadiologyProcedureController::class, 'searchJson'])->name('radiology-procedures.search-json');
 
     // The Laboratory dashboard/worklist/detail — a standalone,
     // cross-encounter surface for laboratory staff. No store/update/cancel
@@ -200,6 +219,106 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/', [LaboratoryOrderController::class, 'index'])->name('index');
         Route::get('orders', [LaboratoryOrderController::class, 'orders'])->name('orders.index');
         Route::get('orders/{laboratoryOrder}', [LaboratoryOrderController::class, 'show'])->name('orders.show');
+    });
+
+    // The Radiology dashboard/worklist/detail (Phase 5, Step 36) — a
+    // standalone, cross-encounter surface for radiology staff, mirroring
+    // the laboratory group immediately above. No store/update/cancel routes
+    // here: those flow through the clinical-encounters.radiology-orders.*
+    // routes above (Radiology is its own branch off the ClinicalEncounter,
+    // not a CarePlanItem). Ends at ORDERED — item-level scheduling is Step
+    // 39; examination/reporting/release are Steps 40-44.
+    Route::prefix('radiology')->name('radiology.')->group(function () {
+        Route::get('/', [RadiologyOrderController::class, 'index'])->name('index');
+        Route::get('orders', [RadiologyOrderController::class, 'orders'])->name('orders.index');
+        Route::get('orders/{radiologyOrder}', [RadiologyOrderController::class, 'show'])->name('orders.show');
+    });
+
+    // The radiology procedure catalog (Phase 5, Step 37). No destroy
+    // route: procedures are deactivated, never deleted (Part 27) — old
+    // orders keep referencing an inactive procedure's row without ever
+    // breaking. Mirrors laboratory/tests exactly.
+    Route::resource('radiology/catalog', RadiologyProcedureController::class)
+        ->parameters(['catalog' => 'radiologyProcedure'])
+        ->names('radiology-catalog')
+        ->except(['destroy']);
+    Route::post('radiology/catalog/{radiologyProcedure}/activate', [RadiologyProcedureController::class, 'activate'])->name('radiology-catalog.activate');
+    Route::post('radiology/catalog/{radiologyProcedure}/deactivate', [RadiologyProcedureController::class, 'deactivate'])->name('radiology-catalog.deactivate');
+
+    // Radiology scheduling (Phase 5, Step 39) — the "awaiting scheduling"
+    // queue plus schedule/reschedule/confirm/cancel/no-show mutations. No
+    // destroy route: an appointment is cancelled, never deleted (Part 19).
+    Route::prefix('radiology/scheduling')->name('radiology-scheduling.')->group(function () {
+        Route::get('/', [RadiologySchedulingController::class, 'index'])->name('index');
+        Route::post('/', [RadiologySchedulingController::class, 'store'])->name('store');
+        Route::post('{radiologyAppointment}/reschedule', [RadiologySchedulingController::class, 'reschedule'])->name('reschedule');
+        Route::post('{radiologyAppointment}/confirm', [RadiologySchedulingController::class, 'confirm'])->name('confirm');
+        Route::post('{radiologyAppointment}/cancel', [RadiologySchedulingController::class, 'cancel'])->name('cancel');
+        Route::post('{radiologyAppointment}/no-show', [RadiologySchedulingController::class, 'noShow'])->name('no-show');
+    });
+
+    // The radiology worklist (Phase 5, Step 39, Part 14) — read-only
+    // operational view over the same scheduling data, reusing
+    // radiology-scheduling.view rather than a separate permission.
+    Route::get('radiology/worklist', [RadiologyWorklistController::class, 'index'])->name('radiology-worklist.index');
+
+    // Radiology reception & preparation (Phase 5, Step 40) — the arrival ->
+    // verification -> preparation/screening/consent -> readiness pipeline.
+    // No destroy route: nothing here is ever deleted, only transitioned.
+    Route::prefix('radiology/reception')->name('radiology-reception.')->group(function () {
+        Route::get('/', [RadiologyReceptionController::class, 'index'])->name('index');
+        Route::post('{radiologyAppointment}/arrive', [RadiologyReceptionController::class, 'arrive'])->name('arrive');
+        Route::post('{radiologyAppointment}/verify', [RadiologyReceptionController::class, 'verify'])->name('verify');
+        Route::post('{radiologyAppointment}/start-preparation', [RadiologyReceptionController::class, 'startPreparation'])->name('start-preparation');
+        Route::post('{radiologyAppointment}/complete-preparation', [RadiologyReceptionController::class, 'completePreparation'])->name('complete-preparation');
+        Route::post('{radiologyAppointment}/waive-preparation', [RadiologyReceptionController::class, 'waivePreparation'])->name('waive-preparation');
+        Route::post('{radiologyAppointment}/screening', [RadiologyReceptionController::class, 'recordScreening'])->name('screening');
+        Route::post('{radiologyAppointment}/review-contrast', [RadiologyReceptionController::class, 'reviewContrast'])->name('review-contrast');
+        Route::post('{radiologyAppointment}/consent', [RadiologyReceptionController::class, 'recordConsent'])->name('consent');
+        Route::post('{radiologyAppointment}/ready', [RadiologyReceptionController::class, 'markReady'])->name('ready');
+        Route::post('{radiologyAppointment}/not-ready', [RadiologyReceptionController::class, 'markNotReady'])->name('not-ready');
+        Route::post('{radiologyAppointment}/resume', [RadiologyReceptionController::class, 'resume'])->name('resume');
+    });
+
+    // Radiology examination (Phase 5, Step 41) — the actual imaging
+    // procedure for an already-READY appointment: start -> record technical
+    // information -> complete, or abort with a reason. No destroy route:
+    // an aborted examination is never deleted, only transitioned (Part 14).
+    Route::prefix('radiology/examinations')->name('radiology-examinations.')->group(function () {
+        Route::get('/', [RadiologyExaminationController::class, 'index'])->name('index');
+        Route::get('{radiologyAppointment}', [RadiologyExaminationController::class, 'show'])->name('show');
+        Route::post('{radiologyAppointment}/start', [RadiologyExaminationController::class, 'start'])->name('start');
+        Route::put('{radiologyAppointment}', [RadiologyExaminationController::class, 'update'])->name('update');
+        Route::post('{radiologyAppointment}/complete', [RadiologyExaminationController::class, 'complete'])->name('complete');
+        Route::post('{radiologyAppointment}/abort', [RadiologyExaminationController::class, 'abort'])->name('abort');
+    });
+
+    // Radiology findings & results (Phase 5, Step 42) — reporting on an
+    // already-COMPLETED examination: DRAFT -> SUBMITTED. No destroy route:
+    // a report is never deleted, only transitioned. 'create' is a GET
+    // (read-only examination preview before drafting begins) deliberately
+    // distinct from 'store' (the actual draft creation), mirroring the
+    // rest of this app's resourceful-route conventions.
+    Route::prefix('radiology/results')->name('radiology-results.')->group(function () {
+        Route::get('/', [RadiologyReportController::class, 'index'])->name('index');
+        Route::get('create/{radiologyAppointment}', [RadiologyReportController::class, 'create'])->name('create');
+        Route::post('/', [RadiologyReportController::class, 'store'])->name('store');
+        Route::get('{radiologyReport}', [RadiologyReportController::class, 'show'])->name('show');
+        Route::put('{radiologyReport}', [RadiologyReportController::class, 'update'])->name('update');
+        Route::post('{radiologyReport}/submit', [RadiologyReportController::class, 'submit'])->name('submit');
+        Route::get('{radiologyReport}/history', [RadiologyReportController::class, 'history'])->name('history');
+    });
+
+    // Radiology report verification & authorization (Phase 5, Step 43):
+    // independent review of an already-SUBMITTED report -> VERIFIED, or
+    // -> RETURNED for correction. No destroy route: a report is never
+    // deleted, only transitioned. History reuses radiology-results.history
+    // above rather than a duplicate route.
+    Route::prefix('radiology/verification')->name('radiology-verification.')->group(function () {
+        Route::get('/', [RadiologyVerificationController::class, 'index'])->name('index');
+        Route::get('{radiologyReport}', [RadiologyVerificationController::class, 'review'])->name('review');
+        Route::post('{radiologyReport}/verify', [RadiologyVerificationController::class, 'verify'])->name('verify');
+        Route::post('{radiologyReport}/return', [RadiologyVerificationController::class, 'returnForCorrection'])->name('return');
     });
 
     // Specimen collection (Phase 4, Step 31) — its own standalone surface,

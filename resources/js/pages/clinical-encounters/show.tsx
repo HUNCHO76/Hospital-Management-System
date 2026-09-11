@@ -2,6 +2,7 @@ import { CarePlanSection } from '@/components/care-plan/care-plan-section';
 import { CancelEncounterDialog } from '@/components/clinical-encounters/cancel-encounter-dialog';
 import { CompleteEncounterDialog } from '@/components/clinical-encounters/complete-encounter-dialog';
 import { LaboratoryOrdersSection } from '@/components/clinical-encounters/laboratory-orders-section';
+import { RadiologyOrdersSection } from '@/components/clinical-encounters/radiology-orders-section';
 import { WorkflowStatus } from '@/components/clinical-encounters/workflow-status';
 import { ClinicalNotesSection } from '@/components/clinical-notes/clinical-notes-section';
 import { ConsultationPanel } from '@/components/consultation/consultation-panel';
@@ -25,6 +26,7 @@ import { type ClinicalNote } from '@/types/clinical-note';
 import { type Consultation } from '@/types/consultation';
 import { type EncounterDiagnosis } from '@/types/diagnosis';
 import { type LaboratoryOrder } from '@/types/laboratory';
+import { type RadiologyOrder } from '@/types/radiology';
 import { type TriageAssessment } from '@/types/triage';
 import { Head, Link, router } from '@inertiajs/react';
 import { PlayCircle, XCircle } from 'lucide-react';
@@ -36,6 +38,7 @@ interface EncounterShowProps {
     diagnoses: EncounterDiagnosis[];
     carePlan: CarePlan | null;
     laboratoryOrders: LaboratoryOrder[];
+    radiologyOrders: RadiologyOrder[];
     clinicalNotes: ClinicalNote[];
     departments: ClinicalEncounterDepartment[];
     referralPractitioners: ClinicalEncounterPractitioner[];
@@ -59,6 +62,7 @@ export default function EncounterShow({
     diagnoses,
     carePlan,
     laboratoryOrders,
+    radiologyOrders,
     clinicalNotes,
     departments,
     referralPractitioners,
@@ -249,6 +253,8 @@ export default function EncounterShow({
                 />
 
                 <LaboratoryOrdersSection encounterId={encounter.id} consultation={consultation} laboratoryOrders={laboratoryOrders} />
+
+                <RadiologyOrdersSection encounterId={encounter.id} consultation={consultation} radiologyOrders={radiologyOrders} />
 
                 <ClinicalNotesSection encounterId={encounter.id} clinicalNotes={clinicalNotes} />
             </div>

@@ -46,6 +46,11 @@ class ClinicalHistoryService
                 'laboratoryOrders.items.result.verifiedBy:id,UserName',
                 'laboratoryOrders.items.result.sample:id,sample_number',
                 'laboratoryOrders.activeReport:id,laboratory_order_id,status',
+                // Radiology has no result/finding/report concept yet (Phase
+                // 5, Steps 41-43), so — unlike laboratory above — the order
+                // itself is what's shown on the timeline, not a released
+                // result (Phase 5, Step 38, Part 25).
+                'radiologyOrders.items',
             ]);
 
         if (! empty($filters['date_from'])) {

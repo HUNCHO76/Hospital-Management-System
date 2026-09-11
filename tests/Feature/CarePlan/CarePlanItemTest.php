@@ -5,6 +5,45 @@ use App\Models\Department;
 use App\Services\CarePlanService;
 use Illuminate\Validation\ValidationException;
 
+test('a non-medication item is created over HTTP even though the browser form always submits a full, empty prescription object', function () {
+    // The React add-item form (resources/js/components/care-plan/care-plan-
+    // section.tsx) keeps `prescription` as a fixed-shape object in its
+    // useForm state regardless of the selected type, only conditionally
+    // *displaying* the prescription fields — it never strips the key out
+    // of the payload for a non-medication item. StoreCarePlanItemRequest's
+    // `prescription.medication_id` rule previously had no `nullable`, so
+    // this always-present-but-empty payload failed validation silently
+    // (the error targeted a field with no visible <InputError> for
+    // non-medication types), meaning no item type other than "medication"
+    // could ever actually be added through the real UI.
+    $ctx = carePlanReadyEncounter();
+    app(CarePlanService::class)->create($ctx['encounter'], [], requestAs($ctx['doctor']['user']));
+
+    $this->actingAs($ctx['doctor']['user'])->post(route('clinical-encounters.care-plan.items.store', $ctx['encounter']), [
+        'type' => 'procedure',
+        'description' => 'Wound dressing change',
+        'priority' => '',
+        'encounter_diagnosis_id' => '',
+        'start_date' => '',
+        'end_date' => '',
+        'instructions' => '',
+        'referred_to_department_id' => '',
+        'referred_to_practitioner_id' => '',
+        'prescription' => [
+            'medication_id' => '',
+            'strength' => '',
+            'dose' => '',
+            'route' => '',
+            'frequency' => '',
+            'duration' => '',
+            'quantity' => '',
+            'instructions' => '',
+        ],
+    ])->assertRedirect()->assertSessionDoesntHaveErrors();
+
+    expect(CarePlanItem::query()->where('type', 'procedure')->where('description', 'Wound dressing change')->exists())->toBeTrue();
+});
+
 test('an item can be added to a draft plan and addresses the encounter diagnosis', function () {
     $ctx = carePlanReadyEncounter();
     $service = app(CarePlanService::class);

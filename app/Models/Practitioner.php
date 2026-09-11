@@ -40,6 +40,7 @@ class Practitioner extends Model
         'pharmacist',
         'laboratory-technician',
         'radiology-technician',
+        'radiologist',
         'clinical-officer',
         'dentist',
     ];
@@ -58,6 +59,7 @@ class Practitioner extends Model
         'Pharmacist' => 'pharmacist',
         'Laboratory Technician' => 'laboratory-technician',
         'Radiology Technician' => 'radiology-technician',
+        'Radiologist' => 'radiologist',
         'Clinical Officer' => 'clinical-officer',
         'Dentist' => 'dentist',
     ];

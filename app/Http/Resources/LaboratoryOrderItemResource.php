@@ -24,6 +24,13 @@ class LaboratoryOrderItemResource extends JsonResource
             'test_name' => $this->test_name,
             'clinical_note' => $this->clinical_note,
             'status' => $this->status,
+            // The authoritative up-to-date progress once a result exists —
+            // item.status itself never advances past "result_pending" (see
+            // LaboratoryOrderController::eagerLoads()).
+            'result' => $this->whenLoaded('result', fn () => $this->result ? [
+                'id' => $this->result->id,
+                'status' => $this->result->status,
+            ] : null),
             // Read live from the catalog (Phase 4, Step 31) rather than
             // snapshotted — collection decisions should follow the
             // hospital's current specimen/container requirement, not

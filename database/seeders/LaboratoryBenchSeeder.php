@@ -32,9 +32,9 @@ class LaboratoryBenchSeeder extends Seeder
             LaboratoryBench::query()->firstOrCreate(
                 ['code' => $bench['code']],
                 [
-                    'name'        => $bench['name'],
+                    'name' => $bench['name'],
                     'description' => $bench['description'],
-                    'status'      => LaboratoryBench::STATUS_ACTIVE,
+                    'status' => LaboratoryBench::STATUS_ACTIVE,
                 ],
             );
         }
