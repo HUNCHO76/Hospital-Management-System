@@ -38,7 +38,8 @@ interface RadiologyExaminationIndexProps {
 }
 
 function formatTime(value: string): string {
-    return new Date(value).toLocaleTimeString(undefined, { timeStyle: 'short' });
+    const localValue = value.replace(/(Z|[+-]\d{2}:\d{2})$/, '');
+    return new Date(localValue).toLocaleTimeString(undefined, { timeStyle: 'short' });
 }
 
 /**

@@ -4,6 +4,10 @@ namespace App\Http\Resources;
 
 use App\Models\ClinicalEncounter;
 use App\Models\LaboratoryResult;
+use App\Models\PrescriptionOrder;
+use App\Models\RadiologyAppointment;
+use App\Models\RadiologyReport;
+use App\Services\DispensingService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -22,6 +26,11 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class ClinicalHistoryEncounterResource extends JsonResource
 {
+    public function __construct(ClinicalEncounter $resource, protected DispensingService $dispensingService)
+    {
+        parent::__construct($resource);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -58,6 +67,7 @@ class ClinicalHistoryEncounterResource extends JsonResource
                 : null),
             'clinical_notes' => $this->whenLoaded('clinicalNotes', fn () => ClinicalNoteResource::collection($this->clinicalNotes)->resolve($request)),
             'laboratory_results' => $this->whenLoaded('laboratoryOrders', fn () => $this->releasedLaboratoryResults()),
+            'radiology_results' => $this->whenLoaded('radiologyOrders', fn () => $this->releasedRadiologyResults($request)),
             'radiology_orders' => $this->whenLoaded('radiologyOrders', fn () => $this->radiologyOrders->map(fn ($order) => [
                 'id' => $order->id,
                 'order_number' => $order->order_number,
@@ -70,6 +80,46 @@ class ClinicalHistoryEncounterResource extends JsonResource
                     'procedure_name' => $item->procedure_name,
                     'modality_snapshot' => $item->modality_snapshot,
                     'body_site_snapshot' => $item->body_site_snapshot,
+                    'status' => $item->status,
+                ])->values()->all(),
+            ])->values()->all()),
+            // Prescription is its own sibling branch off the encounter
+            // (Phase 6, Step 46) — distinct from the pre-existing,
+            // unrelated CarePlanItem-nested Prescription already surfaced
+            // via `care_plan.items[].prescription` above.
+            'prescription_orders' => $this->whenLoaded('prescriptionOrders', fn () => $this->prescriptionOrders->map(fn ($order) => [
+                'id' => $order->id,
+                'prescription_number' => $order->prescription_number,
+                'status' => $order->status,
+                'prescribed_at' => optional($order->prescribed_at)->toIso8601String(),
+                'prescriber' => $order->relationLoaded('prescriber') && $order->prescriber ? [
+                    'id' => $order->prescriber->id,
+                    'name' => $order->prescriber->UserName,
+                ] : null,
+                // Verification/dispensing progress (Phase 6, Step 51, spec
+                // §19) — the order's own `status` only tracks
+                // draft/active/cancelled, never fulfillment, so it alone
+                // cannot answer "was this actually supplied". Reuses
+                // PrescriptionVerification and
+                // DispensingService::fulfillmentStatus() — the same
+                // authoritative sources the dispensing worklist and Step 50
+                // prescription report use — rather than re-deriving either,
+                // bounded to this encounter's own orders (never the whole
+                // table).
+                'verification_status' => $order->relationLoaded('verification') ? $order->verification?->status : null,
+                'dispensing_status' => $order->status === PrescriptionOrder::STATUS_CANCELLED
+                    ? null
+                    : $this->dispensingService->fulfillmentStatus($order),
+                'items' => $order->items->map(fn ($item) => [
+                    'id' => $item->id,
+                    'medication_name_snapshot' => $item->medication_name_snapshot,
+                    'strength_snapshot' => $item->strength_snapshot,
+                    'dose' => $item->dose,
+                    'dose_unit' => $item->dose_unit,
+                    'frequency' => $item->frequency,
+                    'route' => $item->route,
+                    'duration' => $item->duration,
+                    'duration_unit' => $item->duration_unit,
                     'status' => $item->status,
                 ])->values()->all(),
             ])->values()->all()),
@@ -108,6 +158,29 @@ class ClinicalHistoryEncounterResource extends JsonResource
                 'released_at' => optional($result->released_at)->toIso8601String(),
                 'active_report_id' => $result->item?->laboratoryOrder?->activeReport?->id,
             ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Only RELEASED radiology reports are ever presented as final results on
+     * a patient's clinical timeline (Phase 5, Step 44, Part 17-18) — mirrors
+     * releasedLaboratoryResults() exactly. No duplicate patient-history
+     * system was created: every record already lives in its own
+     * authoritative RadiologyReport row, reached through the encounter's own
+     * radiologyOrders relation. Uses RadiologyResultResource (also used by
+     * the clinical encounter page) rather than hand-rolling the same field
+     * shape twice.
+     *
+     * @return list<array<string, mixed>>
+     */
+    protected function releasedRadiologyResults(Request $request): array
+    {
+        return $this->radiologyOrders
+            ->flatMap(fn ($order) => $order->items)
+            ->flatMap(fn ($item) => $item->radiologyAppointments->each(fn (RadiologyAppointment $appointment) => $appointment->setRelation('radiologyOrderItem', $item)))
+            ->filter(fn (RadiologyAppointment $appointment) => $appointment->report?->status === RadiologyReport::STATUS_RELEASED)
+            ->map(fn (RadiologyAppointment $appointment) => (new RadiologyResultResource($appointment))->resolve($request))
             ->values()
             ->all();
     }

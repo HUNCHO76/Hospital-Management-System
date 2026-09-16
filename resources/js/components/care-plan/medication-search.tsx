@@ -54,7 +54,7 @@ export function MedicationSearch({ selected, onSelect, disabled }: MedicationSea
             });
     }, [debouncedQuery]);
 
-    const label = selected ? selected.name : 'Search medication by name';
+    const label = selected ? selected.generic_name : 'Search medication by name';
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
@@ -113,8 +113,13 @@ export function MedicationSearch({ selected, onSelect, disabled }: MedicationSea
                             }}
                             className="hover:bg-accent hover:text-accent-foreground flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm"
                         >
-                            <span className="font-medium">{medication.name}</span>
-                            {medication.category && <span className="text-muted-foreground text-xs">{medication.category}</span>}
+                            <span className="font-medium">
+                                {medication.generic_name}
+                                {medication.brand_name && <span className="text-muted-foreground"> ({medication.brand_name})</span>}
+                            </span>
+                            {(medication.strength || medication.form) && (
+                                <span className="text-muted-foreground text-xs">{[medication.strength, medication.form].filter(Boolean).join(' · ')}</span>
+                            )}
                         </button>
                     ))}
                 </div>

@@ -365,6 +365,57 @@ class RadiologyReportService
     }
 
     /**
+     * Release a verified report as the official clinical result (Phase 5,
+     * Step 44, Part 3/11). The minimum valid transition — VERIFIED ->
+     * RELEASED — since Radiology's own architecture has no AUTHORIZED
+     * intermediate status to reuse (Part 3). Report content is never
+     * touched here (Part 34/38 — release changes workflow state, not
+     * clinical interpretation).
+     *
+     * @param  array{release_notes?: string|null}  $data
+     *
+     * @throws ValidationException
+     */
+    public function release(RadiologyReport $report, array $data, Request $request): RadiologyReport
+    {
+        $report = DB::transaction(function () use ($report, $data, $request) {
+            $report = RadiologyReport::query()->whereKey($report->id)->lockForUpdate()->firstOrFail();
+
+            if (! $report->canTransitionTo(RadiologyReport::STATUS_RELEASED)) {
+                throw ValidationException::withMessages([
+                    'status' => "Cannot release a report with status \"{$report->status}\". Only a verified report may be released.",
+                ]);
+            }
+
+            // Defense in depth, mirroring submit()/verify()'s own
+            // re-verification pattern — a report should never remain
+            // releasable if its underlying examination was somehow reopened
+            // or reset after verification.
+            $appointment = $report->radiologyAppointment()->lockForUpdate()->first();
+            $this->assertEligibleForReporting($appointment);
+
+            $report->update([
+                'status' => RadiologyReport::STATUS_RELEASED,
+                'released_by' => $request->user()->id,
+                'released_at' => now(),
+                'release_notes' => $this->validateText($data['release_notes'] ?? null, 'release_notes', 1000),
+            ]);
+
+            return $report;
+        });
+
+        $this->auditLog->record(
+            'radiology_result_released',
+            $report,
+            ['status' => RadiologyReport::STATUS_VERIFIED],
+            $report->only(['status', 'released_by', 'released_at']),
+            $request,
+        );
+
+        return $report;
+    }
+
+    /**
      * @throws ValidationException
      */
     protected function assertEligibleForReporting(RadiologyAppointment $appointment): void

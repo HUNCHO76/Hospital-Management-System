@@ -50,4 +50,15 @@ class InsuranceScheme extends Model
     {
         return $this->hasMany(PatientInsurance::class);
     }
+
+    /**
+     * Every coverage rule ever configured for this scheme, across every
+     * service/category and every effective period (Phase 7, Step 56) — the
+     * scheme's own full coverage-configuration history, mirrors
+     * Service::prices() exactly.
+     */
+    public function coverageRules(): HasMany
+    {
+        return $this->hasMany(InsuranceCoverageRule::class);
+    }
 }

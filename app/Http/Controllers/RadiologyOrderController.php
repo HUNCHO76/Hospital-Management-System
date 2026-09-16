@@ -47,7 +47,11 @@ class RadiologyOrderController extends Controller
 
         $statusCounts = (clone $query)->selectRaw('status, count(*) as count')->groupBy('status')->pluck('count', 'status')->map(fn ($count) => (int) $count);
 
-        $recentOrders = (clone $query)->with($this->eagerLoads())->latest('ordered_at')->limit(5)->get()
+        // Same reasoning as show(): the order's own status is a coarse
+        // rollup, so the dashboard preview also needs each item's actual
+        // appointment status to avoid looking inconsistent with scheduling/
+        // reception/examination.
+        $recentOrders = (clone $query)->with([...$this->eagerLoads(), 'items.activeRadiologyAppointment'])->latest('ordered_at')->limit(5)->get()
             ->map(fn (RadiologyOrder $order) => (new RadiologyOrderResource($order))->resolve($request));
 
         return Inertia::render('radiology/index', [
@@ -93,7 +97,16 @@ class RadiologyOrderController extends Controller
      */
     public function show(Request $request, RadiologyOrder $radiologyOrder): Response
     {
-        $radiologyOrder->load($this->eagerLoads());
+        $radiologyOrder->load([
+            ...$this->eagerLoads(),
+            // The order's own status is a coarse rollup (Phase 5, Step 39,
+            // Part 21) — it only means "every item has an active
+            // appointment," not any particular one of them. The detail page
+            // additionally shows each item's actual appointment status
+            // (confirmed/ready/in_progress/...) so it never looks
+            // inconsistent with what scheduling/reception/examination show.
+            'items.activeRadiologyAppointment',
+        ]);
 
         $this->authorize('view', $radiologyOrder);
 

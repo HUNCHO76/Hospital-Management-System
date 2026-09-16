@@ -59,6 +59,9 @@ class RadiologyReportResource extends JsonResource
             'returned_at' => optional($this->returned_at)->toIso8601String(),
             'return_reason' => $this->return_reason,
             'return_comments' => $this->return_comments,
+            'released_by' => $this->whenLoaded('releasedBy', fn () => $this->releasedBy?->only(['id', 'UserName'])),
+            'released_at' => optional($this->released_at)->toIso8601String(),
+            'release_notes' => $this->release_notes,
             'created_at' => optional($this->created_at)->toIso8601String(),
             'updated_at' => optional($this->updated_at)->toIso8601String(),
             'examination' => $appointment ? [
@@ -71,6 +74,9 @@ class RadiologyReportResource extends JsonResource
                 'completed_at' => optional($appointment->completed_at)->toIso8601String(),
                 'technical_notes' => $appointment->technical_notes,
                 'technical_details' => $appointment->technical_details,
+                'images' => $appointment->relationLoaded('images')
+                    ? RadiologyImageResource::collection($appointment->images)->resolve($request)
+                    : [],
             ] : null,
             'item' => $item ? [
                 'id' => $item->id,

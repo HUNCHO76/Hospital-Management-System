@@ -6,11 +6,28 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import AppLayout from '@/layouts/app-layout';
-import { radiologyOrderPriorityLabel, radiologyOrderStatusLabel, radiologyOrderStatusVariant } from '@/lib/radiology-status';
+import {
+    radiologyAppointmentStatusLabel,
+    radiologyAppointmentStatusVariant,
+    radiologyOrderPriorityLabel,
+    radiologyOrderStatusLabel,
+    radiologyOrderStatusVariant,
+} from '@/lib/radiology-status';
 import { type BreadcrumbItem } from '@/types';
 import { type RadiologyOrder, type RadiologyOrderStatus } from '@/types/radiology';
 import { Head, Link } from '@inertiajs/react';
-import { CalendarClock, ClipboardCheck, ClipboardList, FileText, ListOrdered, ListTree, Scan, ShieldCheck, Stethoscope } from 'lucide-react';
+import {
+    CalendarClock,
+    ClipboardCheck,
+    ClipboardList,
+    FileCheck2,
+    FileText,
+    ListOrdered,
+    ListTree,
+    Scan,
+    ShieldCheck,
+    Stethoscope,
+} from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Radiology', href: '/radiology' }];
 
@@ -21,7 +38,8 @@ interface RadiologyIndexProps {
 }
 
 function formatDateTime(value: string): string {
-    return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    const localValue = value.replace(/(Z|[+-]\d{2}:\d{2})$/, '');
+    return new Date(localValue).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 /**
@@ -114,6 +132,14 @@ export default function RadiologyIndex({ statusCounts, statuses, recentOrders }:
                                 </Link>
                             </Button>
                         </Can>
+                        <Can permission="radiology-results.release">
+                            <Button asChild variant="outline">
+                                <Link href={route('radiology-release.index')}>
+                                    <FileCheck2 className="h-4 w-4" />
+                                    Release
+                                </Link>
+                            </Button>
+                        </Can>
                     </div>
                 </div>
 
@@ -155,7 +181,25 @@ export default function RadiologyIndex({ statusCounts, statuses, recentOrders }:
                                                 )}
                                             </div>
                                         </TableCell>
-                                        <TableCell>{order.items.length}</TableCell>
+                                        <TableCell>
+                                            <div className="flex flex-col gap-1">
+                                                {order.items.map((item) => (
+                                                    <div key={item.id} className="flex items-center gap-1.5">
+                                                        <span className={item.status === 'cancelled' ? 'text-muted-foreground line-through' : ''}>
+                                                            {item.procedure_name}
+                                                        </span>
+                                                        {item.status !== 'cancelled' && item.appointment && (
+                                                            <Badge
+                                                                variant={radiologyAppointmentStatusVariant[item.appointment.status]}
+                                                                className="text-[10px]"
+                                                            >
+                                                                {radiologyAppointmentStatusLabel[item.appointment.status]}
+                                                            </Badge>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </TableCell>
                                         <TableCell>{radiologyOrderPriorityLabel[order.priority]}</TableCell>
                                         <TableCell>
                                             <Badge variant={radiologyOrderStatusVariant[order.status]}>

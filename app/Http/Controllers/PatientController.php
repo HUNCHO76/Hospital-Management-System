@@ -11,6 +11,7 @@ use App\Models\Patient;
 use App\Models\Practitioner;
 use App\Services\AuditLogService;
 use App\Services\ClinicalHistoryService;
+use App\Services\DispensingService;
 use App\Services\PatientHistoryService;
 use App\Services\PatientSearchService;
 use App\Services\PatientService;
@@ -200,7 +201,7 @@ class PatientController extends Controller
      * PatientHistoryController is introduced; this is a sibling action on
      * the existing controller per the Step 26 anti-duplication requirement.
      */
-    public function clinicalHistory(Request $request, Patient $patient, ClinicalHistoryService $history, AuditLogService $auditLog): Response
+    public function clinicalHistory(Request $request, Patient $patient, ClinicalHistoryService $history, AuditLogService $auditLog, DispensingService $dispensingService): Response
     {
         $this->authorize('viewClinicalHistory', $patient);
 
@@ -209,7 +210,7 @@ class PatientController extends Controller
         $auditLog->record('clinical_history_viewed', $patient, null, ['patient_id' => $patient->id], $request);
 
         $encounters = $history->timeline($patient, $filters)
-            ->through(fn (ClinicalEncounter $encounter) => (new ClinicalHistoryEncounterResource($encounter))->resolve($request));
+            ->through(fn (ClinicalEncounter $encounter) => (new ClinicalHistoryEncounterResource($encounter, $dispensingService))->resolve($request));
 
         return Inertia::render('patients/clinical-history', [
             'patient' => $patient->only(['id', 'patient_number', 'first_name', 'middle_name', 'last_name']),

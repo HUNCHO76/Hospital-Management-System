@@ -8,7 +8,22 @@ import {
 import { type ClinicalNote } from '@/types/clinical-note';
 import { type Consultation } from '@/types/consultation';
 import { type EncounterDiagnosis } from '@/types/diagnosis';
-import { type RadiologyBodySite, type RadiologyModality, type RadiologyOrderPriority, type RadiologyOrderStatus } from '@/types/radiology';
+import {
+    type PrescriptionDurationUnit,
+    type PrescriptionFrequency,
+    type PrescriptionOrderItemStatus,
+    type PrescriptionOrderStatus,
+    type PrescriptionOrderUser,
+    type PrescriptionRoute,
+    type PrescriptionVerificationStatus,
+} from '@/types/prescription';
+import {
+    type RadiologyBodySite,
+    type RadiologyModality,
+    type RadiologyOrderPriority,
+    type RadiologyOrderStatus,
+    type RadiologyResult,
+} from '@/types/radiology';
 import { type TriageAssessment } from '@/types/triage';
 
 export interface ClinicalHistoryPractitioner {
@@ -37,9 +52,9 @@ export interface ClinicalHistoryLaboratoryResult {
 }
 
 /**
- * Radiology has no result/finding/report concept yet (those are Steps
- * 41-43) — unlike laboratory_results above, this surfaces the order itself
- * (with its own status) rather than a released result.
+ * Plain order/item status tracking, shown alongside radiology_results below
+ * (Phase 5, Step 44) — this surfaces every order regardless of status,
+ * unlike radiology_results which only ever contains RELEASED reports.
  */
 export interface ClinicalHistoryRadiologyOrderItem {
     id: number;
@@ -59,6 +74,36 @@ export interface ClinicalHistoryRadiologyOrder {
     items: ClinicalHistoryRadiologyOrderItem[];
 }
 
+/**
+ * Prescription is its own sibling branch off the encounter (Phase 6, Step
+ * 46), shown regardless of status — distinct from the pre-existing,
+ * unrelated CarePlanItem-nested Prescription already surfaced via
+ * `care_plan.items[].prescription` above.
+ */
+export interface ClinicalHistoryPrescriptionOrderItem {
+    id: number;
+    medication_name_snapshot: string;
+    strength_snapshot: string | null;
+    dose: string;
+    dose_unit: string | null;
+    frequency: PrescriptionFrequency;
+    route: PrescriptionRoute;
+    duration: number | null;
+    duration_unit: PrescriptionDurationUnit | null;
+    status: PrescriptionOrderItemStatus;
+}
+
+export interface ClinicalHistoryPrescriptionOrder {
+    id: number;
+    prescription_number: string;
+    status: PrescriptionOrderStatus;
+    prescribed_at: string | null;
+    prescriber: PrescriptionOrderUser | null;
+    items: ClinicalHistoryPrescriptionOrderItem[];
+    verification_status: PrescriptionVerificationStatus | null;
+    dispensing_status: 'pending' | 'partially_dispensed' | 'dispensed' | null;
+}
+
 export interface ClinicalHistoryEncounter {
     id: number;
     encounter_number: string;
@@ -76,7 +121,9 @@ export interface ClinicalHistoryEncounter {
     care_plan: CarePlan | null;
     clinical_notes: ClinicalNote[];
     laboratory_results: ClinicalHistoryLaboratoryResult[];
+    radiology_results: RadiologyResult[];
     radiology_orders: ClinicalHistoryRadiologyOrder[];
+    prescription_orders: ClinicalHistoryPrescriptionOrder[];
 }
 
 export interface ClinicalHistoryFilters {

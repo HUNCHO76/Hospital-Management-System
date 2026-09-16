@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
 import {
+    radiologyAppointmentStatusLabel,
+    radiologyAppointmentStatusVariant,
     radiologyBodySiteLabel,
     radiologyModalityLabel,
     radiologyOrderPriorityLabel,
@@ -159,7 +161,17 @@ export default function RadiologyShow({ order }: RadiologyShowProps) {
                                         </p>
                                     </div>
 
-                                    <Badge variant={radiologyOrderStatusVariant[item.status]}>{radiologyOrderStatusLabel[item.status]}</Badge>
+                                    <div className="flex items-center gap-2">
+                                        {item.status === 'cancelled' ? (
+                                            <Badge variant={radiologyOrderStatusVariant[item.status]}>{radiologyOrderStatusLabel[item.status]}</Badge>
+                                        ) : item.appointment ? (
+                                            <Badge variant={radiologyAppointmentStatusVariant[item.appointment.status]}>
+                                                {radiologyAppointmentStatusLabel[item.appointment.status]}
+                                            </Badge>
+                                        ) : (
+                                            <Badge variant="outline">Not Scheduled</Badge>
+                                        )}
+                                    </div>
                                 </li>
                             ))}
 

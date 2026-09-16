@@ -38,7 +38,10 @@ test('a radiology technician cannot view or act on the verification worklist', f
 
 test('the reporting practitioner cannot verify or return their own submitted report', function () {
     $ctx = radiologyOrderReadyForScheduling();
-    $reporter = radiologistWithPractitioner($ctx['hospital']);
+    // A supervisor, so the block below is provably the self-verification
+    // identity check itself, not merely a missing radiology-results.verify
+    // permission (which a plain 'radiologist' would lack outright).
+    $reporter = radiologySupervisorWithPractitioner($ctx['hospital']);
     $report = submittedRadiologyReportFor($ctx, $reporter);
 
     // The review page itself is also gated by independence from the author.
@@ -52,10 +55,29 @@ test('the reporting practitioner cannot verify or return their own submitted rep
     expect($report->fresh()->status)->toBe(RadiologyReport::STATUS_SUBMITTED);
 });
 
-test('an independent radiologist can view, verify, and return reports', function () {
+test('a plain radiologist who is not the author still cannot verify or return, lacking supervisor permission entirely', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $otherRadiologist = radiologistWithPractitioner($ctx['hospital']);
+
+    // The worklist index is shared with the reporting worklist and gated
+    // only by radiology-results.view (every radiologist has it) — the real
+    // restriction lives on the per-report review/verify/return actions.
+    $this->actingAs($otherRadiologist['user'])->get(route('radiology-verification.index'))->assertOk();
+    $this->actingAs($otherRadiologist['user'])->get(route('radiology-verification.review', $report))->assertForbidden();
+    $this->actingAs($otherRadiologist['user'])->post(route('radiology-verification.verify', $report))->assertForbidden();
+    $this->actingAs($otherRadiologist['user'])->post(route('radiology-verification.return', $report), [
+        'return_reason' => 'other',
+        'return_comments' => 'x',
+    ])->assertForbidden();
+
+    expect($report->fresh()->status)->toBe(RadiologyReport::STATUS_SUBMITTED);
+});
+
+test('a radiology-supervisor can view, verify, and return reports', function () {
+    $ctx = radiologyOrderReadyForScheduling();
+    $report = submittedRadiologyReportFor($ctx);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $this->actingAs($verifier['user'])->get(route('radiology-verification.index'))->assertOk();
     $this->actingAs($verifier['user'])->get(route('radiology-verification.review', $report))->assertOk();

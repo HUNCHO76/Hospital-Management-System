@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Models\RadiologyAppointment;
 use App\Models\RadiologyOrderItem;
+use App\Models\RadiologyReport;
 use App\Models\User;
 
 /**
@@ -193,6 +194,58 @@ class RadiologyAppointmentPolicy
         }
 
         return $this->belongsToUsersHospital($user, $appointment);
+    }
+
+    /**
+     * Determine whether the user can attach or remove examination images.
+     * Reuses the same ability as recording technical information — both are
+     * the same technician-performed "documenting the examination" work, not
+     * two separate permissions (mirrors the reception workflow's own
+     * single-ability precedent).
+     */
+    public function manageImages(User $user, RadiologyAppointment $appointment): bool
+    {
+        if (! $user->can('radiology-examination.update')) {
+            return false;
+        }
+
+        return $this->belongsToUsersHospital($user, $appointment);
+    }
+
+    /**
+     * Determine whether the user can view examination images — anyone who
+     * can view the examination itself (the performing technician) or the
+     * resulting report (reporting/verification/release staff), since all of
+     * them may legitimately need the image for context. A doctor (or anyone
+     * else with no radiology-specific permission) may additionally view
+     * images once — and only once — the report has been RELEASED as the
+     * official clinical result, provided they can otherwise view the
+     * underlying clinical encounter (ClinicalEncounterPolicy::view()) —
+     * this mirrors the exact same RELEASED-only boundary
+     * RadiologyResultsSection already enforces for the report's text
+     * content (Phase 5, Step 44, Part 15/18): a doctor sees the official
+     * result automatically, without needing a radiology-department
+     * permission, but never a pre-release draft/submitted/verified image.
+     */
+    public function viewImages(User $user, RadiologyAppointment $appointment): bool
+    {
+        if (! $this->belongsToUsersHospital($user, $appointment)) {
+            return false;
+        }
+
+        if ($user->can('radiology-examination.view') || $user->can('radiology-results.view')) {
+            return true;
+        }
+
+        $report = $appointment->relationLoaded('report') ? $appointment->report : $appointment->report()->first();
+
+        if (! $report || $report->status !== RadiologyReport::STATUS_RELEASED) {
+            return false;
+        }
+
+        $encounter = $appointment->radiologyOrderItem->radiologyOrder->clinicalEncounter;
+
+        return $user->can('view', $encounter);
     }
 
     /**

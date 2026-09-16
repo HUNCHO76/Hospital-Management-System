@@ -20,7 +20,7 @@ class PrescriptionResource extends JsonResource
             'id' => $this->id,
             'medication' => $this->whenLoaded('medication', fn () => $this->medication ? [
                 'id' => $this->medication->id,
-                'name' => $this->medication->name,
+                'generic_name' => $this->medication->generic_name,
             ] : null),
             'strength' => $this->strength,
             'dose' => $this->dose,

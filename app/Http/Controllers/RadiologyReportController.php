@@ -33,6 +33,8 @@ class RadiologyReportController extends Controller
         return [
             'radiologyAppointment:id,radiology_order_item_id,modality,resource_name,status,performed_by,started_at,completed_at,technical_notes,technical_details',
             'radiologyAppointment.performedBy:id,UserName',
+            'radiologyAppointment.images',
+            'radiologyAppointment.images.uploadedBy:id,UserName',
             'radiologyAppointment.radiologyOrderItem:id,radiology_order_id,radiology_procedure_id,procedure_code,procedure_name,modality_snapshot,body_site_snapshot',
             'radiologyAppointment.radiologyOrderItem.radiologyProcedure:id,laterality,body_sites',
             'radiologyAppointment.radiologyOrderItem.radiologyOrder:id,order_number,priority,clinical_indication,clinical_encounter_id,ordered_by,ordered_at',

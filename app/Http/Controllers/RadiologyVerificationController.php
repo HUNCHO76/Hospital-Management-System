@@ -41,7 +41,14 @@ class RadiologyVerificationController extends Controller
             'radiologyAppointment.radiologyOrderItem.radiologyProcedure:id,laterality,body_sites',
             'radiologyAppointment.radiologyOrderItem.radiologyOrder:id,order_number,priority,clinical_indication,clinical_encounter_id,ordered_by,ordered_at',
             'radiologyAppointment.radiologyOrderItem.radiologyOrder.orderedBy:id,UserName',
-            'radiologyAppointment.radiologyOrderItem.radiologyOrder.clinicalEncounter:id,encounter_number,patient_id,started_at',
+            // department_id must stay selected here even though the page
+            // never displays it — RadiologyReportPolicy::belongsToUsersHospital()
+            // resolves clinicalEncounter->department->hospital_id from this
+            // very (already-loaded) relation for the canVerify/canReturn
+            // checks below, and a column-restricted belongsTo with its FK
+            // missing silently resolves to null rather than re-querying.
+            'radiologyAppointment.radiologyOrderItem.radiologyOrder.clinicalEncounter:id,encounter_number,patient_id,department_id,started_at',
+            'radiologyAppointment.radiologyOrderItem.radiologyOrder.clinicalEncounter.department:id,hospital_id',
             'radiologyAppointment.radiologyOrderItem.radiologyOrder.clinicalEncounter.patient:id,patient_number,first_name,middle_name,last_name,date_of_birth,gender',
             'reportingPractitioner:id,staff_id,specialization',
             'reportingPractitioner.staff:id,user_id',
@@ -86,7 +93,7 @@ class RadiologyVerificationController extends Controller
     {
         $this->authorize('review', $radiologyReport);
 
-        $radiologyReport->load($this->eagerLoads());
+        $radiologyReport->load([...$this->eagerLoads(), 'radiologyAppointment.images', 'radiologyAppointment.images.uploadedBy:id,UserName']);
 
         $service->recordReviewStarted($radiologyReport, $request);
 

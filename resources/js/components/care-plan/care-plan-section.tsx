@@ -370,7 +370,7 @@ function CarePlanItemRow({ encounterId, item }: { encounterId: number; item: Car
                 {item.instructions && <span>{item.instructions}</span>}
                 {item.prescription && (
                     <span>
-                        {item.prescription.medication?.name}
+                        {item.prescription.medication?.generic_name}
                         {item.prescription.strength ? ` ${item.prescription.strength}` : ''}
                         {item.prescription.dose ? ` — ${item.prescription.dose}` : ''}
                         {item.prescription.route ? `, ${item.prescription.route}` : ''}

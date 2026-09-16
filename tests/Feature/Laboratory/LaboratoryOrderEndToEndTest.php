@@ -66,7 +66,7 @@ test('an encounter with an engaged consultation but no diagnosis can still produ
         'diagnosis_type' => 'primary',
     ])->assertRedirect();
     $this->actingAs($doctor['user'])->post(route('clinical-encounters.care-plan.store', $encounter))->assertRedirect();
-    $medication = activeMedication(['name' => 'Artemether-Lumefantrine']);
+    $medication = activeMedication(['generic_name' => 'Artemether-Lumefantrine']);
     $this->actingAs($doctor['user'])->post(route('clinical-encounters.care-plan.items.store', $encounter), [
         'type' => 'medication',
         'description' => 'Antimalarial course',

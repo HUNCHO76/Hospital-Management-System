@@ -65,6 +65,7 @@ export const radiologyReportStatusLabel: Record<RadiologyReportStatus, string> =
     submitted: 'Submitted',
     returned: 'Returned',
     verified: 'Verified',
+    released: 'Released',
 };
 
 export const radiologyReportStatusVariant: Record<RadiologyReportStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -72,6 +73,7 @@ export const radiologyReportStatusVariant: Record<RadiologyReportStatus, 'defaul
     submitted: 'default',
     returned: 'destructive',
     verified: 'default',
+    released: 'secondary',
 };
 
 export const radiologyReportReturnReasonLabel: Record<RadiologyReportReturnReason, string> = {

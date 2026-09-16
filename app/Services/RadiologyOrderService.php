@@ -21,7 +21,7 @@ use Illuminate\Validation\ValidationException;
  */
 class RadiologyOrderService
 {
-    public function __construct(protected AuditLogService $auditLog) {}
+    public function __construct(protected AuditLogService $auditLog, protected ChargeCaptureService $chargeCapture) {}
 
     /**
      * Record a new radiology order with one or more procedures.
@@ -68,7 +68,7 @@ class RadiologyOrderService
             ]);
 
             foreach ($procedureIds as $procedureId) {
-                $this->addItem($order, $procedures[$procedureId], $request);
+                $this->addItem($order, $procedures[$procedureId], $encounter, $request);
             }
 
             return $order;
@@ -162,6 +162,8 @@ class RadiologyOrderService
                     'cancelled_by' => $request->user()->id,
                     'cancellation_reason' => $reason,
                 ]);
+
+                $this->chargeCapture->voidForSource(RadiologyOrderItem::class, $item->id, $reason, $request);
             });
         });
 
@@ -196,12 +198,16 @@ class RadiologyOrderService
 
         $oldValues = $item->only(['status', 'cancelled_at', 'cancellation_reason']);
 
-        $item->update([
-            'status' => RadiologyOrderItem::STATUS_CANCELLED,
-            'cancelled_at' => now(),
-            'cancelled_by' => $request->user()->id,
-            'cancellation_reason' => $reason,
-        ]);
+        DB::transaction(function () use ($item, $reason, $request) {
+            $item->update([
+                'status' => RadiologyOrderItem::STATUS_CANCELLED,
+                'cancelled_at' => now(),
+                'cancelled_by' => $request->user()->id,
+                'cancellation_reason' => $reason,
+            ]);
+
+            $this->chargeCapture->voidForSource(RadiologyOrderItem::class, $item->id, $reason, $request);
+        });
 
         $this->auditLog->record(
             'radiology_order_item_removed',
@@ -218,9 +224,12 @@ class RadiologyOrderService
      * Create and audit a single order item, snapshotting the procedure's
      * code/name from the live catalog row at this moment (historical
      * integrity — a later catalog rename/deactivation must never make an
-     * existing order ambiguous).
+     * existing order ambiguous). Also captures the billing charge for it,
+     * at order time (Phase 7, Step 54, spec §10), mirroring
+     * LaboratoryOrderService::addItem() exactly — a missing billing
+     * mapping/price never blocks the order itself.
      */
-    protected function addItem(RadiologyOrder $order, RadiologyProcedure $procedure, Request $request): RadiologyOrderItem
+    protected function addItem(RadiologyOrder $order, RadiologyProcedure $procedure, ClinicalEncounter $encounter, Request $request): RadiologyOrderItem
     {
         $item = RadiologyOrderItem::create([
             'radiology_order_id' => $order->id,
@@ -239,6 +248,8 @@ class RadiologyOrderService
             $item->only(['radiology_order_id', 'radiology_procedure_id', 'procedure_code', 'status']),
             $request,
         );
+
+        $this->chargeCapture->captureFromRadiologyOrderItem($item, $encounter, $request);
 
         return $item;
     }
@@ -272,8 +283,10 @@ class RadiologyOrderService
             ]);
         }
 
+        $encounter = $order->clinicalEncounter;
+
         foreach ($newProcedureIds as $procedureId) {
-            $this->addItem($order, $procedures[$procedureId], $request);
+            $this->addItem($order, $procedures[$procedureId], $encounter, $request);
         }
 
         // A freshly added item can never already be scheduled, so a

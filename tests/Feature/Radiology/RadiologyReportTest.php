@@ -141,14 +141,15 @@ test('text fields exceeding their length limits are rejected', function () {
     ], requestAs($radiologist['user'])))->toThrow(ValidationException::class);
 });
 
-test('RadiologyReport::TRANSITIONS implements the full Step 42-43 lifecycle', function () {
+test('RadiologyReport::TRANSITIONS implements the full Step 42-44 lifecycle', function () {
     expect(RadiologyReport::TRANSITIONS[RadiologyReport::STATUS_DRAFT])->toBe([RadiologyReport::STATUS_SUBMITTED]);
     expect(RadiologyReport::TRANSITIONS[RadiologyReport::STATUS_SUBMITTED])->toBe([
         RadiologyReport::STATUS_VERIFIED,
         RadiologyReport::STATUS_RETURNED,
     ]);
     expect(RadiologyReport::TRANSITIONS[RadiologyReport::STATUS_RETURNED])->toBe([RadiologyReport::STATUS_DRAFT]);
-    expect(RadiologyReport::TRANSITIONS[RadiologyReport::STATUS_VERIFIED])->toBe([]);
+    expect(RadiologyReport::TRANSITIONS[RadiologyReport::STATUS_VERIFIED])->toBe([RadiologyReport::STATUS_RELEASED]);
+    expect(RadiologyReport::TRANSITIONS[RadiologyReport::STATUS_RELEASED])->toBe([]);
 });
 
 test('a report remains traceable to patient, encounter, order, item, procedure, and examination', function () {

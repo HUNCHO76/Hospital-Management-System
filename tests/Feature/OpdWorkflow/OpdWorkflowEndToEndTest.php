@@ -72,7 +72,7 @@ test('a walk-in patient flows through the entire OPD workflow to a disposition a
     ])->assertRedirect();
     $carePlan = CarePlan::query()->where('clinical_encounter_id', $encounter->id)->firstOrFail();
 
-    $medication = activeMedication(['name' => 'Oral Rehydration Salts']);
+    $medication = activeMedication(['generic_name' => 'Oral Rehydration Salts']);
     $this->actingAs($doctor['user'])->post(route('clinical-encounters.care-plan.items.store', $encounter), [
         'type' => 'medication',
         'description' => 'Rehydration therapy',

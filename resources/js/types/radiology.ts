@@ -48,6 +48,22 @@ export type RadiologyAbortReason =
  */
 export type RadiologyTechnicalFieldsByModality = Partial<Record<RadiologyModality, string[]>>;
 
+/**
+ * One imaging file attached to an examination. Deliberately has no `url`/
+ * `path` field — the storage key is never sent to the browser; every
+ * viewer/thumbnail builds its `src` from `route('radiology-images.show',
+ * [appointmentId, image.id])`, which re-authorizes on every request.
+ */
+export interface RadiologyImage {
+    id: number;
+    radiology_appointment_id: number;
+    original_filename: string;
+    mime_type: string;
+    size_bytes: number;
+    uploaded_by: RadiologyOrderUser | null;
+    created_at: string;
+}
+
 export type RadiologyNotReadyReason =
     | 'preparation_incomplete'
     | 'identity_issue'
@@ -196,6 +212,13 @@ export interface RadiologyOrderEncounter {
     encounter_number: string;
 }
 
+export interface RadiologyOrderItemAppointment {
+    id: number;
+    status: RadiologyAppointmentStatus;
+    resource_name: string;
+    scheduled_start: string | null;
+}
+
 export interface RadiologyOrderItem {
     id: number;
     radiology_order_id: number;
@@ -209,6 +232,8 @@ export interface RadiologyOrderItem {
     cancelled_at: string | null;
     cancelled_by: RadiologyOrderUser | null;
     cancellation_reason: string | null;
+    /** Only present when the caller eager-loads it (currently: the order detail page). */
+    appointment?: RadiologyOrderItemAppointment | null;
 }
 
 export interface RadiologyOrder {
@@ -328,6 +353,8 @@ export interface RadiologyAppointment {
     aborted_at: string | null;
     aborted_by: RadiologyOrderUser | null;
     abort_reason: RadiologyAbortReason | null;
+    /** Only present when the caller eager-loads it (currently: the examination detail page). */
+    images?: RadiologyImage[];
     item: RadiologyAppointmentItem | null;
     order: RadiologyAppointmentOrder | null;
     encounter: RadiologyOrderEncounter | null;
@@ -404,11 +431,11 @@ export interface AbortRadiologyExaminationFormData {
 }
 
 /**
- * A radiology report's own lifecycle (Phase 5, Steps 42-43): DRAFT ->
- * SUBMITTED -> VERIFIED, or SUBMITTED -> RETURNED -> (corrected) -> DRAFT ->
- * SUBMITTED again.
+ * A radiology report's own lifecycle (Phase 5, Steps 42-44): DRAFT ->
+ * SUBMITTED -> VERIFIED -> RELEASED (terminal), or SUBMITTED -> RETURNED ->
+ * (corrected) -> DRAFT -> SUBMITTED again.
  */
-export type RadiologyReportStatus = 'draft' | 'submitted' | 'returned' | 'verified';
+export type RadiologyReportStatus = 'draft' | 'submitted' | 'returned' | 'verified' | 'released';
 
 /**
  * The controlled set of reasons a report may be returned for correction
@@ -441,6 +468,7 @@ export interface RadiologyReportExamination {
     completed_at: string | null;
     technical_notes: string | null;
     technical_details: Record<string, string> | null;
+    images: RadiologyImage[];
 }
 
 export interface RadiologyReportProcedureInfo {
@@ -477,6 +505,9 @@ export interface RadiologyReport {
     returned_at: string | null;
     return_reason: RadiologyReportReturnReason | null;
     return_comments: string | null;
+    released_by: RadiologyOrderUser | null;
+    released_at: string | null;
+    release_notes: string | null;
     created_at: string;
     updated_at: string;
     examination: RadiologyReportExamination | null;
@@ -552,4 +583,49 @@ export interface RadiologyReportHistoryEntry {
     new_values: Record<string, unknown> | null;
     user: RadiologyOrderUser | null;
     created_at: string | null;
+}
+
+export interface RadiologyReleaseFilters {
+    search: string;
+    status: string;
+    modality: string;
+    priority: string;
+    reporting_practitioner: string;
+    verifier: string;
+    date: string;
+    date_from: string;
+    date_to: string;
+}
+
+export interface ReleaseRadiologyResultFormData {
+    release_notes: string;
+    [key: string]: string;
+}
+
+/**
+ * One RELEASED radiology result — the shape returned by
+ * RadiologyResultResource, used both on the clinical encounter page (Phase
+ * 5, Step 44, Part 16) and the patient's clinical history timeline (Part
+ * 17).
+ */
+export interface RadiologyResult {
+    id: number;
+    report_number: string;
+    status: RadiologyReportStatus;
+    radiology_appointment_id: number;
+    procedure_code: string | null;
+    procedure_name: string | null;
+    modality: RadiologyModality | null;
+    body_site_snapshot: RadiologyBodySite[] | null;
+    examination_completed_at: string | null;
+    technique: string | null;
+    findings: string | null;
+    impression: string | null;
+    recommendations: string | null;
+    reporting_practitioner: RadiologyReportPractitioner | null;
+    verifying_practitioner: RadiologyReportPractitioner | null;
+    verified_at: string | null;
+    released_by: RadiologyOrderUser | null;
+    released_at: string | null;
+    images: RadiologyImage[];
 }

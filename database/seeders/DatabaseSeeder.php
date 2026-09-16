@@ -30,6 +30,7 @@ class DatabaseSeeder extends Seeder
             LaboratoryTestSeeder::class,
             LaboratoryBenchSeeder::class,
             RadiologyProcedureSeeder::class,
+            ServiceCatalogSeeder::class,
         ]);
 
         // The only distinct laboratory-supervisor account in dev/test data —

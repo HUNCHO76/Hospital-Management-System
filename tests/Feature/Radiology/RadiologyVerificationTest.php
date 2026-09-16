@@ -13,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 test('a submitted report can be verified by an independent practitioner, recording verifier metadata', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $verified = app(RadiologyReportService::class)->verify($report, ['verification_notes' => 'Reviewed and concur.'], requestAs($verifier['user']));
 
@@ -26,7 +26,7 @@ test('a submitted report can be verified by an independent practitioner, recordi
 
 test('a reporting practitioner cannot verify their own report by default', function () {
     $ctx = radiologyOrderReadyForScheduling();
-    $reporter = radiologistWithPractitioner($ctx['hospital']);
+    $reporter = radiologySupervisorWithPractitioner($ctx['hospital']);
     $report = submittedRadiologyReportFor($ctx, $reporter);
 
     expect(fn () => app(RadiologyReportService::class)->verify($report, [], requestAs($reporter['user'])))
@@ -39,7 +39,7 @@ test('self-verification is allowed when hospital policy explicitly enables it', 
     config(['radiology.allow_self_verification' => true]);
 
     $ctx = radiologyOrderReadyForScheduling();
-    $reporter = radiologistWithPractitioner($ctx['hospital']);
+    $reporter = radiologySupervisorWithPractitioner($ctx['hospital']);
     $report = submittedRadiologyReportFor($ctx, $reporter);
 
     $verified = app(RadiologyReportService::class)->verify($report, [], requestAs($reporter['user']));
@@ -50,7 +50,7 @@ test('self-verification is allowed when hospital policy explicitly enables it', 
 test('a verified report cannot be verified again', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
     $service = app(RadiologyReportService::class);
 
     $service->verify($report, [], requestAs($verifier['user']));
@@ -62,7 +62,7 @@ test('a verified report cannot be verified again', function () {
 test('a submitted report can be returned for correction, requiring a reason', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $returned = app(RadiologyReportService::class)->returnForCorrection($report, [
         'return_reason' => 'unclear_impression',
@@ -80,7 +80,7 @@ test('a returned report can be corrected and resubmitted, and verified on the se
     $ctx = radiologyOrderReadyForScheduling();
     $reporter = radiologistWithPractitioner($ctx['hospital']);
     $report = submittedRadiologyReportFor($ctx, $reporter);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
     $service = app(RadiologyReportService::class);
 
     $service->returnForCorrection($report, ['return_reason' => 'incomplete_findings'], requestAs($verifier['user']));
@@ -108,7 +108,7 @@ test('a returned report can be corrected and resubmitted, and verified on the se
 test('a verified report cannot be edited through the normal draft route', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
     $service = app(RadiologyReportService::class);
 
     $verified = $service->verify($report, [], requestAs($verifier['user']));
@@ -120,7 +120,7 @@ test('a verified report cannot be edited through the normal draft route', functi
 test('reviewing a report opened for verification only logs an audit event when it is still SUBMITTED', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
     $service = app(RadiologyReportService::class);
 
     $service->recordReviewStarted($report, requestAs($verifier['user']));
