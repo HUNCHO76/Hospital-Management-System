@@ -10,18 +10,19 @@ use App\Models\User;
  * report or allow acting on it, regardless of what the UI would otherwise
  * hide.
  */
-test('a radiologist from another hospital cannot view or act on a report by guessing its id', function () {
+test('a radiology-supervisor from another hospital cannot view or act on a report by guessing its id', function () {
     $ctxA = radiologyOrderReadyForScheduling();
     $reportA = submittedRadiologyReportFor($ctxA, null, ['resource_name' => 'X-Ray Room A']);
 
     $ctxB = radiologyOrderReadyForScheduling();
-    $verifierB = radiologistWithPractitioner($ctxB['hospital']);
+    $verifierB = radiologySupervisorWithPractitioner($ctxB['hospital']);
 
-    // A plain 'radiologist' role has no hospital-scoping restriction built
-    // into the permission itself (only hospital-admin is scoped by policy),
-    // but the report's own author/verifier relationship never grants
-    // cross-hospital access either — this proves the route is safe purely
-    // by object-level checks, not by relying on role scoping alone.
+    // A plain 'radiology-supervisor' role has no hospital-scoping
+    // restriction built into the permission itself (only hospital-admin is
+    // scoped by policy), but the report's own author/verifier relationship
+    // never grants cross-hospital access either — this proves the route is
+    // safe purely by object-level checks, not by relying on role scoping
+    // alone.
     $this->actingAs($verifierB['user'])->get(route('radiology-verification.review', $reportA))->assertOk();
 
     expect($reportA->fresh()->status)->toBe(RadiologyReport::STATUS_SUBMITTED);

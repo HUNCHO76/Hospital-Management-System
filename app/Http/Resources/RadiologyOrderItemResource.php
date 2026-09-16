@@ -36,6 +36,18 @@ class RadiologyOrderItemResource extends JsonResource
                 'name' => $this->cancelledBy->UserName,
             ] : null),
             'cancellation_reason' => $this->cancellation_reason,
+            // The item's own ordered/cancelled status says nothing about
+            // where it actually is in the scheduling/reception/examination
+            // pipeline — that detail lives entirely on its appointment, so
+            // it is surfaced here rather than left only on a separate
+            // scheduling screen (only included when eager-loaded, e.g. on
+            // the order detail page).
+            'appointment' => $this->whenLoaded('activeRadiologyAppointment', fn () => $this->activeRadiologyAppointment ? [
+                'id' => $this->activeRadiologyAppointment->id,
+                'status' => $this->activeRadiologyAppointment->status,
+                'resource_name' => $this->activeRadiologyAppointment->resource_name,
+                'scheduled_start' => optional($this->activeRadiologyAppointment->scheduled_start)->toIso8601String(),
+            ] : null),
         ];
     }
 }

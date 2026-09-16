@@ -6,7 +6,7 @@ use App\Services\RadiologyReportService;
 test('returning a report without a reason is rejected', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $this->actingAs($verifier['user'])->post(route('radiology-verification.return', $report), [])
         ->assertSessionHasErrors('return_reason');
@@ -17,7 +17,7 @@ test('returning a report without a reason is rejected', function () {
 test('returning a report with an unrecognized reason is rejected', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $this->actingAs($verifier['user'])->post(route('radiology-verification.return', $report), [
         'return_reason' => 'not_a_real_reason',
@@ -27,7 +27,7 @@ test('returning a report with an unrecognized reason is rejected', function () {
 test('returning a report with reason "other" requires comments', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $this->actingAs($verifier['user'])->post(route('radiology-verification.return', $report), [
         'return_reason' => 'other',
@@ -44,7 +44,7 @@ test('returning a report with reason "other" requires comments', function () {
 test('returning a report with a non-"other" reason does not require comments', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $this->actingAs($verifier['user'])->post(route('radiology-verification.return', $report), [
         'return_reason' => 'typographical_error',
@@ -56,7 +56,7 @@ test('returning a report with a non-"other" reason does not require comments', f
 test('verification_notes exceeding the length limit is rejected', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $this->actingAs($verifier['user'])->post(route('radiology-verification.verify', $report), [
         'verification_notes' => str_repeat('a', 1001),
@@ -68,7 +68,7 @@ test('a draft report cannot be verified or returned through the verification rou
     $appointment = radiologyExaminationCompleted($ctx);
     $radiologist = radiologistWithPractitioner($ctx['hospital']);
     $report = app(RadiologyReportService::class)->createDraft($appointment, [], requestAs($radiologist['user']));
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $this->actingAs($verifier['user'])->post(route('radiology-verification.verify', $report))
         ->assertSessionHasErrors('status');
@@ -82,7 +82,7 @@ test('a draft report cannot be verified or returned through the verification rou
 test('a verified report cannot be verified again through the verification route', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $this->actingAs($verifier['user'])->post(route('radiology-verification.verify', $report))->assertRedirect();
 
@@ -93,7 +93,7 @@ test('a verified report cannot be verified again through the verification route'
 test('a verified report cannot be returned through the verification route', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $this->actingAs($verifier['user'])->post(route('radiology-verification.verify', $report))->assertRedirect();
 
@@ -106,7 +106,7 @@ test('a verified report cannot be returned through the verification route', func
 test('a client-supplied verifier id or facility id is ignored', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
     $otherPractitioner = radiologistWithPractitioner($ctx['hospital']);
 
     $this->actingAs($verifier['user'])->post(route('radiology-verification.verify', $report), [

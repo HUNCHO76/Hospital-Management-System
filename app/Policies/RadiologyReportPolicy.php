@@ -138,6 +138,21 @@ class RadiologyReportPolicy
     }
 
     /**
+     * Determine whether the user can release the report as the official
+     * clinical result (Phase 5, Step 44, Part 9/23). No independence-from-
+     * author restriction is required here (Part 9-11 of Step 44 do not ask
+     * for one) — only the permission and hospital scope.
+     */
+    public function release(User $user, RadiologyReport $report): bool
+    {
+        if (! $user->can('radiology-results.release')) {
+            return false;
+        }
+
+        return $this->belongsToUsersHospital($user, $report->radiologyAppointment);
+    }
+
+    /**
      * A hospital-admin is restricted to reports booked under their own
      * hospital's departments; every other role holding the permission
      * (currently only super-admin, which bypasses policies via Gate::before)

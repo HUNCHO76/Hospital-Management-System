@@ -11,11 +11,15 @@ use App\Http\Resources\ClinicalNoteResource;
 use App\Http\Resources\ConsultationResource;
 use App\Http\Resources\EncounterDiagnosisResource;
 use App\Http\Resources\LaboratoryOrderResource;
+use App\Http\Resources\PrescriptionOrderResource;
 use App\Http\Resources\RadiologyOrderResource;
+use App\Http\Resources\RadiologyResultResource;
 use App\Http\Resources\TriageAssessmentResource;
 use App\Models\ClinicalEncounter;
 use App\Models\Department;
 use App\Models\Practitioner;
+use App\Models\RadiologyAppointment;
+use App\Models\RadiologyReport;
 use App\Models\ReceptionVisit;
 use App\Services\ClinicalEncounterSearchService;
 use App\Services\ClinicalEncounterService;
@@ -140,6 +144,42 @@ class ClinicalEncounterController extends Controller
             'cancelledBy:id,UserName',
         ])->get();
 
+        $prescriptionOrders = $clinicalEncounter->prescriptionOrders()->with([
+            'items',
+            'prescriber:id,UserName',
+            'cancelledBy:id,UserName',
+            // Phase 6, Step 47: so the prescriber can see their own
+            // prescription's pharmacy verification status/return reason
+            // inline, without a separate page.
+            'verification.returnedBy:id,UserName',
+            'verification.verifiedBy:id,UserName',
+        ])->get();
+
+        // Only RELEASED radiology reports are ever presented as official
+        // clinical results on the encounter page (Phase 5, Step 44, Part
+        // 15/18) — a draft, submitted, or verified-but-not-yet-released
+        // report must never be mistaken for one here. Loaded separately
+        // from $radiologyOrders above (which keeps showing plain order/item
+        // status tracking, unchanged) since this needs the full report
+        // content chain.
+        $radiologyResults = $clinicalEncounter->radiologyOrders()->with([
+            'items.radiologyAppointments.report.reportingPractitioner.staff.user',
+            'items.radiologyAppointments.report.verifyingPractitioner.staff.user',
+            'items.radiologyAppointments.report.releasedBy:id,UserName',
+            'items.radiologyAppointments.images',
+            'items.radiologyAppointments.images.uploadedBy:id,UserName',
+        ])->get()
+            ->flatMap(fn ($order) => $order->items)
+            // The appointment's own inverse relation back to its item is not
+            // populated by the item.radiologyAppointments eager load above
+            // (Eloquent does not auto-set inverse relations), and
+            // RadiologyResultResource needs it for procedure_code/name — set
+            // it explicitly rather than triggering a second query per row.
+            ->flatMap(fn ($item) => $item->radiologyAppointments->each(fn (RadiologyAppointment $appointment) => $appointment->setRelation('radiologyOrderItem', $item)))
+            ->filter(fn (RadiologyAppointment $appointment) => $appointment->report?->status === RadiologyReport::STATUS_RELEASED)
+            ->map(fn (RadiologyAppointment $appointment) => (new RadiologyResultResource($appointment))->resolve($request))
+            ->values();
+
         return Inertia::render('clinical-encounters/show', [
             'encounter' => (new ClinicalEncounterResource($clinicalEncounter))->resolve($request),
             'triage' => $triage ? (new TriageAssessmentResource($triage))->resolve($request) : null,
@@ -148,6 +188,8 @@ class ClinicalEncounterController extends Controller
             'carePlan' => $carePlan ? (new CarePlanResource($carePlan))->resolve($request) : null,
             'laboratoryOrders' => LaboratoryOrderResource::collection($laboratoryOrders)->resolve($request),
             'radiologyOrders' => RadiologyOrderResource::collection($radiologyOrders)->resolve($request),
+            'radiologyResults' => $radiologyResults,
+            'prescriptionOrders' => PrescriptionOrderResource::collection($prescriptionOrders)->resolve($request),
             'clinicalNotes' => ClinicalNoteResource::collection($clinicalNotes)->resolve($request),
             // Only needed for the care plan's referral item form.
             'departments' => Department::active()->orderBy('name')->get(['id', 'name', 'code']),

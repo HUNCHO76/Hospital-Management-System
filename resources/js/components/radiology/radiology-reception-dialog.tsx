@@ -102,7 +102,7 @@ export function RadiologyReceptionDialog({ appointment, trigger }: RadiologyRece
                     </dd>
                 </dl>
 
-                {canManage && appointment.status === 'scheduled' && (
+                {canManage && ['scheduled', 'confirmed'].includes(appointment.status) && (
                     <Button onClick={() => post('radiology-reception.arrive', appointment.id)}>Patient Arrived</Button>
                 )}
 

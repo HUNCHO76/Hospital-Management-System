@@ -17,8 +17,8 @@ test('two verifiers racing to verify the same report only let one succeed', func
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
 
-    $verifierA = radiologistWithPractitioner($ctx['hospital']);
-    $verifierB = radiologistWithPractitioner($ctx['hospital']);
+    $verifierA = radiologySupervisorWithPractitioner($ctx['hospital']);
+    $verifierB = radiologySupervisorWithPractitioner($ctx['hospital']);
     $service = app(RadiologyReportService::class);
 
     $winner = $service->verify($report, [], requestAs($verifierA['user']));
@@ -34,8 +34,8 @@ test('one verifier verifying while another attempts to return the same report on
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
 
-    $verifierA = radiologistWithPractitioner($ctx['hospital']);
-    $verifierB = radiologistWithPractitioner($ctx['hospital']);
+    $verifierA = radiologySupervisorWithPractitioner($ctx['hospital']);
+    $verifierB = radiologySupervisorWithPractitioner($ctx['hospital']);
     $service = app(RadiologyReportService::class);
 
     $service->verify($report, [], requestAs($verifierA['user']));
@@ -52,9 +52,9 @@ test('three sequential verify attempts on the same report yield exactly one winn
     $service = app(RadiologyReportService::class);
 
     $verifiers = [
-        radiologistWithPractitioner($ctx['hospital']),
-        radiologistWithPractitioner($ctx['hospital']),
-        radiologistWithPractitioner($ctx['hospital']),
+        radiologySupervisorWithPractitioner($ctx['hospital']),
+        radiologySupervisorWithPractitioner($ctx['hospital']),
+        radiologySupervisorWithPractitioner($ctx['hospital']),
     ];
 
     $successes = 0;

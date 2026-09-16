@@ -185,8 +185,8 @@ class RadiologyReportSearchService
     }
 
     /**
-     * Restrict a verificationQuery() result to reports booked under the
-     * given hospital's departments.
+     * Restrict a verificationQuery()/releaseQuery() result to reports booked
+     * under the given hospital's departments.
      *
      * @param  Builder<RadiologyReport>  $query
      * @return Builder<RadiologyReport>
@@ -201,5 +201,83 @@ class RadiologyReportSearchService
             'radiologyAppointment.radiologyOrderItem.radiologyOrder.clinicalEncounter.department',
             fn ($query) => $query->where('hospital_id', $hospitalId),
         );
+    }
+
+    /**
+     * Builds the release worklist query (Phase 5, Step 44, Part 6):
+     * defaults to VERIFIED (the actionable "ready for release" queue) unless
+     * an explicit `status` filter asks for RELEASED history instead. Mirrors
+     * verificationQuery()'s exact shape, with an additional `verifier`
+     * filter (Part 6's own "Verifier" column/filter).
+     *
+     * Supported keys: search, status, modality, priority,
+     * reporting_practitioner, verifier, date, date_from, date_to (all
+     * against verified_at).
+     *
+     * @param  array<string, mixed>  $filters
+     * @return Builder<RadiologyReport>
+     */
+    public function releaseQuery(array $filters): Builder
+    {
+        $query = RadiologyReport::query()
+            ->join('radiology_appointments', 'radiology_appointments.id', '=', 'radiology_reports.radiology_appointment_id')
+            ->join('radiology_order_items', 'radiology_order_items.id', '=', 'radiology_appointments.radiology_order_item_id')
+            ->join('radiology_orders', 'radiology_orders.id', '=', 'radiology_order_items.radiology_order_id')
+            ->select('radiology_reports.*');
+
+        $status = $filters['status'] ?? null;
+
+        if (filled($status)) {
+            $query->where('radiology_reports.status', $status);
+        } else {
+            $query->where('radiology_reports.status', RadiologyReport::STATUS_VERIFIED);
+        }
+
+        $search = trim((string) ($filters['search'] ?? ''));
+
+        if ($search !== '') {
+            $query->where(function ($query) use ($search) {
+                $query->where('radiology_order_items.procedure_code', 'like', "%{$search}%")
+                    ->orWhere('radiology_order_items.procedure_name', 'like', "%{$search}%")
+                    ->orWhere('radiology_orders.order_number', 'like', "%{$search}%")
+                    ->orWhereHas('radiologyAppointment.radiologyOrderItem.radiologyOrder.clinicalEncounter.patient', function ($query) use ($search) {
+                        $query->where('patient_number', 'like', "%{$search}%")
+                            ->orWhere('first_name', 'like', "%{$search}%")
+                            ->orWhere('last_name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        if (filled($filters['modality'] ?? null)) {
+            $query->where('radiology_appointments.modality', $filters['modality']);
+        }
+
+        if (filled($filters['priority'] ?? null)) {
+            $query->where('radiology_orders.priority', $filters['priority']);
+        }
+
+        if (filled($filters['reporting_practitioner'] ?? null)) {
+            $query->where('radiology_reports.reporting_practitioner_id', $filters['reporting_practitioner']);
+        }
+
+        if (filled($filters['verifier'] ?? null)) {
+            $query->where('radiology_reports.verifying_practitioner_id', $filters['verifier']);
+        }
+
+        if (filled($filters['date'] ?? null)) {
+            $query->whereDate('radiology_reports.verified_at', $filters['date']);
+        } else {
+            if (filled($filters['date_from'] ?? null)) {
+                $query->where('radiology_reports.verified_at', '>=', $filters['date_from']);
+            }
+
+            if (filled($filters['date_to'] ?? null)) {
+                $query->where('radiology_reports.verified_at', '<=', $filters['date_to']);
+            }
+        }
+
+        return $query
+            ->orderByRaw("case radiology_orders.priority when 'stat' then 0 when 'urgent' then 1 when 'routine' then 2 else 3 end")
+            ->orderBy('radiology_reports.verified_at');
     }
 }

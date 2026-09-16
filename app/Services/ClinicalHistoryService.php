@@ -46,11 +46,26 @@ class ClinicalHistoryService
                 'laboratoryOrders.items.result.verifiedBy:id,UserName',
                 'laboratoryOrders.items.result.sample:id,sample_number',
                 'laboratoryOrders.activeReport:id,laboratory_order_id,status',
-                // Radiology has no result/finding/report concept yet (Phase
-                // 5, Steps 41-43), so — unlike laboratory above — the order
-                // itself is what's shown on the timeline, not a released
-                // result (Phase 5, Step 38, Part 25).
+                // The order itself is still shown for status-tracking
+                // (Phase 5, Step 38, Part 25), and — mirroring laboratory
+                // above — only RELEASED reports are ever presented as final
+                // radiology results on the timeline (Phase 5, Step 44,
+                // filtered in ClinicalHistoryEncounterResource itself, the
+                // same way releasedLaboratoryResults() already does).
                 'radiologyOrders.items',
+                'radiologyOrders.items.radiologyAppointments.report.reportingPractitioner.staff.user',
+                'radiologyOrders.items.radiologyAppointments.report.verifyingPractitioner.staff.user',
+                'radiologyOrders.items.radiologyAppointments.report.releasedBy:id,UserName',
+                'radiologyOrders.items.radiologyAppointments.images',
+                'radiologyOrders.items.radiologyAppointments.images.uploadedBy:id,UserName',
+                // Prescription is its own sibling branch off the encounter
+                // (Phase 6, Step 46) — shown on the timeline the same way
+                // radiologyOrders/laboratoryOrders are, regardless of the
+                // pre-existing, unrelated CarePlanItem-nested Prescription
+                // already surfaced via carePlan.items above.
+                'prescriptionOrders.items.medication:id,generic_name',
+                'prescriptionOrders.prescriber:id,UserName',
+                'prescriptionOrders.verification',
             ]);
 
         if (! empty($filters['date_from'])) {

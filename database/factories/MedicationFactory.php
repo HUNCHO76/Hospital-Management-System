@@ -18,7 +18,12 @@ class MedicationFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => fake()->unique()->words(2, true),
+            'code' => strtoupper(fake()->unique()->bothify('MED-????')),
+            'generic_name' => fake()->unique()->words(2, true),
+            'brand_name' => null,
+            'strength' => fake()->randomElement(['250 mg', '500 mg', '5 mg', '10 mg', '20 mg']),
+            'form' => fake()->randomElement(Medication::FORMS),
+            'route' => fake()->randomElement(Medication::ROUTES),
             'category' => fake()->randomElement(['Analgesic', 'Antibiotic', 'Antimalarial', 'Antihypertensive', 'Antidiabetic']),
             'status' => Medication::STATUS_ACTIVE,
         ];

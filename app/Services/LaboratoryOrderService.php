@@ -21,7 +21,7 @@ use Illuminate\Validation\ValidationException;
  */
 class LaboratoryOrderService
 {
-    public function __construct(protected AuditLogService $auditLog) {}
+    public function __construct(protected AuditLogService $auditLog, protected ChargeCaptureService $chargeCapture) {}
 
     /**
      * Record a new laboratory order with one or more tests.
@@ -68,7 +68,7 @@ class LaboratoryOrderService
             ]);
 
             foreach ($testIds as $testId) {
-                $this->addItem($order, $tests[$testId], $request);
+                $this->addItem($order, $tests[$testId], $encounter, $request);
             }
 
             return $order;
@@ -161,6 +161,8 @@ class LaboratoryOrderService
                     'cancelled_by' => $request->user()->id,
                     'cancellation_reason' => $reason,
                 ]);
+
+                $this->chargeCapture->voidForSource(LaboratoryOrderItem::class, $item->id, $reason, $request);
             });
         });
 
@@ -196,12 +198,16 @@ class LaboratoryOrderService
 
         $oldValues = $item->only(['status', 'cancelled_at', 'cancellation_reason']);
 
-        $item->update([
-            'status' => LaboratoryOrderItem::STATUS_CANCELLED,
-            'cancelled_at' => now(),
-            'cancelled_by' => $request->user()->id,
-            'cancellation_reason' => $reason,
-        ]);
+        DB::transaction(function () use ($item, $reason, $request) {
+            $item->update([
+                'status' => LaboratoryOrderItem::STATUS_CANCELLED,
+                'cancelled_at' => now(),
+                'cancelled_by' => $request->user()->id,
+                'cancellation_reason' => $reason,
+            ]);
+
+            $this->chargeCapture->voidForSource(LaboratoryOrderItem::class, $item->id, $reason, $request);
+        });
 
         $this->auditLog->record(
             'laboratory_order_item_removed',
@@ -218,9 +224,12 @@ class LaboratoryOrderService
      * Create and audit a single order item, snapshotting the test's code/name
      * from the live catalog row at this moment (spec §44 — historical
      * integrity, so a later catalog rename/deactivation never makes an
-     * existing order ambiguous).
+     * existing order ambiguous). Also captures the billing charge for it,
+     * at order time (Phase 7, Step 54, spec §10) — the same moment lab
+     * resources are committed; a missing billing mapping/price never blocks
+     * the order itself, see ChargeCaptureService's own docblock.
      */
-    protected function addItem(LaboratoryOrder $order, LaboratoryTest $test, Request $request): LaboratoryOrderItem
+    protected function addItem(LaboratoryOrder $order, LaboratoryTest $test, ClinicalEncounter $encounter, Request $request): LaboratoryOrderItem
     {
         $item = LaboratoryOrderItem::create([
             'laboratory_order_id' => $order->id,
@@ -237,6 +246,8 @@ class LaboratoryOrderService
             $item->only(['laboratory_order_id', 'laboratory_test_id', 'test_code', 'status']),
             $request,
         );
+
+        $this->chargeCapture->captureFromLaboratoryOrderItem($item, $encounter, $request);
 
         return $item;
     }
@@ -270,8 +281,10 @@ class LaboratoryOrderService
             ]);
         }
 
+        $encounter = $order->clinicalEncounter;
+
         foreach ($newTestIds as $testId) {
-            $this->addItem($order, $tests[$testId], $request);
+            $this->addItem($order, $tests[$testId], $encounter, $request);
         }
     }
 

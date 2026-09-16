@@ -38,7 +38,8 @@ class RoleSeeder extends Seeder
             'diagnosis-codes.view',
             'treatment.view', 'treatment.create', 'treatment.update', 'treatment.activate', 'treatment.complete', 'treatment.cancel', 'treatment.correct',
             'prescription.view', 'prescription.create', 'prescription.update', 'prescription.cancel',
-            'medications.view',
+            'prescription-orders.view', 'prescription-orders.create', 'prescription-orders.update', 'prescription-orders.cancel',
+            'medications.view', 'medications.create', 'medications.update', 'medications.activate', 'medications.deactivate',
             'clinical-notes.view', 'clinical-notes.create', 'clinical-notes.update', 'clinical-notes.sign', 'clinical-notes.amend', 'clinical-notes.cancel',
             'clinical-history.view',
             'laboratory.view', 'laboratory-orders.view', 'laboratory-orders.create', 'laboratory-orders.update', 'laboratory-orders.cancel',
@@ -57,7 +58,24 @@ class RoleSeeder extends Seeder
             'radiology-reception.view', 'radiology-reception.manage',
             'radiology-examination.view', 'radiology-examination.start', 'radiology-examination.update', 'radiology-examination.complete', 'radiology-examination.abort',
             'radiology-results.view', 'radiology-results.create', 'radiology-results.update', 'radiology-results.submit',
-            'radiology-results.review', 'radiology-results.verify', 'radiology-results.return',
+            'radiology-results.review', 'radiology-results.verify', 'radiology-results.return', 'radiology-results.release',
+            'pharmacy.view', 'pharmacy-prescriptions.view',
+            'pharmacy-verification.view', 'pharmacy-verification.review', 'pharmacy-verification.verify', 'pharmacy-verification.return',
+            'pharmacy-dispensing.view', 'pharmacy-dispensing.start', 'pharmacy-dispensing.complete', 'pharmacy-dispensing.cancel',
+            'pharmacy-stock.view', 'pharmacy-stock.receive', 'pharmacy-stock.adjust', 'pharmacy-stock.quarantine', 'pharmacy-stock.release', 'pharmacy-stock.view_transactions',
+            'pharmacy-reports.view', 'pharmacy-reports.export',
+            'billing.view', 'billing-accounts.view', 'billing-charges.view', 'billing-charges.create',
+            'billing-services.view', 'billing-services.create', 'billing-services.update', 'billing-services.activate', 'billing-services.deactivate',
+            'billing-pricing.view', 'billing-pricing.create', 'billing-pricing.deactivate',
+            'billing-invoices.view', 'billing-invoices.create', 'billing-invoices.post', 'billing-invoices.void',
+            'billing-insurance.view', 'billing-insurance.calculate',
+            'billing-insurance-rules.view', 'billing-insurance-rules.create', 'billing-insurance-rules.deactivate',
+            'billing-payments.view', 'billing-payments.create', 'billing-payments.void',
+            'billing-reversals.view', 'billing-reversals.create',
+            'billing-refunds.view', 'billing-refunds.create',
+            'billing-adjustments.view', 'billing-adjustments.create',
+            'billing-cashier.view', 'billing-cashier.open', 'billing-cashier.close',
+            'billing-reports.view', 'billing-reports.export',
             'audit-logs.view',
         ],
 
@@ -73,6 +91,7 @@ class RoleSeeder extends Seeder
             'diagnosis-codes.view',
             'treatment.view', 'treatment.create', 'treatment.update', 'treatment.activate', 'treatment.complete', 'treatment.cancel', 'treatment.correct',
             'prescription.view', 'prescription.create', 'prescription.update', 'prescription.cancel',
+            'prescription-orders.create', 'prescription-orders.update', 'prescription-orders.cancel',
             'medications.view',
             'clinical-notes.view', 'clinical-notes.create', 'clinical-notes.update', 'clinical-notes.sign', 'clinical-notes.amend', 'clinical-notes.cancel',
             'clinical-history.view',
@@ -97,9 +116,39 @@ class RoleSeeder extends Seeder
             'laboratory-samples.view', 'laboratory-samples.collect', 'laboratory-samples.label', 'laboratory-samples.recollect', 'laboratory-samples.cancel',
         ],
 
+        // Phase 6, Step 44: the pharmacy-facing role that receives and views
+        // prescriptions written by doctors. Only 'view' abilities exist yet
+        // — verification (Step 47), dispensing (Step 48), and stock
+        // (Step 49) permissions will extend this role the same incremental
+        // way 'radiology-technician' grew across Steps 39-41.
         'pharmacist' => [
             'practitioners.view',
             'patients.view',
+            'medications.view',
+            'pharmacy.view', 'pharmacy-prescriptions.view',
+            // Phase 6, Step 46: view access to the first-class
+            // PrescriptionOrder detail page reached from the Pharmacy
+            // worklist, mirroring 'radiology-technician' holding
+            // 'radiology-orders.view'. Dispense/stock abilities (Steps
+            // 48-49) will extend this role the same incremental way.
+            'prescription-orders.view',
+            // Phase 6, Step 47: the independent review gate — mirrors
+            // 'radiology-supervisor' holding the review/verify/return trio.
+            'pharmacy-verification.view', 'pharmacy-verification.review', 'pharmacy-verification.verify', 'pharmacy-verification.return',
+            // Phase 6, Step 48: the actual fulfillment ability — the role
+            // that performs dispensing, mirroring how it already performs
+            // verification.
+            'pharmacy-dispensing.view', 'pharmacy-dispensing.start', 'pharmacy-dispensing.complete', 'pharmacy-dispensing.cancel',
+            // Phase 6, Step 49: the inventory layer behind dispensing — the
+            // same role that dispenses medication also receives and
+            // corrects the stock it dispenses from, since this system has
+            // only one pharmacy operational role today (no separate
+            // Inventory Officer/Pharmacy Technician split exists elsewhere
+            // in this app's role architecture to mirror).
+            'pharmacy-stock.view', 'pharmacy-stock.receive', 'pharmacy-stock.adjust', 'pharmacy-stock.quarantine', 'pharmacy-stock.release', 'pharmacy-stock.view_transactions',
+            // Phase 6, Step 50: reporting/analytics over the pharmacy data
+            // this role already produces day to day.
+            'pharmacy-reports.view', 'pharmacy-reports.export',
         ],
 
         // View access to the radiology worklist/orders (Step 36) plus full
@@ -119,19 +168,35 @@ class RoleSeeder extends Seeder
         ],
 
         // The clinical reporting role (Phase 5, Step 42) — interprets
-        // completed examinations and authors findings/impression. Kept
-        // deliberately separate from both 'doctor' (which only orders
-        // imaging, never interprets it) and 'radiology-technician' (which
-        // performs the operational/technical work, never the clinical
-        // interpretation), mirroring the same "doctor orders, specialist
-        // reports" separation Laboratory has between 'doctor' and
-        // 'laboratory-supervisor'.
+        // completed examinations and authors findings/impression only.
+        // Deliberately excludes review/verify/return/release: a plain
+        // 'radiologist' can draft and submit a report but is never the one
+        // who signs off on it — that responsibility belongs to
+        // 'radiology-supervisor' below, mirroring Laboratory's own
+        // 'laboratory-technician' (entry) vs 'laboratory-supervisor'
+        // (verification/release) split exactly. `RadiologyReportPolicy::
+        // independentOfAuthor()` additionally still prevents a supervisor
+        // from verifying their own report if they also happen to have
+        // authored it themselves.
         'radiologist' => [
             'practitioners.view',
             'patients.view',
             'radiology.view', 'radiology-orders.view', 'radiology-procedures.view',
             'radiology-results.view', 'radiology-results.create', 'radiology-results.update', 'radiology-results.submit',
-            'radiology-results.review', 'radiology-results.verify', 'radiology-results.return',
+        ],
+
+        // The independent verification/release role (Phase 5, Steps 43-44)
+        // — the only role, besides 'hospital-admin', permitted to review,
+        // verify, return, or release a radiology report. Also holds every
+        // 'radiologist' ability, so a supervisor can author reports too
+        // (mirrors 'laboratory-supervisor' holding every
+        // 'laboratory-technician' ability plus its own verification set).
+        'radiology-supervisor' => [
+            'practitioners.view',
+            'patients.view',
+            'radiology.view', 'radiology-orders.view', 'radiology-procedures.view',
+            'radiology-results.view', 'radiology-results.create', 'radiology-results.update', 'radiology-results.submit',
+            'radiology-results.review', 'radiology-results.verify', 'radiology-results.return', 'radiology-results.release',
         ],
 
         'laboratory-technician' => [
@@ -164,8 +229,53 @@ class RoleSeeder extends Seeder
             'reception.view', 'reception.dashboard', 'reception.checkin', 'reception.create_walkin', 'reception.update', 'reception.cancel', 'reception.complete',
         ],
 
+        // Phase 7, Step 52: the billing/payment foundation's own operational
+        // role — a pre-existing stub (patient-insurance.view only) extended
+        // here rather than inventing a new "Billing Officer" role, since
+        // this app already has exactly one financial-facing role and the
+        // spec's own suggested Cashier/Billing Officer/Finance split has no
+        // backing feature yet (payment/refund/reports don't exist as
+        // entities in this step). 'patients.view' is needed to search
+        // patients when recording a manual charge (reuses the existing
+        // patients.search-json endpoint, mirroring MedicationSearch).
         'accountant' => [
+            'patients.view',
             'patient-insurance.view',
+            'billing.view', 'billing-accounts.view', 'billing-charges.view', 'billing-charges.create',
+            // Phase 7, Step 53: the same billing officer manages the
+            // service catalog and its pricing — this app's one financial
+            // role, extended incrementally exactly as pharmacist grew
+            // across Steps 47-50.
+            'billing-services.view', 'billing-services.create', 'billing-services.update', 'billing-services.activate', 'billing-services.deactivate',
+            'billing-pricing.view', 'billing-pricing.create', 'billing-pricing.deactivate',
+            // Phase 7, Step 55: the same billing officer builds and posts
+            // invoices — this app's one financial role, extended
+            // incrementally exactly as it already grew across Steps 52-53.
+            'billing-invoices.view', 'billing-invoices.create', 'billing-invoices.post', 'billing-invoices.void',
+            // Phase 7, Step 56: the same billing officer calculates
+            // insurance coverage on an invoice and configures coverage
+            // rules — this app's one financial role, extended incrementally
+            // exactly as it already grew across Steps 52-55.
+            'billing-insurance.view', 'billing-insurance.calculate',
+            'billing-insurance-rules.view', 'billing-insurance-rules.create', 'billing-insurance-rules.deactivate',
+            // Phase 7, Step 57: the same billing officer records patient
+            // payments — this app's one financial role, extended
+            // incrementally exactly as it already grew across Steps 52-56.
+            'billing-payments.view', 'billing-payments.create', 'billing-payments.void',
+            // Phase 7, Step 58: the same billing officer issues reversals,
+            // refunds, and adjustments — the financial correction trio that
+            // completes the payment lifecycle, extended incrementally the same
+            // way this role grew across Steps 52-57.
+            'billing-reversals.view', 'billing-reversals.create',
+            'billing-refunds.view', 'billing-refunds.create',
+            'billing-adjustments.view', 'billing-adjustments.create',
+            // Phase 7, Step 59: the same billing officer manages cashier
+            // sessions — opens a session at the start of their shift and
+            // closes/reconciles it at the end.
+            'billing-cashier.view', 'billing-cashier.open', 'billing-cashier.close',
+            // Phase 7, Step 60: the same billing officer views financial
+            // reports and exports CSV extracts.
+            'billing-reports.view', 'billing-reports.export',
         ],
     ];
 

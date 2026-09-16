@@ -2,6 +2,7 @@ import { RadiologyExaminationAbortDialog } from '@/components/radiology/radiolog
 import { RadiologyExaminationCompleteDialog } from '@/components/radiology/radiology-examination-complete-dialog';
 import { RadiologyExaminationStartDialog } from '@/components/radiology/radiology-examination-start-dialog';
 import { RadiologyExaminationTechnicalForm } from '@/components/radiology/radiology-examination-technical-form';
+import { RadiologyImageGallery } from '@/components/radiology/radiology-image-gallery';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +24,7 @@ interface RadiologyExaminationShowProps {
     appointment: RadiologyAppointment;
     abortReasons: string[];
     technicalFields: RadiologyTechnicalFieldsByModality;
+    canManageImages: boolean;
 }
 
 function formatDateTime(value: string | null): string {
@@ -37,7 +39,7 @@ function formatDateTime(value: string | null): string {
  * ability independently re-checked server-side (Part 21) — hiding a button
  * is a convenience, never the actual guard.
  */
-export default function RadiologyExaminationShow({ appointment, technicalFields }: RadiologyExaminationShowProps) {
+export default function RadiologyExaminationShow({ appointment, technicalFields, canManageImages }: RadiologyExaminationShowProps) {
     const { can } = usePermissions();
 
     const patientName = appointment.patient
@@ -71,17 +73,9 @@ export default function RadiologyExaminationShow({ appointment, technicalFields 
                         <Badge variant={radiologyAppointmentStatusVariant[appointment.status]}>
                             {radiologyAppointmentStatusLabel[appointment.status]}
                         </Badge>
-                        {canStart && (
-                            <RadiologyExaminationStartDialog
-                                appointment={appointment}
-                                trigger={<Button>Start Examination</Button>}
-                            />
-                        )}
+                        {canStart && <RadiologyExaminationStartDialog appointment={appointment} trigger={<Button>Start Examination</Button>} />}
                         {canComplete && (
-                            <RadiologyExaminationCompleteDialog
-                                appointmentId={appointment.id}
-                                trigger={<Button>Complete Examination</Button>}
-                            />
+                            <RadiologyExaminationCompleteDialog appointmentId={appointment.id} trigger={<Button>Complete Examination</Button>} />
                         )}
                         {canAbort && <RadiologyExaminationAbortDialog appointmentId={appointment.id} />}
                     </div>
@@ -217,6 +211,22 @@ export default function RadiologyExaminationShow({ appointment, technicalFields 
                     <RadiologyExaminationTechnicalForm appointment={appointment} technicalFields={technicalFields} canEdit={canUpdate} />
                 )}
 
+                {(appointment.status === 'in_progress' || appointment.status === 'completed') && (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base">Imaging / X-Ray Images</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <RadiologyImageGallery
+                                appointmentId={appointment.id}
+                                images={appointment.images ?? []}
+                                canManage={canManageImages && appointment.status === 'in_progress'}
+                                caption={appointment.item?.procedure_name}
+                            />
+                        </CardContent>
+                    </Card>
+                )}
+
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base">Timeline</CardTitle>
@@ -254,7 +264,6 @@ export default function RadiologyExaminationShow({ appointment, technicalFields 
                         </ol>
                     </CardContent>
                 </Card>
-
             </div>
         </AppLayout>
     );

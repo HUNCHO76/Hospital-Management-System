@@ -73,12 +73,13 @@ class RadiologyExaminationController extends Controller
     {
         $this->authorize('viewExamination', $radiologyAppointment);
 
-        $radiologyAppointment->load($this->eagerLoads());
+        $radiologyAppointment->load([...$this->eagerLoads(), 'images', 'images.uploadedBy:id,UserName']);
 
         return Inertia::render('radiology/examinations/show', [
             'appointment' => (new RadiologyAppointmentResource($radiologyAppointment))->resolve($request),
             'abortReasons' => RadiologyAppointment::ABORT_REASONS,
             'technicalFields' => RadiologyAppointment::TECHNICAL_FIELDS_BY_MODALITY,
+            'canManageImages' => $request->user()->can('manageImages', $radiologyAppointment),
         ]);
     }
 

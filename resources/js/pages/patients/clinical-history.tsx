@@ -10,6 +10,15 @@ import AppLayout from '@/layouts/app-layout';
 import { clinicalEncounterStatusLabel, clinicalEncounterStatusVariant } from '@/lib/clinical-encounter-status';
 import { clinicalNoteStatusLabel, clinicalNoteStatusVariant, clinicalNoteTypeLabel } from '@/lib/clinical-note-status';
 import { diagnosisStatusLabel, diagnosisStatusVariant } from '@/lib/diagnosis-status';
+import { fulfillmentStatusLabel, fulfillmentStatusVariant } from '@/lib/dispensing-status';
+import {
+    prescriptionFrequencyLabel,
+    prescriptionOrderStatusLabel,
+    prescriptionOrderStatusVariant,
+    prescriptionRouteLabel,
+    prescriptionVerificationStatusLabel,
+    prescriptionVerificationStatusVariant,
+} from '@/lib/prescription-status';
 import { radiologyModalityLabel, radiologyOrderStatusLabel, radiologyOrderStatusVariant } from '@/lib/radiology-status';
 import { type BreadcrumbItem, type Paginated } from '@/types';
 import { type ClinicalEncounterDepartment, type ClinicalEncounterPractitioner } from '@/types/clinical-encounter';
@@ -344,7 +353,29 @@ function EncounterSummary({ encounter }: { encounter: ClinicalHistoryEncounter }
                         </div>
 
                         <div>
-                            <h4 className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">Radiology</h4>
+                            <h4 className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">Radiology Results</h4>
+                            {encounter.radiology_results.length > 0 ? (
+                                <ul className="space-y-1">
+                                    {encounter.radiology_results.map((result) => (
+                                        <li key={result.id} className="flex flex-wrap items-center gap-2 text-sm">
+                                            <Badge variant="secondary">Released</Badge>
+                                            <span>
+                                                {result.procedure_name}
+                                                {result.modality ? ` (${radiologyModalityLabel[result.modality]})` : ''}
+                                            </span>
+                                            <Link href={route('radiology-results.show', result.id)} className="text-primary hover:underline">
+                                                View Report
+                                            </Link>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-muted-foreground text-sm">No released radiology results yet.</p>
+                            )}
+                        </div>
+
+                        <div>
+                            <h4 className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">Radiology Orders</h4>
                             {encounter.radiology_orders.length > 0 ? (
                                 <ul className="space-y-2">
                                     {encounter.radiology_orders.map((order) => (
@@ -370,6 +401,48 @@ function EncounterSummary({ encounter }: { encounter: ClinicalHistoryEncounter }
                                 </ul>
                             ) : (
                                 <p className="text-muted-foreground text-sm">No radiology orders recorded.</p>
+                            )}
+                        </div>
+
+                        <div>
+                            <h4 className="text-muted-foreground mb-1 text-xs font-medium tracking-wide uppercase">Prescriptions</h4>
+                            {encounter.prescription_orders.length > 0 ? (
+                                <ul className="space-y-2">
+                                    {encounter.prescription_orders.map((order) => (
+                                        <li key={order.id} className="text-sm">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Link href={route('pharmacy.prescriptions.show', order.id)} className="font-medium hover:underline">
+                                                    {order.prescription_number}
+                                                </Link>
+                                                <Badge variant={prescriptionOrderStatusVariant[order.status]}>
+                                                    {prescriptionOrderStatusLabel[order.status]}
+                                                </Badge>
+                                                {order.verification_status && (
+                                                    <Badge variant={prescriptionVerificationStatusVariant[order.verification_status]}>
+                                                        {prescriptionVerificationStatusLabel[order.verification_status]}
+                                                    </Badge>
+                                                )}
+                                                {order.dispensing_status && (
+                                                    <Badge variant={fulfillmentStatusVariant[order.dispensing_status]}>
+                                                        {fulfillmentStatusLabel[order.dispensing_status]}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            <ul className="text-muted-foreground ml-1 space-y-0.5">
+                                                {order.items.map((item) => (
+                                                    <li key={item.id} className={item.status === 'cancelled' ? 'line-through' : ''}>
+                                                        {item.medication_name_snapshot}
+                                                        {item.strength_snapshot ? ` ${item.strength_snapshot}` : ''} —{' '}
+                                                        {[item.dose, item.dose_unit].filter(Boolean).join(' ')},{' '}
+                                                        {prescriptionFrequencyLabel[item.frequency]}, {prescriptionRouteLabel[item.route]}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-muted-foreground text-sm">No prescriptions recorded.</p>
                             )}
                         </div>
                     </CardContent>

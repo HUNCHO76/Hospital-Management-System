@@ -50,7 +50,7 @@ test('the full pathway from a submitted report through a return-correct-resubmit
     $this->actingAs($radiologist['user'])->post(route('radiology-results.submit', $report))->assertRedirect();
     expect($report->fresh()->status)->toBe(RadiologyReport::STATUS_SUBMITTED);
 
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     // The verifier's worklist surfaces it as pending verification.
     $this->actingAs($verifier['user'])->get(route('radiology-verification.index'))
@@ -124,7 +124,7 @@ test('the full pathway from a submitted report through a return-correct-resubmit
 test('the successful path with no return: submit straight to verified', function () {
     $ctx = radiologyOrderReadyForScheduling();
     $report = submittedRadiologyReportFor($ctx);
-    $verifier = radiologistWithPractitioner($ctx['hospital']);
+    $verifier = radiologySupervisorWithPractitioner($ctx['hospital']);
 
     $this->actingAs($verifier['user'])->get(route('radiology-verification.review', $report))->assertOk();
 

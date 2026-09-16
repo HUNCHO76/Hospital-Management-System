@@ -1,3 +1,4 @@
+import { RadiologyImageGallery } from '@/components/radiology/radiology-image-gallery';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { radiologyTechnicalFieldLabel } from '@/lib/radiology-status';
 import { type RadiologyReport } from '@/types/radiology';
@@ -52,6 +53,18 @@ export function RadiologyExaminationSummary({ report }: RadiologyExaminationSumm
                     <div className="border-t pt-3 text-sm">
                         <p className="text-muted-foreground">Technical Notes</p>
                         <p className="whitespace-pre-wrap">{examination.technical_notes}</p>
+                    </div>
+                )}
+
+                {examination && (
+                    <div className="border-t pt-3">
+                        <p className="text-muted-foreground mb-2 text-sm">Imaging / X-Ray Images</p>
+                        <RadiologyImageGallery
+                            appointmentId={examination.id}
+                            images={examination.images}
+                            canManage={false}
+                            caption={report.item?.procedure_name}
+                        />
                     </div>
                 )}
             </CardContent>

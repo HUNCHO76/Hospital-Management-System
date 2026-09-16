@@ -76,6 +76,7 @@ class RadiologyAppointmentResource extends JsonResource
             'aborted_at' => optional($this->aborted_at)->toIso8601String(),
             'aborted_by' => $this->whenLoaded('abortedBy', fn () => $this->abortedBy?->only(['id', 'UserName'])),
             'abort_reason' => $this->abort_reason,
+            'images' => $this->whenLoaded('images', fn () => RadiologyImageResource::collection($this->images)->resolve($request)),
             'item' => $item ? [
                 'id' => $item->id,
                 'procedure_code' => $item->procedure_code,

@@ -1581,3 +1581,728 @@ Worklist -> Start Report -> Technique/Findings/Impression -> Save Draft ->
 Reopen -> Update -> Submit -> SUBMITTED (ready for verification) works
 correctly end to end, alongside the two-radiologists-race protection and
 the aborted-examination-cannot-be-reported guard.**
+
+# Radiology Report Verification & Authorization (Phase 5, Step 43)
+
+## Existing architecture audited
+
+Searched for `radiology_verifications`/`radiology_authorizations`/
+`radiology_report_reviews`/`result_verifications`/
+`clinical_result_verifications` — none exist. `RadiologyReport` (Step 42)
+already declares `STATUS_RETURNED` and a `SUBMITTED -> RETURNED -> DRAFT`
+transition, unreachable through any Step 42 code path, explicitly left for
+this step to build on.
+
+Laboratory's own verification workflow (`LaboratoryResultService`, Phase 4
+Steps 33-35) was inspected in full: `startReview()`/`verifyResult()`/
+`returnForCorrection()`/`authorizeResult()`, the `entered_by`-vs-reviewer
+role-separation rule (`LaboratoryResultPolicy::isNotTheEnteringUser()`), and
+the `LaboratoryResult\ReturnForCorrectionRequest`'s reason-enum +
+comments-required-only-for-"other" pattern. These patterns were reused
+directly rather than re-invented.
+
+## Decision: extend `RadiologyReport`, no new entity
+
+Per Part 16's own "do NOT automatically create this table" instruction: a
+report is a single mutable row, and its full change history (who wrote it,
+who changed it, who returned it, who verified it, and when) is already
+fully answerable by the existing `AuditLogService` trail, the same way
+Laboratory's own draft-editing phase (Steps 33-34) relied on the audit log
+alone before a dedicated version-snapshot table (`LaboratoryReport`) was
+introduced at *release* (Step 35) — a materially different need (freezing a
+printable document) that Step 43 does not have. So no
+`radiology_report_verifications` table was created; `radiology_reports`
+gained columns instead.
+
+No persisted `UNDER_REVIEW` status was introduced either (Part 9's explicit
+"do not create it unnecessarily"). Conflicting concurrent verification is
+prevented purely by row-locking plus the status check inside
+`verify()`/`returnForCorrection()` — exactly the same guard every other
+Radiology service in this app already uses for its own race conditions
+(scheduling double-booking, two-radiologists-racing-to-report, etc.). A
+"review started" audit event is still recorded (satisfying Part 22's
+`RADIOLOGY_REPORT_REVIEW_STARTED` requirement) — it just never gates
+anything by itself.
+
+`RadiologyVerificationPolicy` was not created as a separate class; the new
+`review`/`verify`/`returnForCorrection` abilities were added directly to the
+existing `RadiologyReportPolicy` (one policy per model is this app's
+established convention — `LaboratoryResultPolicy` alone covers its entire
+create-through-release lifecycle the same way).
+
+## Database
+
+One additive migration on `radiology_reports`:
+
+```
+radiology_reports
+  + verifying_practitioner_id (FK -> practitioners, nullable, restrictOnDelete)
+      mirrors reporting_practitioner_id exactly — a Practitioner, not a
+      User, so the self-verification rule compares like with like.
+  + verified_by (FK -> users, nullable, restrictOnDelete)
+  + verified_at (nullable timestamp)
+  + verification_notes (nullable text — administrative only, never clinical content)
+  + returned_by (FK -> users, nullable, restrictOnDelete)
+  + returned_at (nullable timestamp)
+  + return_reason (nullable string, enum-validated)
+  + return_comments (nullable text)
+```
+
+`return_reason`/`return_comments`/`returned_by`/`returned_at` are never
+cleared once set, even after the report is corrected and resubmitted (Part
+12's "must clearly show Returned/Returned By/Returned At/Return Reason"
+remains true as history, not just while the status is still RETURNED).
+
+## Model: `RadiologyReport`
+
+Final implemented state machine:
+
+```
+DRAFT -> SUBMITTED -> VERIFIED               (terminal, immutable)
+SUBMITTED -> RETURNED -> DRAFT -> SUBMITTED  (repeatable correction cycle)
+```
+
+```php
+TRANSITIONS = [
+    DRAFT     => [SUBMITTED],
+    SUBMITTED => [VERIFIED, RETURNED],
+    RETURNED  => [DRAFT],
+    VERIFIED  => [],
+];
+```
+
+New `RETURN_REASONS` constant (Part 11): `incomplete_findings`,
+`unclear_impression`, `incorrect_technique`, `missing_recommendation`,
+`clinical_inconsistency`, `wrong_procedure_information`,
+`typographical_error`, `additional_review_required`, `other`. New relations:
+`verifyingPractitioner()`, `verifiedBy()`, `returnedBy()`.
+
+## Service: `RadiologyReportService` (extended, not duplicated)
+
+- `updateDraft()` now accepts `RETURNED` as well as `DRAFT` (mirroring
+  `LaboratoryResultService::saveDraft()`'s identical `editableFrom` shape) —
+  correcting a returned report normalizes its status back to `DRAFT`,
+  auditing the `RETURNED -> DRAFT` transition distinctly.
+- `submit()` additionally fires `radiology_report_resubmitted` (on top of
+  the existing `radiology_report_submitted`) whenever `returned_at` is
+  already set — a resubmission, never a new report.
+- `recordReviewStarted()` — audit-only, fires
+  `radiology_report_review_started` only while the report is still
+  `SUBMITTED` (re-opening an already-decided report for reference does not
+  spam the log).
+- `verify()` — locks the report row, re-checks `SUBMITTED`, re-verifies the
+  underlying examination is still `COMPLETED` (defense in depth), enforces
+  the self-verification rule server-side a second time (the policy already
+  checked it — this is not a single point of failure), then sets `VERIFIED`
+  + `verifying_practitioner_id`/`verified_by`/`verified_at`/
+  `verification_notes`.
+- `returnForCorrection()` — locks the row, re-checks `SUBMITTED`, enforces
+  the same self-verification rule, records `return_reason`/`return_comments`/
+  `returned_by`/`returned_at`. The report's clinical content is never
+  touched here.
+
+## Self-verification protection (Part 5)
+
+```
+reporting_practitioner_id != verifying_practitioner_id
+```
+
+enforced in two independent places — `RadiologyReportPolicy::
+independentOfAuthor()` (so the Verify/Return buttons never even render for
+the report's own author) and again inside
+`RadiologyReportService::verify()`/`returnForCorrection()` (so the rule
+holds even if a request reaches the service directly). Both read a new
+`config('radiology.allow_self_verification')` flag
+(`config/radiology.php`, `RADIOLOGY_ALLOW_SELF_VERIFICATION` env var,
+defaults to `false`) rather than hard-coding independence — Part 5's own
+explicit "make that behavior configurable" instruction.
+
+## Permissions & policy
+
+Extended the existing `radiology-results` permission group (Part 17's "do
+not create redundant permissions") rather than a new `radiology-verification`
+namespace:
+
+```
+radiology-results: view, create, update, submit, review, verify, return
+```
+
+Granted to `hospital-admin` and `radiologist` (the same clinical-reporting
+role from Step 42 — any radiologist may verify a colleague's report, just
+never their own). Deliberately **not** granted to `radiology-technician`
+(Part 4's clinical separation — a technician has zero `radiology-results.*`
+permissions at all, so this holds structurally, not just by convention).
+
+`RadiologyReportPolicy` gained `review()`/`verify()`/`returnForCorrection()`,
+each: permission check -> hospital scope (`belongsToUsersHospital()`,
+reused as-is) -> `independentOfAuthor()`.
+
+## Routes (web + Inertia only)
+
+```
+GET  radiology/verification                       radiology-verification.index
+GET  radiology/verification/{radiologyReport}      radiology-verification.review
+POST radiology/verification/{radiologyReport}/verify   radiology-verification.verify
+POST radiology/verification/{radiologyReport}/return   radiology-verification.return
+```
+
+No history route — `radiology-results.history` (Step 42) is reused as-is;
+every role holding verification permissions already has `radiology-results.view`.
+
+## Form Requests
+
+`VerifyRadiologyReportRequest` (`verification_notes` nullable, max 1000),
+`ReturnRadiologyReportRequest` (`return_reason` required enum,
+`return_comments` required only when `return_reason === 'other'`, mirroring
+`LaboratoryResult\ReturnForCorrectionRequest` exactly). Neither accepts a
+client-supplied `verifying_practitioner_id`/`facility_id`/`patient_id` —
+proven by a dedicated test.
+
+## Frontend
+
+`radiology/verification/index.tsx` — worklist defaulting to the actionable
+`SUBMITTED` queue (priority-first, then submission time — never a
+user-toggleable sort), with a status filter to browse VERIFIED/RETURNED
+history. `radiology/verification/show.tsx` — full read-only patient/
+encounter/order/procedure/examination/report context (reuses
+`RadiologyExaminationSummary` from Step 42 as-is), a Returned-history panel
+and a Verified panel shown conditionally, and `RadiologyVerifyDialog`/
+`RadiologyReturnDialog` (both require explicit confirmation, mirroring
+Laboratory's `VerifyResultDialog`/`ReturnForCorrectionDialog`). A
+"Verification" quick link was added to the Radiology dashboard, gated on
+`radiology-results.review`.
+
+## Audit events
+
+`radiology_report_review_started`, `radiology_report_verified`,
+`radiology_report_returned`, `radiology_report_resubmitted`,
+`radiology_verification_note_added` (fired only when verification_notes is
+non-empty), plus the existing `radiology_report_updated`/
+`radiology_report_status_changed` events for the return-correct cycle. No
+credentials, tokens, or unnecessary clinical content logged.
+
+## Security
+
+- Facility/hospital isolation: `belongsToUsersHospital()` (reused) plus a
+  dedicated `scopeReportsToHospital()` on the worklist query.
+- IDOR: a hospital-admin cannot open, verify, or return another hospital's
+  report by changing the id in the URL, and the worklist itself never lists
+  it — proven by `RadiologyVerificationIdorTest`.
+- Self-verification: blocked at both policy and service layers, proven with
+  and without the `allow_self_verification` override.
+- Concurrency: two verifiers racing to verify the same report — one
+  succeeds, the second gets a `ValidationException`; verifying while another
+  attempts to return is likewise serialized to exactly one winner.
+- Status manipulation: verifying/returning a DRAFT, or acting twice on an
+  already-VERIFIED report, is rejected server-side regardless of what the
+  UI would show.
+
+## Tests
+
+`RadiologyVerificationTest` (8, service-level: verify, self-verification
+block + config override, return, the full return-correct-resubmit-verify
+cycle, verified-report immutability, review-started audit gating),
+`RadiologyVerificationAuthorizationTest` (8: guest/doctor/technician
+forbidden, author-cannot-verify-or-return-own-report, independent
+radiologist succeeds, permission-less user forbidden, hospital-admin
+scoped, super-admin bypass), `RadiologyVerificationIdorTest` (3),
+`RadiologyVerificationValidationTest` (9), `RadiologyVerificationConcurrencyTest`
+(3), `RadiologyVerificationEndToEndTest` (2, including the full Part 34
+scenario with a return-correct-resubmit cycle). All 33 pass.
+
+Regression: all pre-existing Radiology tests (Steps 36-42, 212 tests across
+33 files) re-run and pass unchanged, including `RadiologyReportTest`'s own
+`TRANSITIONS` assertion (updated for the new VERIFIED/RETURNED shape — the
+only pre-existing test that needed a change, since it asserted the old,
+narrower transition table by value). `tests/Feature/OpdWorkflow` (10 tests)
+also re-run and pass; no Laboratory/Patient/ClinicalEncounter files were
+touched by this step, so a full run of those suites was not repeated beyond
+this cross-module smoke check.
+
+## Remaining issues
+
+None blocking. Explicitly out of scope per this step's own boundary (Part
+37): final result release, patient portal release, SMS/email delivery,
+billing, payment, NHIF claims, PACS/DICOM, advanced image viewer,
+admission/discharge, and any post-verification amendment workflow (the
+architecture is left ready for one, per Part 15, but none is built). A
+`VERIFIED` report (`RadiologyReport::where('status', 'verified')`) is
+exactly the structured handoff Step 44 (Radiology Result Release) will
+build on.
+
+**STEP 43 COMPLETE — the pathway Submitted Report -> Verification Worklist
+-> Review -> Verify (or Return -> Correct -> Resubmit -> Review again ->
+Verify) -> VERIFIED works correctly end to end, alongside self-verification
+protection, facility isolation, IDOR protection, and concurrent-verification
+protection.**
+
+# Radiology Result Release (Phase 5, Step 44)
+
+## Existing architecture audited
+
+Searched for `radiology_releases`/`result_release`/`result_releases`/
+`clinical_results`/`diagnostic_results`/`laboratory_releases`/
+`released_results` — none exist beyond `laboratory_results` itself, which
+already implements exactly this pattern for Laboratory (Phase 4, Step 35):
+`released_by`/`released_at`/`release_comment` columns living directly on
+the same result row, no separate release table, `STATUS_RELEASED` as a
+terminal state reachable only from `AUTHORIZED`. That precedent — plus
+`ClinicalHistoryEncounterResource::releasedLaboratoryResults()` (filters to
+`STATUS_RELEASED` only when surfacing results on the patient's timeline)
+and `ClinicalEncounterController::show()`'s existing `laboratoryOrders`
+eager-load pattern — was reused directly rather than re-invented.
+
+One real gap was found: **radiology results were not shown on the clinical
+encounter page at all** — `radiologyOrders` there only ever carried plain
+order/item status tracking (Step 38), never examination or report content.
+This step adds that missing integration.
+
+## Decision: extend `RadiologyReport` again, no new entity
+
+Per Part 13's own "do not store unnecessary duplicate report content"
+instruction and mirroring the Step 43 migration's reasoning: release
+metadata lives directly on the same `radiology_reports` row
+(`released_by`/`released_at`/`release_notes`), not a separate release/
+history table. Radiology has no `AUTHORIZED` intermediate status (unlike
+Laboratory's), and Part 3 explicitly says not to invent one — so the
+implemented transition is the minimum valid one: `VERIFIED -> RELEASED`
+(terminal).
+
+## Database
+
+One additive migration on `radiology_reports`:
+
+```
+radiology_reports
+  + released_by (FK -> users, nullable, restrictOnDelete)
+  + released_at (nullable timestamp)
+  + release_notes (nullable text)
+```
+
+## Model: `RadiologyReport`
+
+```
+VERIFIED -> RELEASED   (terminal)
+```
+
+```php
+TRANSITIONS = [
+    ...
+    VERIFIED  => [RELEASED],
+    RELEASED  => [],
+];
+```
+
+New `releasedBy()` relation.
+
+## Service: `RadiologyReportService::release()` (extended, not a new class)
+
+Continues this Radiology module's own established pattern (all of Steps
+42-44's create/update/submit/review/verify/return/release logic lives in
+one `RadiologyReportService`) rather than the spec's own suggested
+`RadiologyResultReleaseService` name — mirroring Laboratory's own
+`LaboratoryResultService::release()`, which likewise lives in the same
+single service that owns that entity's entire lifecycle, not a separate
+release-only class.
+
+`release()`: locks the report row, re-checks `canTransitionTo(RELEASED)`
+(only from `VERIFIED`), re-verifies the underlying examination is still
+`COMPLETED` (defense in depth, mirroring `submit()`/`verify()`'s own
+re-verification pattern), then sets `RELEASED` + `released_by`/
+`released_at`/`release_notes`. Report content (`technique`/`findings`/
+`impression`/`recommendations`) is never touched — release changes
+workflow state, not clinical interpretation (Part 34/38).
+
+## Policy: `RadiologyReportPolicy::release()` (extended, not a new class)
+
+Permission + hospital scope only — no independence-from-author/verifier
+restriction (Part 9-11 impose none here, unlike Step 43's self-verification
+rule). A reporting practitioner or the report's own verifier may release
+it; only permission and facility scope gate the action.
+
+## Controller: `RadiologyResultReleaseController` (new)
+
+Kept as its own controller — continuing this module's own established
+convention (a dedicated controller per distinct worklist stage since Step
+39) rather than folding release into `RadiologyVerificationController` or
+`RadiologyReportController`, even though Laboratory's own precedent keeps
+verify/authorize/release together on one controller. `index()`/`show()`/
+`release()`, thin, delegating every rule to
+`RadiologyReportPolicy`/`RadiologyReportService`.
+
+## Permissions & policy
+
+Extended the existing `radiology-results` permission group (Part 9's own
+"reuse existing permission naming conventions") rather than a new
+`radiology-release` or `radiology.release.*` namespace:
+
+```
+radiology-results: view, create, update, submit, review, verify, return, release
+```
+
+Granted to `hospital-admin` and `radiologist` — the same role already
+verifying reports, since no separate "senior radiologist" role exists in
+this app's Spatie configuration and none was invented for this step (Part
+9's own "do not hard-code role names if the existing permission
+architecture already controls this").
+
+## Routes (web + Inertia only)
+
+```
+GET  radiology/release                       radiology-release.index
+GET  radiology/release/{radiologyReport}     radiology-release.show
+POST radiology/release/{radiologyReport}     radiology-release.release
+```
+
+No history route — `radiology-results.history` (Step 42) is reused as-is.
+
+## Form Request
+
+`ReleaseRadiologyResultRequest` — `release_notes` nullable, max 1000. Never
+accepts `released_by`/`facility_id`/`patient_id`/`status` — proven by a
+dedicated test.
+
+## Clinical encounter & patient history integration (Part 15-18)
+
+New `RadiologyResultResource` — a lightweight, purpose-built resource
+(distinct from `RadiologyReportResource`, which re-derives the full
+patient/encounter/order chain upward from a report for the standalone
+report/verification/release pages) for the two places where the caller
+already has patient/encounter/order/item in scope, walking *down* to the
+report instead:
+
+- `ClinicalEncounterController::show()` — a new `radiologyResults` prop,
+  computed by walking `radiologyOrders.items.radiologyAppointments.report`
+  and filtering to `RadiologyReport::STATUS_RELEASED` only. Rendered by a
+  new `RadiologyResultsSection` component on the encounter page, right
+  after the existing `RadiologyOrdersSection` (which is unchanged and
+  keeps showing plain order/item status tracking for every status,
+  regardless of release).
+- `ClinicalHistoryService::timeline()` — extended eager-loads mirroring
+  Laboratory's own; `ClinicalHistoryEncounterResource` gained a new
+  `radiology_results` field via `releasedRadiologyResults()`, mirroring
+  `releasedLaboratoryResults()`'s exact filter-then-map shape (reusing
+  `RadiologyResultResource` rather than hand-rolling the array twice). The
+  existing `radiology_orders` field is untouched; the patient
+  clinical-history page's "Radiology" heading was renamed "Radiology
+  Orders" and a new "Radiology Results" list (mirroring "Laboratory
+  Results") was added above it.
+
+The visibility boundary (Part 18) is enforced entirely server-side by this
+filter — a VERIFIED-but-not-yet-released report is structurally excluded
+from both props; there is no client-side hiding to bypass.
+
+## Audit events
+
+`radiology_result_released`, recording facility/patient/encounter/order/
+order-item/examination/report/released_by/timestamp via the existing
+`AuditLogService` — no report content logged. `RADIOLOGY_RESULT_VIEWED` was
+deliberately **not** added: Laboratory's own release step (Step 35) never
+added a per-result "viewed" audit event either (only the broader,
+already-existing `clinical_history_viewed` at the whole-timeline level), so
+per Part 21's own "only add VIEWED if the existing architecture already
+tracks it," none was introduced here.
+
+## Notifications
+
+No result-released notification integration was built. This app has no
+existing notification-delivery architecture to integrate with (no queued
+jobs, mailers, or in-app notification table were found anywhere in the
+codebase) — per Part 20's own "however, do not create a new notification
+system," none was invented. The doctor's own encounter page and patient
+history already surface the released result automatically (Part 15-16),
+which is this step's actual delivery mechanism.
+
+## Security
+
+- Facility/hospital isolation: `belongsToUsersHospital()` (reused) plus
+  `scopeReportsToHospital()` (reused from Step 43) applied to the release
+  worklist query.
+- IDOR: a hospital-admin cannot view or release another hospital's result
+  by changing the id in the URL, and the release worklist itself never
+  lists it — proven by `RadiologyReleaseIdorTest`.
+- Concurrency: two users racing to release the same result — one succeeds,
+  the second gets a `ValidationException` naming the current status.
+- Result immutability: `updateDraft()`'s `editableFrom` list never includes
+  `RELEASED`, so the normal report-edit route is blocked server-side
+  regardless of what the UI shows.
+- Release protection: only `VERIFIED` reports satisfy
+  `canTransitionTo(RELEASED)` — DRAFT/SUBMITTED/RETURNED are all rejected,
+  and an ABORTED examination never even produces a report to begin with
+  (Step 42's own eligibility gate).
+- Clinical privacy: released-result visibility on the encounter/history
+  pages is gated the same way every other clinical section on those same
+  pages already is (the encounter's own `view` policy, the patient's
+  `viewClinicalHistory` policy) — no separate, weaker access path was
+  introduced.
+
+## Tests
+
+`RadiologyReleaseTest` (6, service-level: release, metadata, re-release
+protection, content preservation, immutability, transitions),
+`RadiologyReleaseValidationTest` (7: DRAFT/SUBMITTED/RETURNED/aborted
+cannot release, release_notes length, re-release via HTTP, client-supplied
+identity fields ignored), `RadiologyReleaseAuthorizationTest` (8: guest/
+doctor/technician forbidden, permission-less forbidden, authorized
+radiologist succeeds, no independence restriction, hospital-admin scoped,
+super-admin bypass), `RadiologyReleaseIdorTest` (2),
+`RadiologyReleaseConcurrencyTest` (2), `RadiologyReleaseVisibilityTest` (5:
+before/after release on both the encounter page and patient history, plus
+the order-remains-visible-regardless check), `RadiologyReleaseEndToEndTest`
+(1, the full Part 37 pathway from order through release to encounter/
+history visibility, plus the post-release edit-blocked and cannot-
+re-release checks). All 31 pass.
+
+Regression: all pre-existing Radiology tests (Steps 36-43, 213 tests across
+39 files) re-run and pass unchanged, including `RadiologyReportTest`'s and
+`RadiologyReleaseTest`'s own `TRANSITIONS` assertions (updated for the new
+RELEASED shape). `tests/Feature/ClinicalEncounters` (36 tests),
+`tests/Feature/ClinicalNotes/ClinicalHistoryTest` (part of that same 36),
+and `tests/Feature/OpdWorkflow` (10 tests) also re-run and pass — both
+touched by this step's `ClinicalEncounterController`/`ClinicalHistoryService`
+changes.
+
+## Remaining issues
+
+None blocking. Explicitly out of scope per this step's own boundary (Part
+35): billing, payment, insurance claims, NHIF claim submission,
+preauthorization, and claim adjudication. A `RELEASED` report
+(`RadiologyReport::where('status', 'released')`) is exactly the structured,
+traceable handoff Step 45 (Radiology Billing Integration) will build on.
+
+**STEP 44 COMPLETE — the pathway Verified Report -> Release Worklist ->
+Release -> RELEASED -> Doctor's Clinical Encounter -> Patient Medical
+History works correctly end to end, alongside re-release protection,
+result immutability, facility isolation, IDOR protection, and
+concurrent-release protection.**
+
+# Radiology UI Completion Pass — Audit, Imaging, and Bug Fixes
+
+A full UI audit was run across the entire Radiology module (order ->
+scheduling -> arrival -> verification -> preparation -> examination ->
+imaging -> reporting -> verification -> release -> doctor result -> patient
+history), using the status matrix below. Steps 36-44 were found essentially
+complete and well-tested already; the two genuine gaps closed here are
+X-Ray/imaging support (nothing existed anywhere in the codebase for it) and
+two real frontend bugs found during the audit.
+
+## Status matrix (final)
+
+| UI Area | Status |
+| --- | --- |
+| Radiology dashboard | IMPLEMENTED |
+| Radiology order list | IMPLEMENTED |
+| Radiology order details | IMPLEMENTED (fixed — see below) |
+| Radiology order creation | IMPLEMENTED |
+| Procedure selector | IMPLEMENTED |
+| Order status display | IMPLEMENTED (fixed — see below) |
+| Scheduling UI | IMPLEMENTED |
+| Radiology worklist | IMPLEMENTED |
+| Unscheduled orders queue | IMPLEMENTED |
+| Appointment/schedule view | IMPLEMENTED |
+| Patient arrival | IMPLEMENTED (fixed — see below) |
+| Order verification | IMPLEMENTED |
+| Preparation status | IMPLEMENTED |
+| READY state | IMPLEMENTED |
+| Examination worklist | IMPLEMENTED |
+| Start examination | IMPLEMENTED |
+| Examination details | IMPLEMENTED |
+| Technical information form | IMPLEMENTED |
+| X-Ray/image upload | **WAS MISSING — now IMPLEMENTED** |
+| Multiple image support | **WAS MISSING — now IMPLEMENTED** |
+| Image preview/gallery | **WAS MISSING — now IMPLEMENTED** |
+| Image secure viewing | **WAS MISSING — now IMPLEMENTED** |
+| Examination completion | IMPLEMENTED |
+| Abort examination | IMPLEMENTED |
+| Findings worklist | IMPLEMENTED |
+| Radiology report form | IMPLEMENTED |
+| Findings field | IMPLEMENTED |
+| Impression field | IMPLEMENTED |
+| Recommendations | IMPLEMENTED |
+| Save draft | IMPLEMENTED |
+| Submit report | IMPLEMENTED |
+| Report history/version display | IMPLEMENTED (audit-log based) |
+| Verification worklist | IMPLEMENTED |
+| Report verification page | IMPLEMENTED |
+| Verify result | IMPLEMENTED |
+| Return report | IMPLEMENTED |
+| Return reason | IMPLEMENTED |
+| Doctor radiology results | IMPLEMENTED |
+| Patient history radiology results | IMPLEMENTED |
+| View radiology images from result | **WAS MISSING — now IMPLEMENTED** |
+| Loading states | IMPLEMENTED |
+| Empty states | IMPLEMENTED |
+| Error states | IMPLEMENTED (Inertia default + field-level validation) |
+| Permission-based UI | IMPLEMENTED |
+| Mobile/responsive behavior | IMPLEMENTED (existing Tailwind conventions) |
+
+## Audit method
+
+Searched the entire frontend (`resources/js/pages`, `resources/js/
+components`, `resources/js/types`) and backend (`routes/web.php`, every
+Radiology controller/service/policy/resource) for every workflow area
+above, then cross-checked each Inertia page's props against its
+controller. Also grepped the whole codebase (not just Radiology) for any
+existing file/media/document storage abstraction to reuse — none exists
+anywhere (Laboratory, patients, insurance all store zero uploaded files),
+confirming imaging genuinely needed new, purpose-built infrastructure
+rather than an extension of something already there.
+
+## Gap 1: X-Ray / imaging (new)
+
+No image/media capability existed anywhere in this application. Built the
+minimum needed, explicitly not a PACS/DICOM/RIS:
+
+- **`radiology_images` table** (new) — one row per file, keyed to
+  `radiology_appointment_id` alone (the same "no duplicated identity
+  columns" convention every Radiology table already follows). `path` is a
+  private-disk storage key, never sent to the browser.
+- **`RadiologyImage` model** (new), `RadiologyAppointment::images()`
+  relation (new).
+- **`RadiologyImageService`** (new) — upload/delete, both restricted to an
+  `IN_PROGRESS` examination (mirrors `RadiologyExaminationService::
+  recordTechnicalData()`'s identical gate), content-sniffed MIME
+  validation (JPG/PNG only), 10MB/file, 10 files/upload.
+- **`RadiologyImageController`** (new) — `store`/`destroy` (Inertia
+  redirects) and `show` (streams the file after re-authorizing on every
+  request — the one route in this module that isn't an Inertia page,
+  exactly like any other authenticated-asset route). Files live on the
+  private `local` disk (`storage/app/private`), never the `public` disk;
+  there is no public URL or symlink to them at any point.
+- **`RadiologyAppointmentPolicy`** extended with `manageImages` (reuses
+  `radiology-examination.update` — no new permission) and `viewImages`
+  (reuses `radiology-examination.view` or `radiology-results.view`).
+- **Routes** (`routes/web.php`, all under `auth`):
+  `POST/GET/DELETE radiology/examinations/{radiologyAppointment}/images[/{radiologyImage}]`
+  as `radiology-images.{store,show,destroy}`.
+- **`RadiologyImageResource`** (new) — metadata only, never `path`.
+- **Frontend**: `radiology-image-gallery.tsx` (upload input + progress +
+  thumbnail grid + delete, gated by `canManage`) and `radiology-image-
+  viewer.tsx` (open/zoom/navigate/close modal, shared by every surface).
+  Wired into: the examination page (Step 41, upload-capable while
+  `IN_PROGRESS`); `RadiologyExaminationSummary` (read-only — automatically
+  reaches the report/verification/release pages, since all three already
+  reuse that one component); the doctor's `RadiologyResultsSection` on the
+  clinical encounter page (a "View X-Ray Images" action, only shown when a
+  released result actually has images); and patient clinical history
+  transitively through the same released-result resource.
+- **Eager-loading** added only where images are actually displayed (each
+  detail/show page), never on list/worklist pages, to avoid unnecessary
+  N+1/payload cost.
+
+Explicitly not built (per the task's own stop condition): DICOM support,
+a PACS viewer, thumbnail generation via GD/Imagick (thumbnails are the
+same full image, CSS-scaled), or annotation/measurement tools.
+
+## Gap 2: two real frontend bugs found and fixed during the audit
+
+1. **"Patient Arrived" missing after confirming a booking** —
+   `radiology-reception-dialog.tsx` only rendered the button when
+   `appointment.status === 'scheduled'`, even though the backend
+   (`RadiologyAppointment::TRANSITIONS`) has always allowed arrival from
+   both `scheduled` and `confirmed`. A technician who confirmed a booking
+   before the patient arrived (the documented, expected order of
+   operations) hit a dead end on the Reception screen. Fixed to check
+   `['scheduled', 'confirmed'].includes(appointment.status)`.
+2. **Order-level status hid procedure-level progress** — the radiology
+   order's own `status` is a deliberate coarse rollup (`scheduled` only
+   ever means "every item has an active appointment"), but the order
+   detail page and the dashboard's Recent Orders table displayed *only*
+   that rollup, so a procedure whose appointment was actually `confirmed`
+   (or further along) looked stuck at "Scheduled." Fixed by eager-loading
+   each item's `activeRadiologyAppointment` on both pages and rendering
+   its real status alongside the item — the order-level badge is
+   unchanged (still correct), the per-item status is now also visible.
+   Covered by `RadiologyOrderAppointmentStatusTest`.
+
+## Testing
+
+New: `RadiologyImageTest` (upload/delete, IN_PROGRESS-only gate, MIME/
+size/count validation, storage-path-never-exposed), `RadiologyImage
+AuthorizationTest` (guest, doctor, permission-less, radiologist
+view-only, technician full access, hospital-admin IDOR, super-admin
+bypass, secure content-type serving, no public-disk exposure),
+`RadiologyOrderAppointmentStatusTest` (order/dashboard per-item status
+display). All new tests pass; the full pre-existing Radiology suite
+(Steps 36-44) continues to pass unchanged.
+
+## Remaining work
+
+None blocking within this module's own scope. Explicitly deferred, as
+already documented by Steps 42/45: full report version/snapshot history
+beyond the audit log (would follow `LaboratoryReport`'s own snapshot
+pattern if a future step needs it), billing/NHIF integration, and any
+DICOM/PACS/RIS capability.
+
+# Verification/release role split: `radiology-supervisor` (post Step 44)
+
+## Change
+
+Step 43 originally granted `review`/`verify`/`return`/`release` to the
+same `radiologist` role used for authoring reports (Step 42), relying
+solely on `independentOfAuthor()` to stop a radiologist verifying their
+own report. Per explicit user decision, this was replaced with a
+distinct-role design mirroring Laboratory's existing
+`laboratory-technician` / `laboratory-supervisor` split
+(`database/seeders/RoleSeeder.php`):
+
+```
+radiologist            : radiology-results.view, create, update, submit
+radiology-supervisor   : radiology-results.view, create, update, submit,
+                          review, verify, return, release
+```
+
+`radiologist` no longer carries `review`/`verify`/`return`/`release` at
+all — a plain radiologist cannot reach those actions on *any* report,
+not even a colleague's, regardless of the self-verification identity
+check. `radiology-supervisor` is a new role added to `RoleSeeder`
+alongside `hospital-admin` as the only roles holding those four
+permissions. No new permission names were introduced (Part 17's
+"extend, don't duplicate" rule held) — only the role→permission mapping
+changed; `RadiologyReportPolicy` (`review()`/`verify()`/
+`returnForCorrection()`/`release()`) is unchanged, since it already
+checked permissions rather than role names directly.
+`independentOfAuthor()` still applies on top, unchanged, so a
+`radiology-supervisor` still cannot verify/return their own report
+unless `RADIOLOGY_ALLOW_SELF_VERIFICATION` is set.
+
+## Why
+
+Before this change, "any radiologist can verify any other radiologist's
+report" was enforced purely by the identity check. The user asked who
+is responsible for verification and, after the trade-off was explained
+(Laboratory already uses an explicit supervisor role rather than
+peer-review), confirmed they wanted the same distinct-role model for
+Radiology rather than continuing to rely on self-verification
+avoidance alone.
+
+## Test/seed impact
+
+- `RoleSeeder` role count: 11 -> 12 (`RolePermissionTest`).
+- `tests/Pest.php`: `radiologistWithPractitioner()` gained an optional
+  `$role` parameter; new `radiologySupervisorWithPractitioner()` helper
+  wraps it with `'radiology-supervisor'`. `verifiedRadiologyReportFor()`
+  now defaults its verifier through the new helper.
+- Every existing Verification/Release test's verify/return/release
+  actor was moved to `radiologySupervisorWithPractitioner()`; actors
+  that only author/submit reports were left on plain
+  `radiologistWithPractitioner()`, since that permission set is
+  unchanged.
+- Added coverage
+  (`RadiologyVerificationAuthorizationTest`): a plain radiologist who is
+  not the report's author is still forbidden from review/verify/return,
+  proving the block is now permission-based, not merely identity-based.
+  The worklist index itself stays reachable for a plain radiologist
+  (`radiology-verification.index` is gated by the same broad
+  `radiology-results.view` shared with the authoring worklist); only the
+  per-report review/verify/return/release actions are restricted to
+  `radiology-supervisor`.
+
+## Remaining work
+
+Real (non-test) database: `RoleSeeder` must be re-run once against the
+live dev database for the `radiology-supervisor` role to exist there
+(seeders are idempotent — safe to re-run). One of the two demo
+radiologist accounts should be reassigned to `radiology-supervisor` so
+manual testing can exercise both the authoring and verification/release
+sides of the workflow.

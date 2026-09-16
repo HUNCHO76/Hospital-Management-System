@@ -18,7 +18,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * at SUBMITTED as far as Step 42 itself goes. Phase 5, Step 43 extends the
  * same row with the verification/return-for-correction workflow (VERIFIED,
  * and RETURNED becoming reachable) rather than a separate verification
- * entity — see the Step 43 migration's own doc-comment for why.
+ * entity — see the Step 43 migration's own doc-comment for why. Phase 5,
+ * Step 44 extends the same row once more with release metadata (RELEASED,
+ * terminal) — see the Step 44 migration's own doc-comment for why no
+ * separate release table exists either.
  */
 class RadiologyReport extends Model
 {
@@ -50,6 +53,14 @@ class RadiologyReport extends Model
     public const STATUS_VERIFIED = 'verified';
 
     /**
+     * The official, released clinical result (Phase 5, Step 44). Terminal —
+     * no AUTHORIZED intermediate status exists in Radiology's own
+     * architecture (unlike Laboratory's), so none is introduced here either
+     * (Part 3's "do not invent unnecessary workflow states").
+     */
+    public const STATUS_RELEASED = 'released';
+
+    /**
      * @var list<string>
      */
     public const STATUSES = [
@@ -57,6 +68,7 @@ class RadiologyReport extends Model
         self::STATUS_SUBMITTED,
         self::STATUS_RETURNED,
         self::STATUS_VERIFIED,
+        self::STATUS_RELEASED,
     ];
 
     /**
@@ -90,7 +102,8 @@ class RadiologyReport extends Model
         self::STATUS_DRAFT => [self::STATUS_SUBMITTED],
         self::STATUS_SUBMITTED => [self::STATUS_VERIFIED, self::STATUS_RETURNED],
         self::STATUS_RETURNED => [self::STATUS_DRAFT],
-        self::STATUS_VERIFIED => [],
+        self::STATUS_VERIFIED => [self::STATUS_RELEASED],
+        self::STATUS_RELEASED => [],
     ];
 
     /**
@@ -118,6 +131,9 @@ class RadiologyReport extends Model
         'returned_at',
         'return_reason',
         'return_comments',
+        'released_by',
+        'released_at',
+        'release_notes',
     ];
 
     /**
@@ -131,6 +147,7 @@ class RadiologyReport extends Model
             'submitted_at' => 'datetime',
             'verified_at' => 'datetime',
             'returned_at' => 'datetime',
+            'released_at' => 'datetime',
         ];
     }
 
@@ -210,5 +227,15 @@ class RadiologyReport extends Model
     public function returnedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'returned_by');
+    }
+
+    /**
+     * The user who released this report as an official clinical result, if
+     * any (Phase 5, Step 44) — always resolved server-side from the
+     * authenticated user, never client-supplied.
+     */
+    public function releasedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'released_by');
     }
 }

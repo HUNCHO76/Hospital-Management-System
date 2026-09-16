@@ -1,10 +1,18 @@
 <?php
 
+use App\Models\BillingAdjustment;
+use App\Models\CarePlanItem;
+use App\Models\CashierSession;
+use App\Models\Charge;
 use App\Models\ClinicalEncounter;
 use App\Models\Department;
 use App\Models\DiagnosisCode;
+use App\Models\Dispensing;
 use App\Models\EncounterDiagnosis;
 use App\Models\Hospital;
+use App\Models\InsuranceCoverageRule;
+use App\Models\InsuranceScheme;
+use App\Models\Invoice;
 use App\Models\LaboratoryOrder;
 use App\Models\LaboratoryProcessing;
 use App\Models\LaboratoryReport;
@@ -13,27 +21,55 @@ use App\Models\LaboratorySample;
 use App\Models\LaboratoryTest;
 use App\Models\Medication;
 use App\Models\Patient;
+use App\Models\PatientAccount;
+use App\Models\PatientInsurance;
+use App\Models\Payment;
+use App\Models\PaymentRefund;
+use App\Models\PaymentReversal;
 use App\Models\Practitioner;
+use App\Models\Prescription;
+use App\Models\PrescriptionOrder;
+use App\Models\PrescriptionVerification;
 use App\Models\RadiologyAppointment;
 use App\Models\RadiologyOrder;
 use App\Models\RadiologyOrderItem;
 use App\Models\RadiologyProcedure;
 use App\Models\RadiologyReport;
+use App\Models\Service;
+use App\Models\ServicePrice;
 use App\Models\Staff;
+use App\Models\StockBatch;
 use App\Models\TriageAssessment;
 use App\Models\User;
+use App\Services\BillingAdjustmentService;
+use App\Services\CarePlanService;
+use App\Services\CashierSessionService;
+use App\Services\ChargeService;
 use App\Services\ConsultationService;
 use App\Services\DiagnosisService;
+use App\Services\DispensingService;
+use App\Services\InsuranceCoverageRuleService;
+use App\Services\InvoiceService;
 use App\Services\LaboratoryOrderService;
 use App\Services\LaboratoryProcessingService;
 use App\Services\LaboratoryReportService;
 use App\Services\LaboratoryResultService;
 use App\Services\LaboratorySampleService;
+use App\Services\PatientAccountService;
+use App\Services\PatientInsuranceService;
+use App\Services\PaymentRefundService;
+use App\Services\PaymentReversalService;
+use App\Services\PaymentService;
+use App\Services\PrescriptionOrderService;
+use App\Services\PrescriptionVerificationService;
 use App\Services\RadiologyExaminationService;
 use App\Services\RadiologyOrderService;
 use App\Services\RadiologyReceptionService;
 use App\Services\RadiologyReportService;
 use App\Services\RadiologySchedulingService;
+use App\Services\ServiceCatalogService;
+use App\Services\ServicePricingService;
+use App\Services\StockService;
 use App\Services\TriageService;
 use App\Services\VitalSignsService;
 use Database\Seeders\PermissionSeeder;
@@ -527,6 +563,34 @@ function activeMedication(array $attributes = []): Medication
 }
 
 /**
+ * Receive an abundant, far-from-expiry batch of stock for the given
+ * medication at the given hospital (Phase 6, Step 49) — calls
+ * StockService::receive() directly (services never gate on permissions
+ * themselves, mirroring every other direct-service-call helper here), so the
+ * acting user's role is irrelevant. Defaults to 100000 units expiring 2 years
+ * out, which is never a binding constraint for a test that doesn't care about
+ * stock levels; a test that specifically wants a low/expiring/expired/absent
+ * stock scenario should call StockService directly instead of this helper.
+ */
+function receiveStock(Medication $medication, Hospital $hospital, int $quantity = 100000, ?string $expiryDate = null): StockBatch
+{
+    // Seeded here (idempotent, mirrors userWithRole()) so a test that calls
+    // this helper before assigning its own actor a role (e.g. building a
+    // hospital-admin afterward for an IDOR check) never hits Spatie's
+    // RoleDoesNotExist — this helper's own receiving actor never needs a
+    // real role itself, since StockService never gates on permissions.
+    seedRolesAndPermissions();
+    $receiver = User::factory()->create();
+
+    return app(StockService::class)->receive($hospital->id, [
+        'medication_id' => $medication->id,
+        'batch_number' => 'TEST-'.strtoupper(uniqid()),
+        'expiry_date' => $expiryDate ?? now()->addYears(2)->toDateString(),
+        'quantity' => $quantity,
+    ], requestAs($receiver));
+}
+
+/**
  * Create an active laboratory test catalog entry for use in tests.
  */
 function activeLaboratoryTest(array $attributes = []): LaboratoryTest
@@ -546,6 +610,53 @@ function activeRadiologyProcedure(array $attributes = []): RadiologyProcedure
         'status' => RadiologyProcedure::STATUS_ACTIVE,
         ...$attributes,
     ]);
+}
+
+/**
+ * Create an active laboratory test that is also mapped into the billing
+ * Service catalog and priced at the given hospital (Phase 7, Step 54) —
+ * mirrors ServiceCatalogSeeder's own mapping shape
+ * (serviceable_type/serviceable_id -> LaboratoryTest, reusing its real
+ * code/name) so ChargeCaptureService::captureFromLaboratoryOrderItem() can
+ * resolve a price for it in a test.
+ */
+function billableLaboratoryTest(Hospital $hospital, array $testAttributes = [], array $priceOverrides = []): LaboratoryTest
+{
+    $test = activeLaboratoryTest($testAttributes);
+
+    $service = serviceFor([
+        'code' => $test->code,
+        'name' => $test->name,
+        'category' => 'laboratory',
+        'serviceable_type' => LaboratoryTest::class,
+        'serviceable_id' => $test->id,
+    ]);
+
+    priceFor($service, $hospital, $priceOverrides);
+
+    return $test;
+}
+
+/**
+ * Create an active radiology procedure that is also mapped into the billing
+ * Service catalog and priced at the given hospital (Phase 7, Step 54) —
+ * mirrors billableLaboratoryTest() exactly.
+ */
+function billableRadiologyProcedure(Hospital $hospital, array $procedureAttributes = [], array $priceOverrides = []): RadiologyProcedure
+{
+    $procedure = activeRadiologyProcedure($procedureAttributes);
+
+    $service = serviceFor([
+        'code' => $procedure->code,
+        'name' => $procedure->name,
+        'category' => 'radiology',
+        'serviceable_type' => RadiologyProcedure::class,
+        'serviceable_id' => $procedure->id,
+    ]);
+
+    priceFor($service, $hospital, $priceOverrides);
+
+    return $procedure;
 }
 
 /**
@@ -629,6 +740,28 @@ function radiologyAppointmentReadyForExamination(array $ctx, array $scheduleOver
 
 /**
  * Take a radiologyAppointmentReadyForExamination() appointment through
+ * start() only, leaving it IN_PROGRESS — the minimum valid context for a
+ * radiology image upload test (images can only be attached while an
+ * examination is actually under way). Returns both the appointment and the
+ * technician who started it, since image management is scoped to the same
+ * ability as recording technical information.
+ *
+ * @param  array{hospital: Hospital, department: Department, patient: Patient, encounter: ClinicalEncounter, doctor: array{user: User, staff: Staff, practitioner: Practitioner}, order: RadiologyOrder, item: RadiologyOrderItem}  $ctx
+ * @param  array<string, mixed>  $scheduleOverrides
+ * @return array{appointment: RadiologyAppointment, technician: User}
+ */
+function radiologyExaminationInProgress(array $ctx, array $scheduleOverrides = []): array
+{
+    $appointment = radiologyAppointmentReadyForExamination($ctx, $scheduleOverrides);
+    $technician = userWithRole('radiology-technician');
+
+    app(RadiologyExaminationService::class)->start($appointment, [], requestAs($technician));
+
+    return ['appointment' => $appointment->fresh(), 'technician' => $technician];
+}
+
+/**
+ * Take a radiologyAppointmentReadyForExamination() appointment through
  * start() -> complete() — the minimum valid context for a Step 42 reporting
  * test. Uses a fresh radiology-technician actor to perform the exam,
  * distinct from whichever actor a test subsequently uses to report on it.
@@ -657,9 +790,9 @@ function radiologyExaminationCompleted(array $ctx, array $scheduleOverrides = []
  *
  * @return array{user: User, staff: Staff, practitioner: Practitioner}
  */
-function radiologistWithPractitioner(Hospital $hospital): array
+function radiologistWithPractitioner(Hospital $hospital, string $role = 'radiologist'): array
 {
-    $user = userWithRole('radiologist');
+    $user = userWithRole($role);
     $staff = Staff::factory()->create(['hospital_id' => $hospital->id, 'user_id' => $user->id]);
     $practitioner = Practitioner::factory()->create([
         'staff_id' => $staff->id,
@@ -668,6 +801,20 @@ function radiologistWithPractitioner(Hospital $hospital): array
     ]);
 
     return compact('user', 'staff', 'practitioner');
+}
+
+/**
+ * Create a radiologistWithPractitioner() actor holding the
+ * 'radiology-supervisor' role — the only role (besides hospital-admin)
+ * permitted to review/verify/return/release a report. A thin, explicitly-
+ * named wrapper so verification/release tests read clearly about *why*
+ * this particular actor differs from a plain radiologist.
+ *
+ * @return array{user: User, staff: Staff, practitioner: Practitioner}
+ */
+function radiologySupervisorWithPractitioner(Hospital $hospital): array
+{
+    return radiologistWithPractitioner($hospital, 'radiology-supervisor');
 }
 
 /**
@@ -700,6 +847,24 @@ function submittedRadiologyReportFor(array $ctx, ?array $reporter = null, array 
 }
 
 /**
+ * Take a submittedRadiologyReportFor() report through verify() — the
+ * minimum valid context for a Step 44 release test. Uses a fresh
+ * independent radiologist actor as the verifier unless one is given.
+ *
+ * @param  array{hospital: Hospital, department: Department, patient: Patient, encounter: ClinicalEncounter, doctor: array{user: User, staff: Staff, practitioner: Practitioner}, order: RadiologyOrder, item: RadiologyOrderItem}  $ctx
+ * @param  array{user: User, staff: Staff, practitioner: Practitioner}|null  $reporter
+ * @param  array{user: User, staff: Staff, practitioner: Practitioner}|null  $verifier
+ * @param  array<string, mixed>  $scheduleOverrides
+ */
+function verifiedRadiologyReportFor(array $ctx, ?array $reporter = null, ?array $verifier = null, array $scheduleOverrides = []): RadiologyReport
+{
+    $report = submittedRadiologyReportFor($ctx, $reporter, $scheduleOverrides);
+    $verifier ??= radiologySupervisorWithPractitioner($ctx['hospital']);
+
+    return app(RadiologyReportService::class)->verify($report, [], requestAs($verifier['user']))->fresh();
+}
+
+/**
  * Create a fresh encounter with a completed triage, an in_progress
  * consultation, and one confirmed diagnosis — the minimum valid context for
  * starting a treatment plan in a test (CarePlanService requires at least one
@@ -728,6 +893,128 @@ function carePlanReadyEncounter(): array
 }
 
 /**
+ * Create a carePlanReadyEncounter() context, then write one medication
+ * prescription against it through the real CarePlanService::addItem() path
+ * — the minimum valid context for a Phase 6, Step 44 pharmacy test. Returns
+ * the created Prescription; the full ctx (with 'item' added) remains
+ * reachable via $prescription->carePlanItem if a test needs it.
+ *
+ * @param  array{hospital: Hospital, department: Department, patient: Patient, encounter: ClinicalEncounter, doctor: array{user: User, staff: Staff, practitioner: Practitioner}, diagnosis: EncounterDiagnosis}|null  $ctx
+ * @param  array<string, mixed>  $overrides
+ */
+function prescriptionFor(?array $ctx = null, array $overrides = []): Prescription
+{
+    $ctx ??= carePlanReadyEncounter();
+    $doctorRequest = requestAs($ctx['doctor']['user']);
+
+    $carePlan = app(CarePlanService::class)->create($ctx['encounter'], [
+        'goals' => 'Symptomatic relief',
+    ], $doctorRequest);
+
+    $medication = activeMedication();
+
+    $item = app(CarePlanService::class)->addItem($carePlan, array_merge([
+        'type' => CarePlanItem::TYPE_MEDICATION,
+        'description' => 'Prescribed medication',
+        'priority' => 'medium',
+        'prescription' => [
+            'medication_id' => $medication->id,
+            'strength' => '500mg',
+            'dose' => '1 tablet',
+            'route' => 'oral',
+            'frequency' => '3 times daily',
+            'duration' => '5 days',
+            'quantity' => '15',
+            'instructions' => 'Take after meals',
+        ],
+    ], $overrides), $doctorRequest);
+
+    return $item->prescription()->firstOrFail();
+}
+
+/**
+ * Create a diagnosisReadyEncounter() context, then write one first-class
+ * PrescriptionOrder against it through the real
+ * PrescriptionOrderService::create() path (Phase 6, Step 46) — the minimum
+ * valid context for a Step 47 pharmacy verification test. Creating the
+ * order also creates its PrescriptionVerification row as
+ * PENDING_VERIFICATION (PrescriptionOrderService::create() calls
+ * PrescriptionVerificationService::initiate()), so the returned order is
+ * already sitting in the verification queue.
+ *
+ * @param  array{hospital: Hospital, department: Department, patient: Patient, encounter: ClinicalEncounter, doctor: array{user: User, staff: Staff, practitioner: Practitioner}}|null  $ctx
+ * @param  array<string, mixed>  $overrides
+ */
+function activePrescriptionOrderFor(?array $ctx = null, array $overrides = []): PrescriptionOrder
+{
+    $ctx ??= diagnosisReadyEncounter();
+    $doctorRequest = requestAs($ctx['doctor']['user']);
+
+    $medication = activeMedication();
+
+    $data = array_merge([
+        'items' => [[
+            'medication_id' => $medication->id,
+            'dose' => '1 tablet',
+            'frequency' => 'three_times_daily',
+            'route' => 'oral',
+            'duration' => 5,
+            'duration_unit' => 'days',
+            'quantity' => 15,
+            'instructions' => 'Take after meals',
+        ]],
+    ], $overrides);
+
+    $order = app(PrescriptionOrderService::class)->create($ctx['encounter'], $data, $doctorRequest);
+
+    // Phase 6, Step 49: dispensing now deducts real stock inside
+    // DispensingService::complete(), so every prescription built through this
+    // helper — the shared foundation every Step 46-48 dispensing/verification
+    // test already builds on — needs abundant stock to exist for whichever
+    // medication(s) actually ended up on the order (the default above, or
+    // whatever a caller's own 'items' override used), or those pre-existing
+    // tests would start failing on "insufficient stock" with no relation to
+    // what they actually test. A test that specifically wants a
+    // low/expiring/expired/absent stock scenario should build its own order
+    // via PrescriptionOrderService::create() directly instead of this helper.
+    foreach ($order->items as $item) {
+        receiveStock($item->medication, $ctx['hospital']);
+    }
+
+    return $order;
+}
+
+/**
+ * Take an activePrescriptionOrderFor() order through
+ * PrescriptionVerificationService::verify() — the minimum valid context for
+ * a Step 47 dispensing-boundary/regression test. Uses a fresh pharmacist
+ * actor as the verifier unless one is given.
+ */
+function verifiedPrescriptionOrderFor(?array $ctx = null, ?User $verifier = null): PrescriptionOrder
+{
+    $order = activePrescriptionOrderFor($ctx);
+    $verifier ??= userWithRole('pharmacist');
+
+    app(PrescriptionVerificationService::class)->verify($order, [], requestAs($verifier));
+
+    return $order->fresh(['items', 'verification']);
+}
+
+/**
+ * Take a verifiedPrescriptionOrderFor() order through
+ * DispensingService::start() — the minimum valid context for a Step 48
+ * dispensing test. Uses a fresh pharmacist actor as the dispenser unless
+ * one is given.
+ */
+function inProgressDispensingFor(?array $ctx = null, ?User $dispenser = null): Dispensing
+{
+    $order = verifiedPrescriptionOrderFor($ctx);
+    $dispenser ??= userWithRole('pharmacist');
+
+    return app(DispensingService::class)->start($order, requestAs($dispenser));
+}
+
+/**
  * Create a fresh, non-cancelled clinical encounter with a doctor and a nurse
  * in the same hospital — the minimum valid context for authoring a clinical
  * note in a test. Unlike diagnosis/treatment, notes have no consultation or
@@ -751,4 +1038,257 @@ function clinicalNoteReadyEncounter(): array
         'doctor' => $doctor,
         'nurse' => $nurse,
     ];
+}
+
+/**
+ * Create a PENDING charge against a patient's account at the given hospital
+ * (Phase 7, Step 52) — calls ChargeService::create() directly (services
+ * never gate on permissions themselves, mirroring receiveStock()'s own
+ * precedent), auto-provisioning the account on first use. Defaults to a
+ * plain manual charge (no source_type/source_id) unless overridden.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function chargeFor(Hospital $hospital, Patient $patient, array $overrides = []): Charge
+{
+    $actor = User::factory()->create();
+
+    return app(ChargeService::class)->create(array_merge([
+        'hospital_id' => $hospital->id,
+        'patient_id' => $patient->id,
+        'description' => 'Doctor Consultation',
+        'quantity' => 1,
+        'unit_price' => 20000,
+    ], $overrides), requestAs($actor));
+}
+
+/**
+ * A chargeFor() charge, immediately posted (Phase 7, Step 55) — the minimum
+ * valid eligible-for-invoicing charge (InvoiceService::addCharge() requires
+ * STATUS_POSTED) for a test.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function postedChargeFor(Hospital $hospital, Patient $patient, array $overrides = []): Charge
+{
+    $charge = chargeFor($hospital, $patient, $overrides);
+
+    return app(ChargeService::class)->post($charge, requestAs(User::factory()->create()));
+}
+
+/**
+ * Create (or reuse) a patient's account at the given hospital directly,
+ * without any charge — for tests that only care about the account itself.
+ */
+function accountFor(Hospital $hospital, Patient $patient): PatientAccount
+{
+    $actor = User::factory()->create();
+
+    return app(PatientAccountService::class)->ensureAccountExists($hospital->id, $patient->id, requestAs($actor));
+}
+
+/**
+ * Create an active, billable Service catalog entry directly (Phase 7, Step
+ * 53) — calls ServiceCatalogService::create() (services never gate on
+ * permissions themselves, mirroring receiveStock()/chargeFor()'s own
+ * precedent).
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function serviceFor(array $overrides = []): Service
+{
+    $actor = User::factory()->create();
+
+    return app(ServiceCatalogService::class)->create(array_merge([
+        'code' => 'SVC-'.strtoupper(uniqid()),
+        'name' => 'Test Service',
+        'category' => 'consultation',
+        'is_billable' => true,
+    ], $overrides), requestAs($actor));
+}
+
+/**
+ * Create an active price for a service at a hospital, effective from
+ * today by default (Phase 7, Step 53) — calls ServicePricingService::
+ * create() directly.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function priceFor(Service $service, Hospital $hospital, array $overrides = []): ServicePrice
+{
+    $actor = User::factory()->create();
+
+    return app(ServicePricingService::class)->create(array_merge([
+        'service_id' => $service->id,
+        'hospital_id' => $hospital->id,
+        'amount' => 20000,
+        'effective_from' => now()->toDateString(),
+    ], $overrides), requestAs($actor));
+}
+
+/**
+ * Create the patient's primary insurance coverage record directly (Phase 7,
+ * Step 56) — calls PatientInsuranceService::create() (services never gate
+ * on permissions themselves, mirroring chargeFor()'s own precedent).
+ * Defaults to an active, currently-effective record under the given scheme.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function primaryCoverageFor(Patient $patient, InsuranceScheme $scheme, array $overrides = []): PatientInsurance
+{
+    $actor = User::factory()->create();
+
+    return app(PatientInsuranceService::class)->create($patient, array_merge([
+        'insurance_provider_id' => $scheme->insurance_provider_id,
+        'insurance_scheme_id' => $scheme->id,
+        'membership_number' => 'MEM-'.strtoupper(uniqid()),
+        'effective_from' => now()->subMonth()->toDateString(),
+        'effective_to' => null,
+        'is_primary' => true,
+        'status' => 'active',
+        'verification_status' => 'verified',
+    ], $overrides), requestAs($actor));
+}
+
+/**
+ * Create an active insurance scheme under a fresh provider directly (Phase
+ * 7, Step 56).
+ */
+function insuranceSchemeFor(array $overrides = []): InsuranceScheme
+{
+    return InsuranceScheme::factory()->create(array_merge([
+        'status' => 'active',
+    ], $overrides));
+}
+
+/**
+ * Create an active coverage rule for a scheme directly (Phase 7, Step 56) —
+ * calls InsuranceCoverageRuleService::create() directly, mirroring
+ * priceFor()'s own precedent. Defaults to an 80% scheme-wide rule
+ * (service_id/category both null).
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function coverageRuleFor(InsuranceScheme $scheme, array $overrides = []): InsuranceCoverageRule
+{
+    $actor = User::factory()->create();
+
+    return app(InsuranceCoverageRuleService::class)->create(array_merge([
+        'insurance_scheme_id' => $scheme->id,
+        'coverage_type' => 'percentage',
+        'coverage_percentage' => 80,
+        'effective_from' => now()->subMonth()->toDateString(),
+    ], $overrides), requestAs($actor));
+}
+
+/**
+ * Create a single-charge POSTED invoice for a patient directly (Phase 7,
+ * Step 57) — the minimum valid eligible-for-payment invoice. Calls
+ * postedChargeFor()/InvoiceService::createDraft()/post() directly, mirroring
+ * this file's own repeated "build the minimum valid context via the real
+ * services" precedent.
+ *
+ * @param  array<string, mixed>  $chargeOverrides
+ */
+function postedInvoiceFor(Hospital $hospital, Patient $patient, array $chargeOverrides = []): Invoice
+{
+    $actor = User::factory()->create();
+    $charge = postedChargeFor($hospital, $patient, $chargeOverrides);
+    $invoice = app(InvoiceService::class)->createDraft($charge->patientAccount, [$charge->id], null, requestAs($actor));
+
+    return app(InvoiceService::class)->post($invoice, requestAs($actor));
+}
+
+/**
+ * Record a payment directly against a posted invoice (Phase 7, Step 57) —
+ * calls PaymentService::createPayment() directly, mirroring chargeFor()'s
+ * own precedent.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function paymentFor(Invoice $invoice, array $overrides = []): Payment
+{
+    $actor = User::factory()->create();
+
+    return app(PaymentService::class)->createPayment(array_merge([
+        'invoice_id' => $invoice->id,
+        'amount' => 10000,
+        'payment_date' => now()->toDateString(),
+        'payment_method' => Payment::METHOD_CASH,
+    ], $overrides), requestAs($actor));
+}
+
+/**
+ * Reverse a posted payment directly (Phase 7, Step 58) — calls
+ * PaymentReversalService::create() directly, mirroring paymentFor()'s
+ * own precedent.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function reversalFor(Payment $payment, array $overrides = []): PaymentReversal
+{
+    $actor = User::factory()->create();
+
+    return app(PaymentReversalService::class)->create($payment, array_merge([
+        'reason' => 'Test reversal',
+        'notes' => null,
+    ], $overrides), requestAs($actor));
+}
+
+/**
+ * Issue a refund against a posted payment directly (Phase 7, Step 58) —
+ * calls PaymentRefundService::create() directly, mirroring paymentFor()'s
+ * own precedent.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function refundFor(Payment $payment, array $overrides = []): PaymentRefund
+{
+    $actor = User::factory()->create();
+
+    return app(PaymentRefundService::class)->create($payment, array_merge([
+        'amount' => (float) $payment->amount / 2,
+        'refund_method' => Payment::METHOD_CASH,
+        'refund_reference' => null,
+        'reason' => 'Test refund',
+        'notes' => null,
+    ], $overrides), requestAs($actor));
+}
+
+/**
+ * Post a billing adjustment against a posted invoice directly (Phase 7,
+ * Step 58) — calls BillingAdjustmentService::create() directly, mirroring
+ * paymentFor()'s own precedent.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function adjustmentFor(Invoice $invoice, array $overrides = []): BillingAdjustment
+{
+    $actor = User::factory()->create();
+
+    return app(BillingAdjustmentService::class)->create($invoice, array_merge([
+        'type' => BillingAdjustment::TYPE_CREDIT_ADJUSTMENT,
+        'direction' => BillingAdjustment::DIRECTION_CREDIT,
+        'amount' => 5000,
+        'reason' => 'Test adjustment',
+        'notes' => null,
+    ], $overrides), requestAs($actor));
+}
+
+/**
+ * Open a cashier session at the given hospital directly (Phase 7, Step 59)
+ * — calls CashierSessionService::open() directly, mirroring paymentFor()'s
+ * own precedent.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function cashierSessionFor(Hospital $hospital, ?User $cashier = null, array $overrides = []): CashierSession
+{
+    $cashier ??= User::factory()->create();
+
+    return app(CashierSessionService::class)->open(array_merge([
+        'hospital_id' => $hospital->id,
+        'opening_balance' => 50000,
+        'notes' => null,
+    ], $overrides), requestAs($cashier));
 }

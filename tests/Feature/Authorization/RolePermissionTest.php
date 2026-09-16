@@ -135,7 +135,7 @@ test('the role seeder is idempotent', function () {
 
     $this->seed(RoleSeeder::class);
 
-    expect(Role::count())->toBe($countBefore)->toBe(11);
+    expect(Role::count())->toBe($countBefore)->toBe(12);
 });
 
 test('doctor can view patients but cannot create users', function () {

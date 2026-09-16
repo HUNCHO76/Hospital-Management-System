@@ -6,10 +6,12 @@ use App\Models\Medication;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 
 /**
- * Builds the medication search/filter query used by the search-json
- * endpoint — mirrors DiagnosisCodeSearchService exactly. Callers are
- * responsible for validating input, paginating the result, and authorizing
- * access — this class only shapes the query.
+ * Builds the medication search/filter query shared by the lightweight
+ * search-json combobox endpoint (Step 44) and the full catalog list page
+ * (Step 45) — mirrors LaboratoryTestSearchService/RadiologyProcedureSearchService's
+ * "one service, two callers" shape. Callers are responsible for validating
+ * input, paginating the result, and authorizing access — this class only
+ * shapes the query.
  */
 class MedicationSearchService
 {
@@ -18,13 +20,13 @@ class MedicationSearchService
      *
      * @var list<string>
      */
-    public const SORTABLE = ['name', 'category', 'created_at'];
+    public const SORTABLE = ['code', 'generic_name', 'category', 'form', 'created_at'];
 
     /**
      * Build a filtered medication query from validated search parameters.
      *
-     * Supported keys: search (free text across name/category), category,
-     * status.
+     * Supported keys: search (free text across code/generic_name/
+     * brand_name), category, form, route, status.
      *
      * @param  array<string, mixed>  $filters
      * @return Builder<Medication>
@@ -37,6 +39,14 @@ class MedicationSearchService
             $query->where('category', $filters['category']);
         }
 
+        if (filled($filters['form'] ?? null)) {
+            $query->where('form', $filters['form']);
+        }
+
+        if (filled($filters['route'] ?? null)) {
+            $query->where('route', $filters['route']);
+        }
+
         if (filled($filters['status'] ?? null)) {
             $query->where('status', $filters['status']);
         }
@@ -45,8 +55,9 @@ class MedicationSearchService
 
         if ($search !== '') {
             $query->where(function ($query) use ($search) {
-                $query->where('name', 'like', "%{$search}%")
-                    ->orWhere('category', 'like', "%{$search}%");
+                $query->where('code', 'like', "%{$search}%")
+                    ->orWhere('generic_name', 'like', "%{$search}%")
+                    ->orWhere('brand_name', 'like', "%{$search}%");
             });
         }
 
@@ -60,7 +71,7 @@ class MedicationSearchService
      *
      * @param  Builder<Medication>  $query
      */
-    public function applySort(Builder $query, ?string $sort, string $defaultColumn = 'name', string $defaultDirection = 'asc'): void
+    public function applySort(Builder $query, ?string $sort, string $defaultColumn = 'generic_name', string $defaultDirection = 'asc'): void
     {
         if (! $sort) {
             $query->orderBy($defaultColumn, $defaultDirection);

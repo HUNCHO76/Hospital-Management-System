@@ -15,7 +15,7 @@ export interface CarePlanUser {
 
 export interface Prescription {
     id: number;
-    medication: { id: number; name: string } | null;
+    medication: { id: number; generic_name: string } | null;
     strength: string | null;
     dose: string | null;
     route: PrescriptionRoute | null;

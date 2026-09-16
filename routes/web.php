@@ -2,20 +2,30 @@
 
 use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AuditLogController;
+use App\Http\Controllers\BillingAdjustmentController;
+use App\Http\Controllers\BillingController;
+use App\Http\Controllers\BillingReportController;
 use App\Http\Controllers\CarePlanController;
 use App\Http\Controllers\CarePlanItemController;
+use App\Http\Controllers\CashierSessionController;
+use App\Http\Controllers\ChargeController;
 use App\Http\Controllers\ClinicalEncounterController;
 use App\Http\Controllers\ClinicalNoteController;
 use App\Http\Controllers\ConsultationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DiagnosisCodeController;
+use App\Http\Controllers\DispensingController;
 use App\Http\Controllers\EncounterDiagnosisController;
 use App\Http\Controllers\EncounterLaboratoryOrderController;
+use App\Http\Controllers\EncounterPrescriptionOrderController;
 use App\Http\Controllers\EncounterRadiologyOrderController;
 use App\Http\Controllers\HospitalController;
+use App\Http\Controllers\InsuranceCoverageRuleController;
 use App\Http\Controllers\InsuranceProviderController;
 use App\Http\Controllers\InsuranceSchemeController;
+use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\InvoiceInsuranceController;
 use App\Http\Controllers\LaboratoryBenchController;
 use App\Http\Controllers\LaboratoryOrderController;
 use App\Http\Controllers\LaboratoryProcessingController;
@@ -27,17 +37,28 @@ use App\Http\Controllers\LaboratoryTestController;
 use App\Http\Controllers\MedicationController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PatientInsuranceController;
+use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\PaymentRefundController;
+use App\Http\Controllers\PaymentReversalController;
+use App\Http\Controllers\PharmacyController;
+use App\Http\Controllers\PharmacyReportController;
 use App\Http\Controllers\PractitionerController;
+use App\Http\Controllers\PrescriptionVerificationController;
 use App\Http\Controllers\RadiologyExaminationController;
+use App\Http\Controllers\RadiologyImageController;
 use App\Http\Controllers\RadiologyOrderController;
 use App\Http\Controllers\RadiologyProcedureController;
 use App\Http\Controllers\RadiologyReceptionController;
 use App\Http\Controllers\RadiologyReportController;
+use App\Http\Controllers\RadiologyResultReleaseController;
 use App\Http\Controllers\RadiologySchedulingController;
 use App\Http\Controllers\RadiologyVerificationController;
 use App\Http\Controllers\RadiologyWorklistController;
 use App\Http\Controllers\ReceptionVisitController;
+use App\Http\Controllers\ServiceCatalogController;
+use App\Http\Controllers\ServicePricingController;
 use App\Http\Controllers\StaffController;
+use App\Http\Controllers\StockController;
 use App\Http\Controllers\TriageController;
 use App\Http\Controllers\VitalSignController;
 use Illuminate\Support\Facades\Route;
@@ -203,6 +224,17 @@ Route::middleware(['auth'])->group(function () {
         Route::put('{clinicalEncounter}/radiology-orders/{radiologyOrder}', [EncounterRadiologyOrderController::class, 'update'])->name('radiology-orders.update');
         Route::post('{clinicalEncounter}/radiology-orders/{radiologyOrder}/cancel', [EncounterRadiologyOrderController::class, 'cancel'])->name('radiology-orders.cancel');
         Route::post('{clinicalEncounter}/radiology-orders/{radiologyOrder}/items/{item}/cancel', [EncounterRadiologyOrderController::class, 'cancelItem'])->name('radiology-orders.items.cancel');
+
+        // Prescription orders are presented as part of this same encounter
+        // screen, never a standalone page. Prescription is its own sibling
+        // branch off the encounter (Phase 6, Step 46) — never nested under
+        // care-plan.items, mirroring radiology-orders above exactly. The
+        // pre-existing care-plan.items.* prescription payload (Phase 3) is
+        // left untouched for the care plan's own simple medication notes.
+        Route::post('{clinicalEncounter}/prescription-orders', [EncounterPrescriptionOrderController::class, 'store'])->name('prescription-orders.store');
+        Route::put('{clinicalEncounter}/prescription-orders/{prescriptionOrder}', [EncounterPrescriptionOrderController::class, 'update'])->name('prescription-orders.update');
+        Route::post('{clinicalEncounter}/prescription-orders/{prescriptionOrder}/cancel', [EncounterPrescriptionOrderController::class, 'cancel'])->name('prescription-orders.cancel');
+        Route::post('{clinicalEncounter}/prescription-orders/{prescriptionOrder}/items/{item}/cancel', [EncounterPrescriptionOrderController::class, 'cancelItem'])->name('prescription-orders.items.cancel');
     });
 
     Route::get('diagnosis-codes/search-json', [DiagnosisCodeController::class, 'searchJson'])->name('diagnosis-codes.search-json');
@@ -293,6 +325,18 @@ Route::middleware(['auth'])->group(function () {
         Route::post('{radiologyAppointment}/abort', [RadiologyExaminationController::class, 'abort'])->name('abort');
     });
 
+    // Radiology examination imaging (Radiology UI completion pass) —
+    // attach/remove/view X-Ray images against an IN_PROGRESS examination.
+    // 'show' streams the raw image bytes for an <img> tag (re-authorized on
+    // every request, never a public URL or raw filesystem path) — the one
+    // deliberate exception to "every route renders an Inertia page" in this
+    // module, the same way any authenticated-asset route works.
+    Route::prefix('radiology/examinations/{radiologyAppointment}/images')->name('radiology-images.')->group(function () {
+        Route::post('/', [RadiologyImageController::class, 'store'])->name('store');
+        Route::get('{radiologyImage}', [RadiologyImageController::class, 'show'])->name('show');
+        Route::delete('{radiologyImage}', [RadiologyImageController::class, 'destroy'])->name('destroy');
+    });
+
     // Radiology findings & results (Phase 5, Step 42) — reporting on an
     // already-COMPLETED examination: DRAFT -> SUBMITTED. No destroy route:
     // a report is never deleted, only transitioned. 'create' is a GET
@@ -320,6 +364,119 @@ Route::middleware(['auth'])->group(function () {
         Route::post('{radiologyReport}/verify', [RadiologyVerificationController::class, 'verify'])->name('verify');
         Route::post('{radiologyReport}/return', [RadiologyVerificationController::class, 'returnForCorrection'])->name('return');
     });
+
+    // Radiology result release (Phase 5, Step 44): official release of an
+    // already-VERIFIED report -> RELEASED. No destroy route: a released
+    // result is never deleted. History reuses radiology-results.history
+    // above rather than a duplicate route.
+    Route::prefix('radiology/release')->name('radiology-release.')->group(function () {
+        Route::get('/', [RadiologyResultReleaseController::class, 'index'])->name('index');
+        Route::get('{radiologyReport}', [RadiologyResultReleaseController::class, 'show'])->name('show');
+        Route::post('{radiologyReport}', [RadiologyResultReleaseController::class, 'release'])->name('release');
+    });
+
+    // Prescription verification (Phase 6, Step 47) — independent pharmacy
+    // review of an already-submitted PrescriptionOrder -> VERIFIED, or ->
+    // RETURNED for correction. Declared BEFORE the pharmacy.prescriptions.*
+    // group below: the literal 'verification' segment here must win over
+    // that group's dynamic 'pharmacy/prescriptions/{prescriptionOrder}'
+    // route, which Laravel would otherwise match first and try to resolve
+    // "verification" as a prescriptionOrder id. No destroy route: a
+    // prescription is never deleted, only transitioned. resubmit() is not
+    // nested under this name() group — see its own registration below,
+    // mirroring how it is the prescriber's action, not a pharmacy review one.
+    Route::prefix('pharmacy/prescriptions/verification')->name('pharmacy-verification.')->group(function () {
+        Route::get('/', [PrescriptionVerificationController::class, 'index'])->name('index');
+    });
+    Route::get('pharmacy/prescriptions/{prescriptionOrder}/verification', [PrescriptionVerificationController::class, 'review'])->name('pharmacy-verification.review');
+    Route::post('pharmacy/prescriptions/{prescriptionOrder}/verify', [PrescriptionVerificationController::class, 'verify'])->name('pharmacy-verification.verify');
+    Route::post('pharmacy/prescriptions/{prescriptionOrder}/return', [PrescriptionVerificationController::class, 'returnForCorrection'])->name('pharmacy-verification.return');
+    Route::post('pharmacy/prescriptions/{prescriptionOrder}/resubmit', [PrescriptionVerificationController::class, 'resubmit'])->name('pharmacy-verification.resubmit');
+
+    // Pharmacy Management Foundation (Phase 6, Step 44): a dashboard plus
+    // the cross-encounter prescriptions worklist. Since Step 46, both read
+    // the first-class PrescriptionOrder table (never the pre-existing
+    // CarePlanItem-nested Prescription). No store/update/cancel routes
+    // here: those flow through the clinical-encounters.prescription-orders.*
+    // routes above (Prescription is its own branch off the
+    // ClinicalEncounter, not a CarePlanItem), mirroring how the radiology/
+    // laboratory groups stay read-only standalone surfaces.
+    Route::prefix('pharmacy')->name('pharmacy.')->group(function () {
+        Route::get('/', [PharmacyController::class, 'index'])->name('index');
+        Route::get('prescriptions', [PharmacyController::class, 'prescriptions'])->name('prescriptions.index');
+        Route::get('prescriptions/{prescriptionOrder}', [PharmacyController::class, 'showPrescription'])->name('prescriptions.show');
+    });
+
+    // Pharmacy dispensing (Phase 6, Step 48): the actual fulfillment of an
+    // already-VERIFIED PrescriptionOrder. A distinct prefix from
+    // pharmacy/prescriptions/* above, so no route-ordering conflict like
+    // pharmacy-verification's own 'verification' segment needed. complete()/
+    // cancel() take {prescriptionOrder}, not a separate {dispensing} id —
+    // the controller resolves the order's own single in-progress Dispensing
+    // internally, since only one may exist at a time. No destroy route: a
+    // dispensing event is cancelled, never deleted.
+    Route::prefix('pharmacy/dispensing')->name('pharmacy-dispensing.')->group(function () {
+        Route::get('/', [DispensingController::class, 'index'])->name('index');
+        Route::get('{prescriptionOrder}', [DispensingController::class, 'show'])->name('show');
+        Route::post('{prescriptionOrder}/start', [DispensingController::class, 'start'])->name('start');
+        Route::post('{prescriptionOrder}/complete', [DispensingController::class, 'complete'])->name('complete');
+        Route::post('{prescriptionOrder}/cancel', [DispensingController::class, 'cancel'])->name('cancel');
+    });
+
+    // Pharmacy stock/inventory (Phase 6, Step 49): the ledgered inventory
+    // layer behind dispensing — dashboard, searchable stock list, per-item
+    // detail (batches + transaction ledger), receiving, and batch
+    // corrections. 'receive' is declared before the 'items/{stockItem}'
+    // dynamic segment so the literal 'receive' path never gets swallowed by
+    // it, mirroring pharmacy-verification's own ordering precedent against
+    // pharmacy/prescriptions/*. Batch actions take {stockBatch} directly
+    // (not nested under a stock item id) since a batch id is already
+    // globally unique and the controller loads its own parent stockItem for
+    // authorization.
+    Route::prefix('pharmacy/stock')->name('pharmacy-stock.')->group(function () {
+        Route::get('/', [StockController::class, 'index'])->name('index');
+        Route::get('receive', [StockController::class, 'receiveForm'])->name('receive.create');
+        Route::post('receive', [StockController::class, 'receive'])->name('receive');
+        Route::get('items', [StockController::class, 'items'])->name('items.index');
+        Route::get('items/{stockItem}', [StockController::class, 'show'])->name('items.show');
+        Route::post('batches/{stockBatch}/adjust', [StockController::class, 'adjust'])->name('batches.adjust');
+        Route::post('batches/{stockBatch}/quarantine', [StockController::class, 'quarantine'])->name('batches.quarantine');
+        Route::post('batches/{stockBatch}/release', [StockController::class, 'release'])->name('batches.release');
+    });
+
+    // Pharmacy reporting & operational analytics (Phase 6, Step 50) —
+    // read-only aggregation over the Prescription/Verification/Dispensing/
+    // Stock tables Steps 44-49 already own. No destroy/store/update routes:
+    // every action here is a GET report (optionally exported as CSV via
+    // ?export=1 on the same URL, so a report's filters/scope are identical
+    // whether viewed or exported).
+    Route::prefix('pharmacy/reports')->name('pharmacy-reports.')->group(function () {
+        Route::get('/', [PharmacyReportController::class, 'index'])->name('index');
+        Route::get('stock-batches', [PharmacyReportController::class, 'stockBatches'])->name('stock-batches');
+        Route::get('low-stock', [PharmacyReportController::class, 'lowStock'])->name('low-stock');
+        Route::get('out-of-stock', [PharmacyReportController::class, 'outOfStock'])->name('out-of-stock');
+        Route::get('expiry', [PharmacyReportController::class, 'expiry'])->name('expiry');
+        Route::get('stock-movements', [PharmacyReportController::class, 'movements'])->name('stock-movements');
+        Route::get('medication-utilization', [PharmacyReportController::class, 'utilization'])->name('medication-utilization');
+        Route::get('prescriptions', [PharmacyReportController::class, 'prescriptions'])->name('prescriptions');
+        Route::get('dispensing', [PharmacyReportController::class, 'dispensing'])->name('dispensing');
+        Route::get('reconciliation', [PharmacyReportController::class, 'reconciliation'])->name('reconciliation');
+    });
+
+    // The medication catalog (Phase 6, Step 45). No destroy route: a
+    // medication is deactivated, never deleted (spec §11/§26) — old
+    // prescriptions keep referencing an inactive medication's row without
+    // ever breaking. Declared as a standalone, flatly-named resource
+    // (route/policy/permission names all "medications") rather than nested
+    // under name('pharmacy.'), mirroring how laboratory/tests and
+    // radiology/catalog are declared outside their own module's own name()
+    // group.
+    Route::resource('pharmacy/medications', MedicationController::class)
+        ->parameters(['medications' => 'medication'])
+        ->names('medications')
+        ->except(['destroy']);
+    Route::post('pharmacy/medications/{medication}/activate', [MedicationController::class, 'activate'])->name('medications.activate');
+    Route::post('pharmacy/medications/{medication}/deactivate', [MedicationController::class, 'deactivate'])->name('medications.deactivate');
 
     // Specimen collection (Phase 4, Step 31) — its own standalone surface,
     // since collection is a laboratory-department activity, not something
@@ -413,6 +570,136 @@ Route::middleware(['auth'])->group(function () {
         ->except(['destroy', 'show']);
     Route::post('laboratory/categories/{laboratoryTestCategory}/activate', [LaboratoryTestCategoryController::class, 'activate'])->name('laboratory-categories.activate');
     Route::post('laboratory/categories/{laboratoryTestCategory}/deactivate', [LaboratoryTestCategoryController::class, 'deactivate'])->name('laboratory-categories.deactivate');
+
+    // Billing & Payment Foundation (Phase 7, Step 52): dashboard, searchable
+    // patient-account list, a single account's detail (balance + financial
+    // timeline), and manual charge entry/lifecycle management. Invoices
+    // (Phase 7, Step 55) live under the same 'billing.' name group, their
+    // own 'invoices' prefix. No payment/receipt/refund routes — those
+    // belong to Steps 57/58 and have no backing tables yet. 'create' is
+    // declared before the 'accounts/{patientAccount}' dynamic segment isn't
+    // actually ambiguous here (charges/invoices live under their own
+    // prefixes), but kept grouped by resource for readability.
+    Route::prefix('billing')->name('billing.')->group(function () {
+        Route::get('/', [BillingController::class, 'index'])->name('index');
+        Route::get('accounts', [BillingController::class, 'accounts'])->name('accounts.index');
+        Route::get('accounts/{patientAccount}', [BillingController::class, 'showAccount'])->name('accounts.show');
+        Route::get('charges/create', [ChargeController::class, 'create'])->name('charges.create');
+        Route::post('charges', [ChargeController::class, 'store'])->name('charges.store');
+        Route::post('charges/{charge}/post', [ChargeController::class, 'post'])->name('charges.post');
+        Route::post('charges/{charge}/void', [ChargeController::class, 'void'])->name('charges.void');
+        Route::post('charges/{charge}/cancel', [ChargeController::class, 'cancel'])->name('charges.cancel');
+
+        // Invoices (Phase 7, Step 55): a draft is built via
+        // create/store/addCharge/removeCharge, then finalized via post() —
+        // the critical, transactional transition (spec §12/§40). void()
+        // (DRAFT -> VOIDED) and cancel() (POSTED -> CANCELLED) are separate
+        // routes, mirroring charges.void/charges.cancel exactly, even
+        // though both currently share one InvoicePolicy ability.
+        Route::get('invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+        Route::get('invoices/create', [InvoiceController::class, 'create'])->name('invoices.create');
+        Route::post('invoices', [InvoiceController::class, 'store'])->name('invoices.store');
+        Route::get('invoices/{invoice}', [InvoiceController::class, 'show'])->name('invoices.show');
+        Route::post('invoices/{invoice}/charges', [InvoiceController::class, 'addCharge'])->name('invoices.charges.add');
+        Route::post('invoices/{invoice}/charges/{charge}/remove', [InvoiceController::class, 'removeCharge'])->name('invoices.charges.remove');
+        Route::post('invoices/{invoice}/post', [InvoiceController::class, 'post'])->name('invoices.post');
+        Route::post('invoices/{invoice}/void', [InvoiceController::class, 'void'])->name('invoices.void');
+        Route::post('invoices/{invoice}/cancel', [InvoiceController::class, 'cancel'])->name('invoices.cancel');
+
+        // Insurance Billing & Copayment (Phase 7, Step 56): who is
+        // financially responsible for this invoice once insurance is
+        // considered. Read (show) and the one state-changing action
+        // (calculate/recalculate, DRAFT-only — see
+        // InsuranceBillingService::applyToInvoice()'s own docblock) are
+        // gated by their own distinct 'billing-insurance.view'/'.calculate'
+        // permissions (spec §34), not folded into 'billing-invoices.*' —
+        // not every invoice viewer needs to see insurance calculation
+        // detail.
+        Route::get('invoices/{invoice}/insurance', [InvoiceInsuranceController::class, 'show'])->name('invoices.insurance.show');
+        Route::post('invoices/{invoice}/insurance/calculate', [InvoiceInsuranceController::class, 'calculate'])->name('invoices.insurance.calculate');
+
+        // Payment Management (Phase 7, Step 57): recording a patient's own
+        // payment against an invoice's outstanding patient responsibility
+        // (Step 56's own insurance allocation is respected, never
+        // overwritten — see PaymentService::calculateOutstanding()'s own
+        // docblock). 'void' here means PaymentService::markFailed() (spec
+        // §57.4's one controlled correction, mirrors billing.invoices.void
+        // naming for the same kind of action); genuine refund/reversal is
+        // Step 58's job and has no route here.
+        Route::get('payments', [PaymentController::class, 'index'])->name('payments.index');
+        Route::get('payments/create', [PaymentController::class, 'create'])->name('payments.create');
+        Route::post('payments', [PaymentController::class, 'store'])->name('payments.store');
+        Route::get('payments/{payment}', [PaymentController::class, 'show'])->name('payments.show');
+        Route::get('payments/{payment}/receipt', [PaymentController::class, 'receipt'])->name('payments.receipt');
+        Route::post('payments/{payment}/void', [PaymentController::class, 'void'])->name('payments.void');
+        // Phase 7, Step 58: financial corrections — reversal and refund are
+        // sub-actions on an existing payment (not standalone create pages),
+        // so they live under the 'billing.' group alongside their parent
+        // payment routes. Adjustments are on invoices. Each correction has
+        // a detail show page linked from the correction history table.
+        Route::post('payments/{payment}/reversal', [PaymentReversalController::class, 'store'])->name('payments.reversal.store');
+        Route::get('reversals/{reversal}', [PaymentReversalController::class, 'show'])->name('reversals.show');
+        Route::post('payments/{payment}/refunds', [PaymentRefundController::class, 'store'])->name('payments.refunds.store');
+        Route::get('refunds/{refund}', [PaymentRefundController::class, 'show'])->name('refunds.show');
+        Route::get('adjustments', [BillingAdjustmentController::class, 'index'])->name('adjustments.index');
+        Route::post('invoices/{invoice}/adjustments', [BillingAdjustmentController::class, 'store'])->name('invoices.adjustments.store');
+        Route::get('adjustments/{adjustment}', [BillingAdjustmentController::class, 'show'])->name('adjustments.show');
+        // Cashier sessions (Phase 7, Step 59): list, open, detail, and close.
+        // 'close' is a POST sub-action on an existing session (mirrors
+        // payments.void), not a separate destroy route — the session row is
+        // never deleted, only transitioned to STATUS_CLOSED.
+        Route::get('cashier', [CashierSessionController::class, 'index'])->name('cashier.index');
+        Route::get('cashier/open', [CashierSessionController::class, 'create'])->name('cashier.create');
+        Route::post('cashier', [CashierSessionController::class, 'store'])->name('cashier.store');
+        Route::get('cashier/{cashierSession}', [CashierSessionController::class, 'show'])->name('cashier.show');
+        Route::post('cashier/{cashierSession}/close', [CashierSessionController::class, 'close'])->name('cashier.close');
+        // Billing reports hub and individual reports (Phase 7, Step 60) —
+        // mirrors 'pharmacy-reports.*' naming exactly. 'export' is gated per
+        // action via abort_unless() inside BillingReportController, not a
+        // separate route — the same filtered query is used for both the HTML
+        // page and the CSV download (?export=1).
+        Route::get('reports', [BillingReportController::class, 'index'])->name('reports.index');
+        Route::get('reports/invoices', [BillingReportController::class, 'invoices'])->name('reports.invoices');
+        Route::get('reports/payments', [BillingReportController::class, 'payments'])->name('reports.payments');
+        Route::get('reports/cashier-sessions', [BillingReportController::class, 'cashierSessions'])->name('reports.cashier-sessions');
+        Route::get('reports/corrections', [BillingReportController::class, 'corrections'])->name('reports.corrections');
+    });
+
+    // The central billing service catalog (Phase 7, Step 53) — flatly
+    // named ('billing-services'/'billing-pricing', not nested under
+    // name('billing.')), mirroring how 'medications' sits outside
+    // name('pharmacy.') despite living under the same 'pharmacy/' URL
+    // prefix. No destroy route: a service is deactivated, never deleted.
+    // Pricing is create + cancel only, deliberately no update route — a
+    // price is never edited in place (spec §40), only superseded by a new
+    // one (ServicePricingService::create()'s own versioning logic) or
+    // cancelled before it ever takes effect.
+    Route::resource('billing/services', ServiceCatalogController::class)
+        ->parameters(['services' => 'service'])
+        ->names('billing-services')
+        ->except(['destroy']);
+    Route::post('billing/services/{service}/activate', [ServiceCatalogController::class, 'activate'])->name('billing-services.activate');
+    Route::post('billing/services/{service}/deactivate', [ServiceCatalogController::class, 'deactivate'])->name('billing-services.deactivate');
+
+    Route::prefix('billing/pricing')->name('billing-pricing.')->group(function () {
+        Route::get('/', [ServicePricingController::class, 'index'])->name('index');
+        Route::get('create', [ServicePricingController::class, 'create'])->name('create');
+        Route::post('/', [ServicePricingController::class, 'store'])->name('store');
+        Route::post('{servicePrice}/cancel', [ServicePricingController::class, 'cancel'])->name('cancel');
+    });
+
+    // Insurance coverage rule administration (Phase 7, Step 56) — flatly
+    // named ('billing-insurance-rules', not nested under name('billing.')),
+    // mirroring 'billing-services'/'billing-pricing' sitting outside that
+    // group despite sharing the 'billing/' URL prefix. Create + cancel
+    // only, no update route — a rule is never edited in place (mirrors
+    // 'billing-pricing' having no update route for the identical reason).
+    Route::prefix('billing/insurance-rules')->name('billing-insurance-rules.')->group(function () {
+        Route::get('/', [InsuranceCoverageRuleController::class, 'index'])->name('index');
+        Route::get('create', [InsuranceCoverageRuleController::class, 'create'])->name('create');
+        Route::post('/', [InsuranceCoverageRuleController::class, 'store'])->name('store');
+        Route::post('{insuranceCoverageRule}/cancel', [InsuranceCoverageRuleController::class, 'cancel'])->name('cancel');
+    });
 });
 
 require __DIR__.'/settings.php';

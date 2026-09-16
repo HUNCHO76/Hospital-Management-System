@@ -2,7 +2,9 @@ import { CarePlanSection } from '@/components/care-plan/care-plan-section';
 import { CancelEncounterDialog } from '@/components/clinical-encounters/cancel-encounter-dialog';
 import { CompleteEncounterDialog } from '@/components/clinical-encounters/complete-encounter-dialog';
 import { LaboratoryOrdersSection } from '@/components/clinical-encounters/laboratory-orders-section';
+import { PrescriptionOrdersSection } from '@/components/clinical-encounters/prescription-orders-section';
 import { RadiologyOrdersSection } from '@/components/clinical-encounters/radiology-orders-section';
+import { RadiologyResultsSection } from '@/components/clinical-encounters/radiology-results-section';
 import { WorkflowStatus } from '@/components/clinical-encounters/workflow-status';
 import { ClinicalNotesSection } from '@/components/clinical-notes/clinical-notes-section';
 import { ConsultationPanel } from '@/components/consultation/consultation-panel';
@@ -26,7 +28,8 @@ import { type ClinicalNote } from '@/types/clinical-note';
 import { type Consultation } from '@/types/consultation';
 import { type EncounterDiagnosis } from '@/types/diagnosis';
 import { type LaboratoryOrder } from '@/types/laboratory';
-import { type RadiologyOrder } from '@/types/radiology';
+import { type PrescriptionOrder } from '@/types/prescription';
+import { type RadiologyOrder, type RadiologyResult } from '@/types/radiology';
 import { type TriageAssessment } from '@/types/triage';
 import { Head, Link, router } from '@inertiajs/react';
 import { PlayCircle, XCircle } from 'lucide-react';
@@ -39,6 +42,8 @@ interface EncounterShowProps {
     carePlan: CarePlan | null;
     laboratoryOrders: LaboratoryOrder[];
     radiologyOrders: RadiologyOrder[];
+    radiologyResults: RadiologyResult[];
+    prescriptionOrders: PrescriptionOrder[];
     clinicalNotes: ClinicalNote[];
     departments: ClinicalEncounterDepartment[];
     referralPractitioners: ClinicalEncounterPractitioner[];
@@ -63,6 +68,8 @@ export default function EncounterShow({
     carePlan,
     laboratoryOrders,
     radiologyOrders,
+    radiologyResults,
+    prescriptionOrders,
     clinicalNotes,
     departments,
     referralPractitioners,
@@ -255,6 +262,10 @@ export default function EncounterShow({
                 <LaboratoryOrdersSection encounterId={encounter.id} consultation={consultation} laboratoryOrders={laboratoryOrders} />
 
                 <RadiologyOrdersSection encounterId={encounter.id} consultation={consultation} radiologyOrders={radiologyOrders} />
+
+                <RadiologyResultsSection radiologyResults={radiologyResults} />
+
+                <PrescriptionOrdersSection encounterId={encounter.id} consultation={consultation} prescriptionOrders={prescriptionOrders} />
 
                 <ClinicalNotesSection encounterId={encounter.id} clinicalNotes={clinicalNotes} />
             </div>
