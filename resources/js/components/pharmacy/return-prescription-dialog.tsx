@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
 import { useForm } from '@inertiajs/react';
 import { LoaderCircle, XCircle } from 'lucide-react';
 import { type FormEventHandler, type ReactNode } from 'react';
@@ -20,11 +21,18 @@ interface ReturnPrescriptionDialogProps {
  */
 export function ReturnPrescriptionDialog({ prescriptionOrderId, trigger }: ReturnPrescriptionDialogProps) {
     const { data, setData, post, processing, errors, reset } = useForm({ return_reason: '' });
+    const { toast } = useToast();
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
         post(route('pharmacy-verification.return', prescriptionOrderId), {
             onSuccess: () => reset(),
+            onError: (errs) => {
+                const nonFieldError = errs.self_verification ?? errs.status;
+                if (nonFieldError) {
+                    toast({ variant: 'error', description: nonFieldError });
+                }
+            },
         });
     };
 

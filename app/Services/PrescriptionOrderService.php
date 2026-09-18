@@ -22,7 +22,11 @@ use Illuminate\Validation\ValidationException;
  */
 class PrescriptionOrderService
 {
-    public function __construct(protected AuditLogService $auditLog, protected PrescriptionVerificationService $verification) {}
+    public function __construct(
+        protected AuditLogService $auditLog,
+        protected PrescriptionVerificationService $verification,
+        protected ChargeCaptureService $chargeCapture,
+    ) {}
 
     /**
      * Record a new prescription order with one or more medications.
@@ -138,6 +142,9 @@ class PrescriptionOrderService
                     'cancelled_by' => $request->user()->id,
                     'cancellation_reason' => $reason,
                 ]);
+
+                // Step 62: void the pre-captured charge (if any) so it cannot be invoiced.
+                $this->chargeCapture->voidForSource(PrescriptionOrderItem::class, $item->id, $reason, $request);
             });
         });
 
@@ -178,6 +185,9 @@ class PrescriptionOrderService
             'cancelled_by' => $request->user()->id,
             'cancellation_reason' => $reason,
         ]);
+
+        // Step 62: void the pre-captured charge (if any) so it cannot be invoiced.
+        $this->chargeCapture->voidForSource(PrescriptionOrderItem::class, $item->id, $reason, $request);
 
         $this->auditLog->record(
             'prescription_order_item_removed',
@@ -227,6 +237,11 @@ class PrescriptionOrderService
             $item->only(['prescription_order_id', 'medication_id', 'medication_code_snapshot', 'dose', 'frequency', 'route', 'quantity', 'status']),
             $request,
         );
+
+        // Step 62: capture charge at ORDER time so the patient can pay at the
+        // cashier before dispensing starts — mirrors captureFromLaboratoryOrderItem().
+        // A missing Medication.price is audited but never blocks the order itself.
+        $this->chargeCapture->captureFromPrescriptionOrderItem($item, $order->clinicalEncounter, $request);
 
         return $item;
     }

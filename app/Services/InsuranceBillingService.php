@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\PatientInsurance;
 use App\Models\Service;
+use App\Services\NHIF\NHIFServiceMappingService;
 use DateTimeInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -55,6 +56,7 @@ class InsuranceBillingService
     public function __construct(
         protected CoverageRuleResolver $coverageRules,
         protected AuditLogService $auditLog,
+        protected NHIFServiceMappingService $nhifMapping,
     ) {}
 
     /**
@@ -143,6 +145,28 @@ class InsuranceBillingService
 
         $service = $charge->relationLoaded('service') ? $charge->service : ($charge->service_id ? Service::find($charge->service_id) : null);
         $category = $this->resolveCategory($charge, $service);
+
+        // NHIF-aware eligible-amount adjustment (Step 68): when the insurance
+        // scheme belongs to an API-enabled (NHIF) provider, look up the service
+        // mapping. An excluded service is NOT_COVERED immediately; a service
+        // with an NHIF allowable amount caps the eligible amount at that value.
+        $coverage->loadMissing('insuranceScheme.insuranceProvider');
+
+        if ($coverage->insuranceScheme?->insuranceProvider?->api_enabled) {
+            $nhifContext = $this->nhifMapping->resolveForService(
+                $service,
+                $charge->hospital_id,
+                Carbon::parse($referenceDate),
+            );
+
+            if ($nhifContext['excluded']) {
+                return $this->notCoveredResult($eligibleAmount, null, 'Service is excluded from NHIF coverage at this facility.');
+            }
+
+            if ($nhifContext['allowable_amount'] !== null) {
+                $eligibleAmount = min($eligibleAmount, (float) $nhifContext['allowable_amount']);
+            }
+        }
 
         $rule = $this->coverageRules->resolveRule($coverage->insuranceScheme, $service, $category, Carbon::parse($referenceDate));
 

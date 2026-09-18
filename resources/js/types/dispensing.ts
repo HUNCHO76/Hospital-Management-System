@@ -107,6 +107,7 @@ export interface DispensingPrescription {
     encounter: PrescriptionOrderEncounter | null;
     department: PrescriptionOrderDepartment | null;
     created_at: string;
+    financial_status?: 'authorized' | 'payment_required';
 }
 
 export interface DispensingFilters {

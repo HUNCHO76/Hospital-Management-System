@@ -7,6 +7,8 @@ use Database\Factories\PractitionerFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Practitioner extends Model
 {
@@ -75,9 +77,11 @@ class Practitioner extends Model
         'practitioner_type',
         'professional_registration_number',
         'specialization',
+        'consultation_service_id',
         'license_number',
         'license_expiry_date',
         'status',
+        'nhif_practitioner_no',
     ];
 
     /**
@@ -107,5 +111,52 @@ class Practitioner extends Model
     public function staff(): BelongsTo
     {
         return $this->belongsTo(Staff::class);
+    }
+
+    /**
+     * The billable consultation service this practitioner provides, if any
+     * (Step 62, spec §2). Null means no consultation billing is configured —
+     * the financial gate's no-charge rule then authorizes consultations
+     * automatically.
+     */
+    public function consultationService(): BelongsTo
+    {
+        return $this->belongsTo(Service::class, 'consultation_service_id');
+    }
+
+    /**
+     * All NHIF attendance records for this practitioner (append-only history).
+     */
+    public function nhifAttendances(): HasMany
+    {
+        return $this->hasMany(NhifPractitionerAttendance::class)->latest();
+    }
+
+    /**
+     * The most recent NHIF attendance record for this practitioner.
+     */
+    public function latestNhifAttendance(): HasOne
+    {
+        return $this->hasOne(NhifPractitionerAttendance::class)->latestOfMany();
+    }
+
+    /**
+     * Whether this practitioner has an NHIF practitioner number configured.
+     */
+    public function isNhifConfigured(): bool
+    {
+        return filled($this->nhif_practitioner_no);
+    }
+
+    /**
+     * Whether the practitioner's most-recent NHIF attendance was a successful login.
+     */
+    public function isNhifLoggedIn(): bool
+    {
+        $latest = $this->latestNhifAttendance;
+
+        return $latest !== null
+            && $latest->operation === NhifPractitionerAttendance::OPERATION_LOGIN
+            && $latest->isSuccessful();
     }
 }

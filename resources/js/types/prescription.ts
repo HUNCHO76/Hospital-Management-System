@@ -184,6 +184,7 @@ export interface PrescriptionVerificationItem extends PrescriptionOrderItem {
 export interface PrescriptionVerificationOrder extends Omit<PrescriptionOrder, 'items'> {
     items: PrescriptionVerificationItem[];
     verification: PrescriptionVerification | null;
+    financial_status?: 'authorized' | 'payment_required';
 }
 
 export interface PrescriptionVerificationFilters {

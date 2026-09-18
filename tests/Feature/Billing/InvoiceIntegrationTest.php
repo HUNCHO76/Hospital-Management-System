@@ -1,18 +1,16 @@
 <?php
 
 use App\Models\Charge;
-use App\Models\DispensingItem;
 use App\Models\Invoice;
 use App\Models\LaboratoryOrderItem;
+use App\Models\PrescriptionOrderItem;
 use App\Models\RadiologyOrderItem;
 use App\Services\ChargeCaptureService;
 use App\Services\ChargeService;
-use App\Services\DispensingService;
 use App\Services\InvoiceService;
 use App\Services\LaboratoryOrderService;
 use App\Services\PatientAccountService;
 use App\Services\PrescriptionOrderService;
-use App\Services\PrescriptionVerificationService;
 use App\Services\RadiologyOrderService;
 
 /**
@@ -82,9 +80,12 @@ test('a charge sourced from a radiology order traces end to end through invoicin
     expect($invoicedCharge->source_id)->toBe($item->id);
 });
 
-test('a charge sourced from pharmacy dispensing traces end to end through invoicing', function () {
+test('a charge sourced from a pharmacy prescription order traces end to end through invoicing', function () {
+    // Step 62: charge is now captured at ORDER time (PrescriptionOrderItem source),
+    // quantity = prescribed quantity (15), so total = 15 × 8000 = 120000.
     $ctx = diagnosisReadyEncounter();
     $medication = activeMedication(['price' => 8000]);
+
     $order = app(PrescriptionOrderService::class)->create($ctx['encounter'], [
         'items' => [[
             'medication_id' => $medication->id,
@@ -97,18 +98,12 @@ test('a charge sourced from pharmacy dispensing traces end to end through invoic
             'instructions' => 'Take after meals',
         ]],
     ], requestAs($ctx['doctor']['user']));
+
     $orderItem = $order->items->sole();
-    receiveStock($medication, $ctx['hospital']);
-
-    $pharmacist = userWithRole('pharmacist');
-    app(PrescriptionVerificationService::class)->verify($order->fresh(), [], requestAs($pharmacist));
-    $dispensing = app(DispensingService::class)->start($order->fresh(), requestAs($pharmacist));
-    app(DispensingService::class)->complete($dispensing, [
-        'items' => [['prescription_order_item_id' => $orderItem->id, 'dispensed_quantity' => 10]],
-    ], requestAs($pharmacist));
-
-    $dispensingItem = DispensingItem::query()->where('dispensing_id', $dispensing->id)->sole();
-    $charge = Charge::query()->where('source_type', DispensingItem::class)->where('source_id', $dispensingItem->id)->sole();
+    $charge = Charge::query()
+        ->where('source_type', PrescriptionOrderItem::class)
+        ->where('source_id', $orderItem->id)
+        ->sole();
 
     $accountant = userWithRole('accountant');
     app(ChargeService::class)->post($charge, requestAs($accountant));
@@ -120,10 +115,10 @@ test('a charge sourced from pharmacy dispensing traces end to end through invoic
         requestAs($accountant),
     );
 
-    expect((float) $posted->total_amount)->toBe(80000.0);
+    expect((float) $posted->total_amount)->toBe(120000.0);
     $invoicedCharge = $posted->fresh('charges')->charges->sole();
-    expect($invoicedCharge->source_type)->toBe(DispensingItem::class);
-    expect($invoicedCharge->source_id)->toBe($dispensingItem->id);
+    expect($invoicedCharge->source_type)->toBe(PrescriptionOrderItem::class);
+    expect($invoicedCharge->source_id)->toBe($orderItem->id);
     expect($invoicedCharge->service_id)->toBeNull();
 });
 

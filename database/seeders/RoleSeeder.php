@@ -23,7 +23,7 @@ class RoleSeeder extends Seeder
             'hospitals.view', 'hospitals.update',
             'departments.view', 'departments.create', 'departments.update', 'departments.delete',
             'staff.view',
-            'practitioners.view',
+            'practitioners.view', 'practitioners.nhif-login',
             'patients.view', 'patients.create', 'patients.update', 'patients.delete',
             'insurance-providers.view',
             'insurance-schemes.view', 'insurance-schemes.create', 'insurance-schemes.update', 'insurance-schemes.delete',
@@ -77,10 +77,13 @@ class RoleSeeder extends Seeder
             'billing-cashier.view', 'billing-cashier.open', 'billing-cashier.close',
             'billing-reports.view', 'billing-reports.export',
             'audit-logs.view',
+            'nhif-service-mappings.view', 'nhif-service-mappings.create', 'nhif-service-mappings.update', 'nhif-service-mappings.deactivate',
+            'nhif-price-sync.view', 'nhif-price-sync.run',
+            'nhif-preauthorization.view', 'nhif-preauthorization.request', 'nhif-preauthorization.cancel',
         ],
 
         'doctor' => [
-            'practitioners.view',
+            'practitioners.view', 'practitioners.nhif-login',
             'patients.view', 'patients.update',
             'patient-insurance.view',
             'appointments.view', 'appointments.confirm', 'appointments.checkin', 'appointments.complete', 'appointments.cancel', 'appointments.no_show',
@@ -104,7 +107,7 @@ class RoleSeeder extends Seeder
         ],
 
         'nurse' => [
-            'practitioners.view',
+            'practitioners.view', 'practitioners.nhif-login',
             'patients.view', 'patients.update',
             'patient-insurance.view',
             'appointments.view', 'appointments.checkin', 'appointments.complete',
@@ -122,7 +125,7 @@ class RoleSeeder extends Seeder
         // (Step 49) permissions will extend this role the same incremental
         // way 'radiology-technician' grew across Steps 39-41.
         'pharmacist' => [
-            'practitioners.view',
+            'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'medications.view',
             'pharmacy.view', 'pharmacy-prescriptions.view',
@@ -158,7 +161,7 @@ class RoleSeeder extends Seeder
         // operational/technical work; interpreting the resulting images
         // (Step 42) is a distinct clinical role — see 'radiologist' below.
         'radiology-technician' => [
-            'practitioners.view',
+            'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'radiology.view', 'radiology-orders.view', 'radiology-procedures.view',
             'radiology-scheduling.view', 'radiology-scheduling.create', 'radiology-scheduling.reschedule',
@@ -179,7 +182,7 @@ class RoleSeeder extends Seeder
         // from verifying their own report if they also happen to have
         // authored it themselves.
         'radiologist' => [
-            'practitioners.view',
+            'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'radiology.view', 'radiology-orders.view', 'radiology-procedures.view',
             'radiology-results.view', 'radiology-results.create', 'radiology-results.update', 'radiology-results.submit',
@@ -192,7 +195,7 @@ class RoleSeeder extends Seeder
         // (mirrors 'laboratory-supervisor' holding every
         // 'laboratory-technician' ability plus its own verification set).
         'radiology-supervisor' => [
-            'practitioners.view',
+            'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'radiology.view', 'radiology-orders.view', 'radiology-procedures.view',
             'radiology-results.view', 'radiology-results.create', 'radiology-results.update', 'radiology-results.submit',
@@ -200,7 +203,7 @@ class RoleSeeder extends Seeder
         ],
 
         'laboratory-technician' => [
-            'practitioners.view',
+            'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'laboratory.view', 'laboratory-orders.view', 'laboratory-tests.view',
             'laboratory-samples.view', 'laboratory-samples.collect', 'laboratory-samples.label', 'laboratory-samples.receive', 'laboratory-samples.reject', 'laboratory-samples.recollect', 'laboratory-samples.cancel',
@@ -211,7 +214,7 @@ class RoleSeeder extends Seeder
         ],
 
         'laboratory-supervisor' => [
-            'practitioners.view',
+            'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'laboratory.view', 'laboratory-orders.view', 'laboratory-tests.view',
             'laboratory-samples.view', 'laboratory-samples.collect', 'laboratory-samples.label', 'laboratory-samples.receive', 'laboratory-samples.reject', 'laboratory-samples.recollect', 'laboratory-samples.cancel',

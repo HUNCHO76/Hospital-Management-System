@@ -1,4 +1,5 @@
 import { CancelVisitDialog } from '@/components/reception/cancel-visit-dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,12 +7,15 @@ import { usePermissions } from '@/hooks/use-permissions';
 import AppLayout from '@/layouts/app-layout';
 import { allowedReceptionActions, receptionStatusLabel, receptionStatusVariant } from '@/lib/reception-status';
 import { type BreadcrumbItem } from '@/types';
-import { type ReceptionVisit } from '@/types/reception';
+import { type ConsultationCharge, type ConsultationFinancialStatus, type ReceptionVisit } from '@/types/reception';
 import { Head, Link, router } from '@inertiajs/react';
-import { CheckCircle2, ClipboardPlus, PlayCircle, Send, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardPlus, CreditCard, PlayCircle, Send, XCircle } from 'lucide-react';
 
 interface VisitShowProps {
     visit: ReceptionVisit;
+    consultationFinancialStatus: ConsultationFinancialStatus;
+    consultationCharge: ConsultationCharge | null;
+    patientAccountId: number | null;
 }
 
 function formatDateTime(value: string): string {
@@ -25,11 +29,12 @@ const VISIT_TYPE_LABELS: Record<string, string> = {
     other: 'Other',
 };
 
-export default function VisitShow({ visit }: VisitShowProps) {
+export default function VisitShow({ visit, consultationFinancialStatus, consultationCharge, patientAccountId }: VisitShowProps) {
     const { can } = usePermissions();
     const patientName = visit.patient
         ? [visit.patient.first_name, visit.patient.middle_name, visit.patient.last_name].filter(Boolean).join(' ')
         : '—';
+    const paymentRequired = consultationFinancialStatus === 'payment_required';
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Reception', href: '/reception' },
@@ -71,13 +76,13 @@ export default function VisitShow({ visit }: VisitShowProps) {
                         )}
 
                         {actions.includes('sendToService') && can('reception.update') && (
-                            <Button size="sm" onClick={() => runAction('send-to-service')}>
+                            <Button size="sm" onClick={() => runAction('send-to-service')} disabled={paymentRequired} title={paymentRequired ? 'Payment must be cleared before sending to service' : undefined}>
                                 <Send className="h-4 w-4" />
                                 Send to Service
                             </Button>
                         )}
 
-                        {(visit.status === 'ready_for_service' || visit.status === 'sent_to_service') && can('clinical-encounters.create') && (
+                        {(visit.status === 'ready_for_service' || visit.status === 'sent_to_service') && can('clinical-encounters.create') && !paymentRequired && (
                             <Button size="sm" variant="outline" asChild>
                                 <Link href={route('clinical-encounters.create', { patient_id: visit.patient_id, reception_visit_id: visit.id })}>
                                     <ClipboardPlus className="h-4 w-4" />
@@ -106,6 +111,46 @@ export default function VisitShow({ visit }: VisitShowProps) {
                         )}
                     </div>
                 </div>
+
+                {consultationCharge && (
+                    <Alert
+                        variant={paymentRequired ? 'destructive' : 'default'}
+                        className={paymentRequired ? 'border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'border-green-500 bg-green-500/10 text-green-800 dark:text-green-300'}
+                    >
+                        {paymentRequired ? <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" /> : <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />}
+                        <AlertDescription className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 font-semibold">
+                                    <span>Financial Status: {paymentRequired ? 'PAYMENT REQUIRED' : 'AUTHORIZED (PAID)'}</span>
+                                    {paymentRequired ? (
+                                        <Badge variant="destructive" className="bg-amber-600 dark:bg-amber-700 text-white">PAYMENT REQUIRED</Badge>
+                                    ) : (
+                                        <Badge variant="default" className="bg-green-600 dark:bg-green-700 text-white">READY FOR SPECIALIST</Badge>
+                                    )}
+                                </div>
+                                <p className="text-xs">
+                                    {paymentRequired
+                                        ? `Consultation charge ${consultationCharge.charge_number} (${consultationCharge.currency} ${Number(consultationCharge.net_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}) must be paid at the cashier before patient can enter clinical queue.`
+                                        : `Consultation charge ${consultationCharge.charge_number} is settled. Patient is authorized to see specialist.`}
+                                </p>
+                            </div>
+                            {paymentRequired && (
+                                <Button size="sm" variant="default" className="bg-amber-700 hover:bg-amber-800 text-white" asChild>
+                                    <Link
+                                        href={
+                                            patientAccountId
+                                                ? route('billing.accounts.show', patientAccountId)
+                                                : route('billing.accounts.index')
+                                        }
+                                    >
+                                        <CreditCard className="h-4 w-4 mr-1" />
+                                        Proceed to Payment
+                                    </Link>
+                                </Button>
+                            )}
+                        </AlertDescription>
+                    </Alert>
+                )}
 
                 <div className="grid gap-4 md:grid-cols-2">
                     <Card>

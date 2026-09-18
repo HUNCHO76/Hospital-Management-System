@@ -7,10 +7,12 @@ use App\Http\Requests\RadiologyAppointment\RescheduleRadiologyAppointmentRequest
 use App\Http\Requests\RadiologyAppointment\ScheduleRadiologyOrderItemRequest;
 use App\Http\Resources\RadiologyAppointmentResource;
 use App\Http\Resources\UnscheduledRadiologyOrderItemResource;
+use App\Models\PatientAccount;
 use App\Models\RadiologyAppointment;
 use App\Models\RadiologyOrder;
 use App\Models\RadiologyOrderItem;
 use App\Models\RadiologyProcedure;
+use App\Services\FinancialAuthorizationService;
 use App\Services\RadiologySchedulingSearchService;
 use App\Services\RadiologySchedulingService;
 use Illuminate\Http\RedirectResponse;
@@ -40,8 +42,27 @@ class RadiologySchedulingController extends Controller
         ]);
         $search->scopeUnscheduledToHospital($unscheduledQuery, $this->scopedHospitalId($request));
 
+        $financialAuth = app(FinancialAuthorizationService::class);
+
         $unscheduledItems = $unscheduledQuery->paginate(15, ['*'], 'unscheduled_page')->withQueryString()
-            ->through(fn (RadiologyOrderItem $item) => (new UnscheduledRadiologyOrderItemResource($item))->resolve($request));
+            ->through(function (RadiologyOrderItem $item) use ($request, $financialAuth) {
+                $data = (new UnscheduledRadiologyOrderItemResource($item))->resolve($request);
+                $data['financial_status'] = $financialAuth->statusForSource(RadiologyOrderItem::class, $item->id);
+
+                $patientId = $item->radiologyOrder?->clinicalEncounter?->patient_id;
+                $hospitalId = $item->radiologyOrder?->clinicalEncounter?->department?->hospital_id;
+
+                $patientAccountId = null;
+                if ($patientId && $hospitalId) {
+                    $patientAccountId = PatientAccount::query()
+                        ->where('patient_id', $patientId)
+                        ->where('hospital_id', $hospitalId)
+                        ->value('id');
+                }
+                $data['patient_account_id'] = $patientAccountId;
+
+                return $data;
+            });
 
         // Existing bookings for the selected date (optionally narrowed to
         // one resource), so staff can see what's already taken before

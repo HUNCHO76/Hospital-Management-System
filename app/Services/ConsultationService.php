@@ -12,7 +12,10 @@ use Illuminate\Validation\ValidationException;
 
 class ConsultationService
 {
-    public function __construct(protected AuditLogService $auditLog) {}
+    public function __construct(
+        protected AuditLogService $auditLog,
+        protected FinancialAuthorizationService $financialAuth,
+    ) {}
 
     /**
      * Start a new consultation for an encounter — requires triage to have
@@ -36,6 +39,15 @@ class ConsultationService
             $this->assertNoExistingConsultation($encounter);
 
             $practitioner = $this->assertPractitionerEligible($request);
+
+            // Step 62: financial authorization gate — the consultation charge
+            // (captured at encounter creation when a practitioner was already
+            // known) must be paid before the doctor can open the consultation.
+            // No-charge rule: if no charge exists the gate passes automatically.
+            $this->financialAuth->assertAuthorizedForSources(
+                ClinicalEncounter::class,
+                [$encounter->id],
+            );
 
             return Consultation::create([
                 'clinical_encounter_id' => $encounter->id,

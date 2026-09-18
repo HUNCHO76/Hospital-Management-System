@@ -9,14 +9,19 @@ use App\Http\Requests\LaboratorySample\RejectLaboratorySampleRequest;
 use App\Http\Requests\LaboratorySample\StoreLaboratorySampleRequest;
 use App\Http\Resources\LaboratoryOrderResource;
 use App\Http\Resources\LaboratorySampleResource;
+use App\Models\Charge;
 use App\Models\LaboratoryOrder;
+use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratorySample;
 use App\Models\LaboratoryTest;
+use App\Models\PatientAccount;
+use App\Services\FinancialAuthorizationService;
 use App\Services\LaboratoryOrderSearchService;
 use App\Services\LaboratoryProcessingService;
 use App\Services\LaboratorySampleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -60,7 +65,7 @@ class LaboratorySampleController extends Controller
      * §25). Never lists orders whose collection is already fully complete
      * or that were cancelled.
      */
-    public function collectionIndex(Request $request, LaboratoryOrderSearchService $search): Response
+    public function collectionIndex(Request $request, LaboratoryOrderSearchService $search, FinancialAuthorizationService $financialAuth): Response
     {
         $this->authorize('viewAny', LaboratorySample::class);
 
@@ -71,14 +76,67 @@ class LaboratorySampleController extends Controller
             ->with(['items.laboratoryTest:id,specimen_type', 'clinicalEncounter.patient:id,patient_number,first_name,middle_name,last_name']);
         $search->scopeToHospital($query, $this->scopedHospitalId($request));
 
-        $orders = $query->latest('ordered_at')->paginate(15)->withQueryString()
-            ->through(fn (LaboratoryOrder $order) => (new LaboratoryOrderResource($order))->resolve($request));
+        $paginator = $query->latest('ordered_at')->paginate(15)->withQueryString();
+        $financialStatuses = $this->batchOrderFinancialStatuses($paginator->getCollection(), $financialAuth);
+
+        $orders = $paginator->through(fn (LaboratoryOrder $order) => array_merge(
+            (new LaboratoryOrderResource($order))->resolve($request),
+            ['financial_status' => $financialStatuses[$order->id] ?? FinancialAuthorizationService::STATUS_AUTHORIZED],
+        ));
 
         return Inertia::render('laboratory/collection/index', [
             'orders' => $orders,
             'filters' => $filters,
             'priorities' => LaboratoryOrder::PRIORITIES,
         ]);
+    }
+
+    /**
+     * Batch-compute the financial authorization status for every order on a
+     * paginated page — one charge query for the whole page, then one invoice
+     * query for any posted-but-uninvoiced edge cases. Keeps the worklist at
+     * O(2) queries regardless of page size rather than O(N × items).
+     *
+     * @param  Collection<int, LaboratoryOrder>  $orders
+     * @return array<int, string>
+     */
+    private function batchOrderFinancialStatuses(Collection $orders, FinancialAuthorizationService $financialAuth): array
+    {
+        $itemIdsByOrderId = [];
+        foreach ($orders as $order) {
+            $itemIdsByOrderId[$order->id] = $order->items
+                ->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED)
+                ->pluck('id')
+                ->all();
+        }
+
+        $allItemIds = collect(array_values($itemIdsByOrderId))->flatten()->all();
+
+        if (empty($allItemIds)) {
+            return array_fill_keys(array_keys($itemIdsByOrderId), FinancialAuthorizationService::STATUS_AUTHORIZED);
+        }
+
+        // Single query: all charges for every active item on this page.
+        $chargesByItemId = Charge::query()
+            ->where('source_type', LaboratoryOrderItem::class)
+            ->whereIn('source_id', $allItemIds)
+            ->get()
+            ->keyBy('source_id');
+
+        $result = [];
+        foreach ($itemIdsByOrderId as $orderId => $itemIds) {
+            $status = FinancialAuthorizationService::STATUS_AUTHORIZED;
+            foreach ($itemIds as $itemId) {
+                $charge = $chargesByItemId->get($itemId);
+                if ($financialAuth->statusForCharge($charge) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                    $status = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
+                    break;
+                }
+            }
+            $result[$orderId] = $status;
+        }
+
+        return $result;
     }
 
     /**
@@ -99,11 +157,32 @@ class LaboratorySampleController extends Controller
 
         $samples = $laboratoryOrder->samples()->with($this->sampleEagerLoads())->get();
 
+        $financialAuth = app(FinancialAuthorizationService::class);
+        $activeItemIds = $laboratoryOrder->items->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED)->pluck('id')->all();
+
+        $orderFinancialStatus = FinancialAuthorizationService::STATUS_AUTHORIZED;
+        foreach ($activeItemIds as $itemId) {
+            if ($financialAuth->statusForSource(LaboratoryOrderItem::class, $itemId) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                $orderFinancialStatus = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
+                break;
+            }
+        }
+
+        $patientAccountId = null;
+        if ($laboratoryOrder->clinicalEncounter?->patient_id && $laboratoryOrder->clinicalEncounter?->department?->hospital_id) {
+            $patientAccountId = PatientAccount::query()
+                ->where('patient_id', $laboratoryOrder->clinicalEncounter->patient_id)
+                ->where('hospital_id', $laboratoryOrder->clinicalEncounter->department->hospital_id)
+                ->value('id');
+        }
+
         return Inertia::render('laboratory/collection/show', [
             'order' => (new LaboratoryOrderResource($laboratoryOrder))->resolve($request),
             'samples' => LaboratorySampleResource::collection($samples)->resolve($request),
             'specimenTypes' => LaboratoryTest::SPECIMEN_TYPES,
             'specimenContainers' => LaboratoryTest::SPECIMEN_CONTAINERS,
+            'orderFinancialStatus' => $orderFinancialStatus,
+            'patientAccountId' => $patientAccountId,
         ]);
     }
 

@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\PrescriptionOrder;
+use App\Models\PrescriptionOrderItem;
 use App\Models\PrescriptionVerification;
+use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -18,7 +20,11 @@ use Illuminate\Validation\ValidationException;
  */
 class PrescriptionVerificationService
 {
-    public function __construct(protected AuditLogService $auditLog) {}
+    public function __construct(
+        protected AuditLogService $auditLog,
+        protected FinancialAuthorizationService $financialAuth,
+        protected NHIFPreauthorizationService $nhifPreauth,
+    ) {}
 
     /**
      * Create the verification row the moment a PrescriptionOrder is created
@@ -99,6 +105,18 @@ class PrescriptionVerificationService
 
             $order = PrescriptionOrder::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
             $this->assertEligibleForVerification($order);
+
+            $activeItemIds = $order->items()
+                ->where('status', '!=', PrescriptionOrderItem::STATUS_CANCELLED)
+                ->pluck('id')
+                ->all();
+            // Step 69: NHIF preauthorization gate
+            $this->nhifPreauth->assertPreauthorizedForSources(PrescriptionOrderItem::class, $activeItemIds);
+
+            // A missing medication price means no charge was captured and is
+            // a billing configuration gap, not a reason to block verification.
+            // Captured charges are still required to be fully authorized.
+            $this->financialAuth->assertAuthorizedForSources(PrescriptionOrderItem::class, $activeItemIds);
 
             $verification->update([
                 'status' => PrescriptionVerification::STATUS_VERIFIED,

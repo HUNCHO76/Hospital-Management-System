@@ -6,6 +6,8 @@ use Database\Factories\PatientInsuranceFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PatientInsurance extends Model
 {
@@ -74,6 +76,9 @@ class PatientInsurance extends Model
         'status',
         'verification_status',
         'verified_at',
+        'nhif_eligibility_status',
+        'nhif_coverage_percent',
+        'nhif_eligibility_checked_at',
     ];
 
     /**
@@ -88,6 +93,8 @@ class PatientInsurance extends Model
             'effective_to' => 'date',
             'is_primary' => 'boolean',
             'verified_at' => 'datetime',
+            'nhif_coverage_percent' => 'decimal:2',
+            'nhif_eligibility_checked_at' => 'datetime',
         ];
     }
 
@@ -113,5 +120,43 @@ class PatientInsurance extends Model
     public function insuranceScheme(): BelongsTo
     {
         return $this->belongsTo(InsuranceScheme::class);
+    }
+
+    /**
+     * The most-recent NHIF member/card verification attempt.
+     */
+    public function latestNhifVerification(): HasOne
+    {
+        return $this->hasOne(NhifMemberVerification::class)->latestOfMany();
+    }
+
+    /**
+     * The most-recent NHIF eligibility check for this insurance record.
+     */
+    public function latestNhifEligibility(): HasOne
+    {
+        return $this->hasOne(NhifEligibilityRecord::class)->latestOfMany();
+    }
+
+    /**
+     * All NHIF eligibility check history (append-only).
+     */
+    public function nhifEligibilityRecords(): HasMany
+    {
+        return $this->hasMany(NhifEligibilityRecord::class)->latest();
+    }
+
+    /** Whether the most-recent NHIF eligibility check says the member is eligible. */
+    public function isNhifEligible(): bool
+    {
+        return $this->nhif_eligibility_status === NhifEligibilityRecord::STATUS_ELIGIBLE;
+    }
+
+    /** Whether NHIF covers 100% of charges (no patient copayment). */
+    public function isFullyCoveredByNhif(): bool
+    {
+        return $this->isNhifEligible()
+            && $this->nhif_coverage_percent !== null
+            && (float) $this->nhif_coverage_percent >= 100.0;
     }
 }

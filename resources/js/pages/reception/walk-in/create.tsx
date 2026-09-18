@@ -8,10 +8,10 @@ import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { type AppointmentDepartment } from '@/types/appointment';
 import { type PatientSearchResult } from '@/types/patient';
-import { type WalkInFormData } from '@/types/reception';
+import { type ReceptionPractitioner, type WalkInFormData } from '@/types/reception';
 import { Head, useForm } from '@inertiajs/react';
 import { ExternalLink, LoaderCircle } from 'lucide-react';
-import { type FormEventHandler, useState } from 'react';
+import { type FormEventHandler, useEffect, useRef, useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Reception', href: '/reception' },
@@ -28,6 +28,7 @@ const VISIT_TYPE_LABELS: Record<string, string> = {
 interface WalkInCreateProps {
     departments: AppointmentDepartment[];
     visitTypes: string[];
+    practitioners: ReceptionPractitioner[];
 }
 
 /**
@@ -39,14 +40,48 @@ interface WalkInCreateProps {
  * receptionist keeps this walk-in in progress and re-searches once the new
  * patient exists.
  */
-export default function WalkInCreate({ departments, visitTypes }: WalkInCreateProps) {
+export default function WalkInCreate({ departments, visitTypes, practitioners }: WalkInCreateProps) {
     const [selectedPatient, setSelectedPatient] = useState<PatientSearchResult | null>(null);
+    const [consultationPrice, setConsultationPrice] = useState<{ price: number | null; currency: string } | null>(null);
+    const abortRef = useRef<AbortController | null>(null);
 
     const { data, setData, post, processing, errors } = useForm<WalkInFormData>({
         patient_id: '',
         department_id: '',
         visit_type: 'walk_in',
+        practitioner_id: '',
     });
+
+    useEffect(() => {
+        if (abortRef.current) {
+            abortRef.current.abort();
+        }
+
+        const practitioner = practitioners.find((p) => String(p.id) === data.practitioner_id);
+        if (!data.department_id || !data.practitioner_id || !practitioner?.consultation_service_id) {
+            setConsultationPrice(null);
+            return;
+        }
+
+        const ctrl = new AbortController();
+        abortRef.current = ctrl;
+
+        fetch(route('reception.consultation-price') + `?department_id=${data.department_id}&practitioner_id=${data.practitioner_id}`, {
+            signal: ctrl.signal,
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        })
+            .then((r) => r.json())
+            .then((json: { price: number | null; currency?: string }) => {
+                if (!ctrl.signal.aborted) {
+                    setConsultationPrice({ price: json.price, currency: json.currency ?? 'KES' });
+                }
+            })
+            .catch(() => {
+                if (!ctrl.signal.aborted) {
+                    setConsultationPrice(null);
+                }
+            });
+    }, [data.department_id, data.practitioner_id]);
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -129,31 +164,96 @@ export default function WalkInCreate({ departments, visitTypes }: WalkInCreatePr
                                 </div>
                             </div>
 
-                            {selectedPatient && data.department_id && (
-                                <div className="bg-muted/50 rounded-md border p-4 text-sm">
-                                    <p className="font-medium">Review</p>
-                                    <p className="text-muted-foreground mt-1">
-                                        Registering{' '}
-                                        <span className="text-foreground font-medium">
-                                            {[selectedPatient.first_name, selectedPatient.middle_name, selectedPatient.last_name]
-                                                .filter(Boolean)
-                                                .join(' ')}
-                                        </span>{' '}
-                                        ({selectedPatient.patient_number}) as a{' '}
-                                        <span className="text-foreground font-medium">{VISIT_TYPE_LABELS[data.visit_type] ?? data.visit_type}</span>{' '}
-                                        visit to{' '}
-                                        <span className="text-foreground font-medium">
-                                            {departments.find((d) => String(d.id) === data.department_id)?.name}
-                                        </span>
-                                        .
+                            <div className="grid gap-2">
+                                <Label htmlFor="practitioner_id">
+                                    Assigned Provider{' '}
+                                    <span className="text-muted-foreground font-normal">(optional — enables upfront billing)</span>
+                                </Label>
+                                <Select
+                                    value={data.practitioner_id}
+                                    onValueChange={(value) => setData('practitioner_id', value === 'none' ? '' : value)}
+                                >
+                                    <SelectTrigger id="practitioner_id">
+                                        <SelectValue placeholder="No provider selected (triage/general queue)" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">No provider selected</SelectItem>
+                                        {practitioners.map((p) => (
+                                            <SelectItem key={p.id} value={String(p.id)}>
+                                                {p.staff ? `${p.staff.first_name} ${p.staff.last_name}` : p.practitioner_number}
+                                                {p.consultation_service_id ? ' ✓' : ''}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <InputError message={errors.practitioner_id} />
+                                {consultationPrice?.price != null ? (
+                                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+                                        <div className="flex justify-between items-center">
+                                            <span className="font-semibold">Consultation Fee:</span>
+                                            <span className="text-sm font-bold">
+                                                {consultationPrice.currency}{' '}
+                                                {consultationPrice.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-muted-foreground">
+                                            <span>Financial Requirement:</span>
+                                            <span className="font-semibold text-amber-700 dark:text-amber-400">PAYMENT REQUIRED</span>
+                                        </div>
+                                        <p className="pt-1 text-[11px] text-muted-foreground">
+                                            Submitting creates a billable consultation charge. Patient must settle payment at the cashier before entering the clinical queue.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <p className="text-muted-foreground text-xs">
+                                        If selected, a consultation charge will be captured immediately. Payment must be cleared before the patient is sent to the clinical queue.
                                     </p>
+                                )}
+                            </div>
+
+                            {selectedPatient && data.department_id && (
+                                <div className="bg-muted/50 rounded-md border p-4 text-sm space-y-2">
+                                    <p className="font-medium">Request Summary</p>
+                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                        <div>
+                                            <span className="text-muted-foreground">Patient: </span>
+                                            <span className="font-medium text-foreground">
+                                                {[selectedPatient.first_name, selectedPatient.middle_name, selectedPatient.last_name].filter(Boolean).join(' ')} ({selectedPatient.patient_number})
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="text-muted-foreground">Department: </span>
+                                            <span className="font-medium text-foreground">
+                                                {departments.find((d) => String(d.id) === data.department_id)?.name}
+                                            </span>
+                                        </div>
+                                        {data.practitioner_id && (
+                                            <div>
+                                                <span className="text-muted-foreground">Specialist: </span>
+                                                <span className="font-medium text-foreground">
+                                                    {(() => {
+                                                        const p = practitioners.find((x) => String(x.id) === data.practitioner_id);
+                                                        return p?.staff ? `${p.staff.first_name} ${p.staff.last_name}` : p?.practitioner_number ?? '';
+                                                    })()}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {consultationPrice?.price != null && (
+                                            <div>
+                                                <span className="text-muted-foreground">Price: </span>
+                                                <span className="font-bold text-foreground">
+                                                    {consultationPrice.currency} {consultationPrice.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
                             <div className="flex justify-end gap-2">
                                 <Button type="submit" disabled={processing}>
                                     {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                                    Create Visit
+                                    Request Consultation
                                 </Button>
                             </div>
                         </form>

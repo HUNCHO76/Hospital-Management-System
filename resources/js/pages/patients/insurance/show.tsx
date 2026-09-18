@@ -5,24 +5,220 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
 import { effectiveInsuranceStatus, insuranceStatusLabel } from '@/lib/insurance-status';
 import { type BreadcrumbItem } from '@/types';
-import { type PatientInsurance, type PatientInsurancePatient } from '@/types/patient-insurance';
-import { Head, Link } from '@inertiajs/react';
-import { Pencil } from 'lucide-react';
+import {
+    type NhifEligibilityRecord,
+    type NhifEligibilityStatus,
+    type NhifMemberVerification,
+    type NhifVerificationStatus,
+    type PatientInsurance,
+    type PatientInsurancePatient,
+} from '@/types/patient-insurance';
+import { Head, Link, router } from '@inertiajs/react';
+import { Pencil, ShieldCheck } from 'lucide-react';
+import { useState } from 'react';
 
 interface InsuranceShowProps {
     patient: PatientInsurancePatient;
     insurance: PatientInsurance;
 }
 
+// ---- NHIF Member Verification ----
+
+const nhifVerifStatusLabel: Record<NhifVerificationStatus, string> = {
+    verified: 'Verified',
+    not_found: 'Not Found',
+    invalid: 'Invalid',
+    expired: 'Expired',
+    inactive: 'Inactive',
+    error: 'Error',
+};
+
+function nhifVerifVariant(status: NhifVerificationStatus): 'default' | 'secondary' | 'destructive' {
+    if (status === 'verified') return 'default';
+    if (status === 'error' || status === 'invalid') return 'destructive';
+    return 'secondary';
+}
+
+function NhifVerificationCard({ verification }: { verification: NhifMemberVerification }) {
+    return (
+        <Card className="max-w-2xl">
+            <CardHeader>
+                <CardTitle className="text-base">Latest NHIF Verification</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <dl className="space-y-2 text-sm">
+                    <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Status</dt>
+                        <dd>
+                            <Badge variant={nhifVerifVariant(verification.verification_status)}>
+                                {nhifVerifStatusLabel[verification.verification_status]}
+                            </Badge>
+                        </dd>
+                    </div>
+                    {verification.nhif_member_name && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">Member Name</dt>
+                            <dd>{verification.nhif_member_name}</dd>
+                        </div>
+                    )}
+                    {verification.nhif_card_no && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">Card No.</dt>
+                            <dd>{verification.nhif_card_no}</dd>
+                        </div>
+                    )}
+                    {verification.nhif_membership_no && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">Membership No.</dt>
+                            <dd>{verification.nhif_membership_no}</dd>
+                        </div>
+                    )}
+                    {verification.nhif_plan_name && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">Plan</dt>
+                            <dd>{verification.nhif_plan_name}</dd>
+                        </div>
+                    )}
+                    {verification.nhif_expiry_date && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">Expiry Date</dt>
+                            <dd>{verification.nhif_expiry_date}</dd>
+                        </div>
+                    )}
+                    {verification.error_message && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">Error</dt>
+                            <dd className="text-destructive">{verification.error_message}</dd>
+                        </div>
+                    )}
+                    <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Checked At</dt>
+                        <dd>{verification.verified_at ?? verification.created_at}</dd>
+                    </div>
+                </dl>
+            </CardContent>
+        </Card>
+    );
+}
+
+// ---- NHIF Eligibility ----
+
+const nhifEligStatusLabel: Record<NhifEligibilityStatus, string> = {
+    eligible: 'Eligible',
+    ineligible: 'Not Eligible',
+    expired: 'Expired',
+    suspended: 'Suspended',
+    unknown: 'Unknown',
+    error: 'Error',
+};
+
+function nhifEligVariant(status: NhifEligibilityStatus): 'default' | 'secondary' | 'destructive' {
+    if (status === 'eligible') return 'default';
+    if (status === 'error' || status === 'ineligible') return 'destructive';
+    return 'secondary';
+}
+
+function NhifEligibilityCard({ eligibility }: { eligibility: NhifEligibilityRecord }) {
+    const patientResp =
+        eligibility.nhif_coverage_percent !== null
+            ? Math.max(0, Math.round((100 - parseFloat(eligibility.nhif_coverage_percent ?? '0')) * 100) / 100)
+            : null;
+
+    return (
+        <Card className="max-w-2xl">
+            <CardHeader>
+                <CardTitle className="text-base">Latest NHIF Eligibility</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <dl className="space-y-2 text-sm">
+                    <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Status</dt>
+                        <dd>
+                            <Badge variant={nhifEligVariant(eligibility.eligibility_status)}>
+                                {nhifEligStatusLabel[eligibility.eligibility_status]}
+                            </Badge>
+                        </dd>
+                    </div>
+                    {eligibility.nhif_coverage_percent !== null && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">NHIF Covers</dt>
+                            <dd>{eligibility.nhif_coverage_percent}%</dd>
+                        </div>
+                    )}
+                    {patientResp !== null && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">Patient Responsibility</dt>
+                            <dd>{patientResp === 0 ? 'None (fully covered)' : `${patientResp}%`}</dd>
+                        </div>
+                    )}
+                    {eligibility.nhif_valid_from && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">Valid From</dt>
+                            <dd>{eligibility.nhif_valid_from}</dd>
+                        </div>
+                    )}
+                    {eligibility.nhif_valid_to && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">Valid To</dt>
+                            <dd>{eligibility.nhif_valid_to}</dd>
+                        </div>
+                    )}
+                    {eligibility.nhif_remarks && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">Remarks</dt>
+                            <dd>{eligibility.nhif_remarks}</dd>
+                        </div>
+                    )}
+                    {eligibility.error_message && (
+                        <div className="flex justify-between gap-4">
+                            <dt className="text-muted-foreground">Error</dt>
+                            <dd className="text-destructive">{eligibility.error_message}</dd>
+                        </div>
+                    )}
+                    <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Checked At</dt>
+                        <dd>{eligibility.eligibility_checked_at ?? eligibility.created_at}</dd>
+                    </div>
+                </dl>
+            </CardContent>
+        </Card>
+    );
+}
+
+// ---- Main page ----
+
 export default function InsuranceShow({ patient, insurance }: InsuranceShowProps) {
+    const [verifying, setVerifying] = useState(false);
+    const [checkingEligibility, setCheckingEligibility] = useState(false);
+
     const fullName = [patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ');
     const displayStatus = effectiveInsuranceStatus(insurance.status, insurance.effective_to);
+
+    const apiEnabled = insurance.insurance_provider?.api_enabled === true;
+    const hasCardIdentifier = !!insurance.card_number || !!insurance.membership_number;
+
+    const canLiveVerify = apiEnabled && (hasCardIdentifier || !!patient.national_id);
+    const canCheckEligibility = apiEnabled && hasCardIdentifier;
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Patients', href: '/patients' },
         { title: fullName, href: `/patients/${patient.id}` },
         { title: 'Insurance', href: `/patients/${patient.id}/insurance/${insurance.id}` },
     ];
+
+    function handleNhifVerify() {
+        setVerifying(true);
+        router.post(route('patients.insurance.nhif-verify', [patient.id, insurance.id]), {}, {
+            onFinish: () => setVerifying(false),
+        });
+    }
+
+    function handleNhifEligibility() {
+        setCheckingEligibility(true);
+        router.post(route('patients.insurance.nhif-eligibility', [patient.id, insurance.id]), {}, {
+            onFinish: () => setCheckingEligibility(false),
+        });
+    }
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -37,14 +233,34 @@ export default function InsuranceShow({ patient, insurance }: InsuranceShowProps
                         </p>
                     </div>
 
-                    <Can permission="patient-insurance.update">
-                        <Button asChild variant="outline">
-                            <Link href={route('patients.insurance.edit', [patient.id, insurance.id])}>
-                                <Pencil className="h-4 w-4" />
-                                Edit
-                            </Link>
-                        </Button>
-                    </Can>
+                    <div className="flex flex-wrap gap-2">
+                        {canCheckEligibility && (
+                            <Can permission="patient-insurance.verify">
+                                <Button variant="outline" onClick={handleNhifEligibility} disabled={checkingEligibility}>
+                                    <ShieldCheck className="h-4 w-4" />
+                                    {checkingEligibility ? 'Checking…' : 'Check Eligibility'}
+                                </Button>
+                            </Can>
+                        )}
+
+                        {canLiveVerify && (
+                            <Can permission="patient-insurance.verify">
+                                <Button variant="outline" onClick={handleNhifVerify} disabled={verifying}>
+                                    <ShieldCheck className="h-4 w-4" />
+                                    {verifying ? 'Verifying…' : 'Verify with NHIF'}
+                                </Button>
+                            </Can>
+                        )}
+
+                        <Can permission="patient-insurance.update">
+                            <Button asChild variant="outline">
+                                <Link href={route('patients.insurance.edit', [patient.id, insurance.id])}>
+                                    <Pencil className="h-4 w-4" />
+                                    Edit
+                                </Link>
+                            </Button>
+                        </Can>
+                    </div>
                 </div>
 
                 <Card className="max-w-2xl">
@@ -99,9 +315,36 @@ export default function InsuranceShow({ patient, insurance }: InsuranceShowProps
                                 <dt className="text-muted-foreground">Verification</dt>
                                 <dd className="capitalize">{insurance.verification_status}</dd>
                             </div>
+                            {insurance.nhif_eligibility_status && (
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-muted-foreground">NHIF Eligibility</dt>
+                                    <dd>
+                                        <Badge
+                                            variant={nhifEligVariant(
+                                                insurance.nhif_eligibility_status as NhifEligibilityStatus,
+                                            )}
+                                        >
+                                            {nhifEligStatusLabel[insurance.nhif_eligibility_status as NhifEligibilityStatus]}
+                                        </Badge>
+                                        {insurance.nhif_coverage_percent !== null && insurance.nhif_eligibility_status === 'eligible' && (
+                                            <span className="text-muted-foreground ml-2 text-xs">
+                                                ({insurance.nhif_coverage_percent}% covered)
+                                            </span>
+                                        )}
+                                    </dd>
+                                </div>
+                            )}
                         </dl>
                     </CardContent>
                 </Card>
+
+                {insurance.latest_nhif_eligibility && (
+                    <NhifEligibilityCard eligibility={insurance.latest_nhif_eligibility} />
+                )}
+
+                {insurance.latest_nhif_verification && (
+                    <NhifVerificationCard verification={insurance.latest_nhif_verification} />
+                )}
             </div>
         </AppLayout>
     );

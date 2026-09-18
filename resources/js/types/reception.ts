@@ -22,6 +22,7 @@ export interface ReceptionVisitDepartment {
     id: number;
     name: string;
     code?: string;
+    hospital_id?: number;
 }
 
 export interface ReceptionVisitAppointment {
@@ -36,12 +37,33 @@ export interface ReceptionVisitAppointment {
     };
 }
 
+export type ConsultationFinancialStatus = 'authorized' | 'payment_required';
+
+export interface ReceptionPractitioner {
+    id: number;
+    practitioner_number: string;
+    staff_id: number;
+    consultation_service_id: number | null;
+    staff?: { first_name: string; last_name: string };
+}
+
+export interface ConsultationCharge {
+    id: number;
+    charge_number: string;
+    status: string;
+    unit_price: number;
+    quantity: number;
+    net_amount: number;
+    currency: string;
+}
+
 export interface ReceptionVisit {
     id: number;
     visit_number: string;
     patient_id?: number;
     appointment_id?: number | null;
     department_id?: number;
+    practitioner_id?: number | null;
     visit_type: ReceptionVisitType;
     status: ReceptionVisitStatus;
     completed_at: string | null;
@@ -50,6 +72,9 @@ export interface ReceptionVisit {
     patient?: ReceptionVisitPatient;
     department?: ReceptionVisitDepartment;
     appointment?: ReceptionVisitAppointment | null;
+    practitioner?: ReceptionPractitioner | null;
+    financial_status?: ConsultationFinancialStatus;
+    patient_account_id?: number | null;
     created_at: string;
     updated_at: string;
 }
@@ -87,6 +112,7 @@ export interface WalkInFormData {
     patient_id: string;
     department_id: string;
     visit_type: ReceptionVisitType | '';
+    practitioner_id: string;
     [key: string]: string;
 }
 

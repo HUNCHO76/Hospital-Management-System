@@ -25,6 +25,7 @@ export function PractitionerForm({ practitioner, eligibleStaff, practitionerType
         license_number: practitioner?.license_number ?? '',
         license_expiry_date: practitioner?.license_expiry_date ?? '',
         status: practitioner?.status ?? 'active',
+        nhif_practitioner_no: practitioner?.nhif_practitioner_no ?? '',
     });
 
     const submit: FormEventHandler = (e) => {
@@ -127,6 +128,17 @@ export function PractitionerForm({ practitioner, eligibleStaff, practitionerType
                         onChange={(e) => setData('license_expiry_date', e.target.value)}
                     />
                     <InputError message={errors.license_expiry_date} />
+                </div>
+
+                <div className="grid gap-2 sm:col-span-2">
+                    <Label htmlFor="nhif_practitioner_no">NHIF Practitioner Number</Label>
+                    <Input
+                        id="nhif_practitioner_no"
+                        value={data.nhif_practitioner_no}
+                        onChange={(e) => setData('nhif_practitioner_no', e.target.value)}
+                        placeholder="Leave blank if not yet registered with NHIF"
+                    />
+                    <InputError message={errors.nhif_practitioner_no} />
                 </div>
             </div>
 

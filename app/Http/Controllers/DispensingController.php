@@ -5,12 +5,17 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Dispensing\CancelDispensingRequest;
 use App\Http\Requests\Dispensing\CompleteDispensingRequest;
 use App\Http\Resources\PrescriptionDispensingResource;
+use App\Models\Charge;
 use App\Models\Dispensing;
+use App\Models\PatientAccount;
 use App\Models\PrescriptionOrder;
+use App\Models\PrescriptionOrderItem;
 use App\Services\DispensingSearchService;
 use App\Services\DispensingService;
+use App\Services\FinancialAuthorizationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -45,7 +50,7 @@ class DispensingController extends Controller
         ];
     }
 
-    public function index(Request $request, DispensingSearchService $search): Response
+    public function index(Request $request, DispensingSearchService $search, FinancialAuthorizationService $financialAuth): Response
     {
         $this->authorize('viewDispensingQueue', PrescriptionOrder::class);
 
@@ -54,13 +59,60 @@ class DispensingController extends Controller
         $query = $search->query($filters);
         $search->scopeToHospital($query, $this->scopedHospitalId($request));
 
-        $prescriptions = $query->paginate(20)->withQueryString()
-            ->through(fn (PrescriptionOrder $order) => (new PrescriptionDispensingResource($order))->resolve($request));
+        $paginator = $query->paginate(20)->withQueryString();
+        $financialStatuses = $this->batchPrescriptionFinancialStatuses($paginator->getCollection(), $financialAuth);
+
+        $prescriptions = $paginator->through(fn (PrescriptionOrder $order) => array_merge(
+            (new PrescriptionDispensingResource($order))->resolve($request),
+            ['financial_status' => $financialStatuses[$order->id] ?? FinancialAuthorizationService::STATUS_AUTHORIZED],
+        ));
 
         return Inertia::render('pharmacy/dispensing/index', [
             'prescriptions' => $prescriptions,
             'filters' => $filters,
         ]);
+    }
+
+    /**
+     * @param  Collection<int, PrescriptionOrder>  $orders
+     * @return array<int, string>
+     */
+    private function batchPrescriptionFinancialStatuses(Collection $orders, FinancialAuthorizationService $financialAuth): array
+    {
+        $itemIdsByOrderId = [];
+        foreach ($orders as $order) {
+            $itemIdsByOrderId[$order->id] = $order->items
+                ->where('status', '!=', PrescriptionOrderItem::STATUS_CANCELLED)
+                ->pluck('id')
+                ->all();
+        }
+
+        $allItemIds = collect(array_values($itemIdsByOrderId))->flatten()->all();
+
+        if (empty($allItemIds)) {
+            return array_fill_keys(array_keys($itemIdsByOrderId), FinancialAuthorizationService::STATUS_AUTHORIZED);
+        }
+
+        $chargesByItemId = Charge::query()
+            ->where('source_type', PrescriptionOrderItem::class)
+            ->whereIn('source_id', $allItemIds)
+            ->get()
+            ->keyBy('source_id');
+
+        $result = [];
+        foreach ($itemIdsByOrderId as $orderId => $itemIds) {
+            $status = FinancialAuthorizationService::STATUS_AUTHORIZED;
+            foreach ($itemIds as $itemId) {
+                $charge = $chargesByItemId->get($itemId);
+                if ($charge === null || $financialAuth->statusForCharge($charge) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                    $status = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
+                    break;
+                }
+            }
+            $result[$orderId] = $status;
+        }
+
+        return $result;
     }
 
     public function show(Request $request, PrescriptionOrder $prescriptionOrder, DispensingService $service): Response
@@ -69,8 +121,32 @@ class DispensingController extends Controller
 
         $prescriptionOrder->load($this->eagerLoads());
 
+        $financialAuth = app(FinancialAuthorizationService::class);
+        $activeItemIds = $prescriptionOrder->items
+            ->where('status', '!=', PrescriptionOrderItem::STATUS_CANCELLED)
+            ->pluck('id')
+            ->all();
+
+        $prescriptionFinancialStatus = FinancialAuthorizationService::STATUS_AUTHORIZED;
+        foreach ($activeItemIds as $itemId) {
+            if ($financialAuth->statusForSourceRequired(PrescriptionOrderItem::class, $itemId) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                $prescriptionFinancialStatus = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
+                break;
+            }
+        }
+
+        $patientAccountId = null;
+        if ($prescriptionOrder->clinicalEncounter?->patient_id && $prescriptionOrder->clinicalEncounter?->department?->hospital_id) {
+            $patientAccountId = PatientAccount::query()
+                ->where('patient_id', $prescriptionOrder->clinicalEncounter->patient_id)
+                ->where('hospital_id', $prescriptionOrder->clinicalEncounter->department->hospital_id)
+                ->value('id');
+        }
+
         return Inertia::render('pharmacy/dispensing/show', [
             'prescription' => (new PrescriptionDispensingResource($prescriptionOrder))->resolve($request),
+            'prescriptionFinancialStatus' => $prescriptionFinancialStatus,
+            'patientAccountId' => $patientAccountId,
             'canStart' => $request->user()->can('startDispensing', $prescriptionOrder),
             'canComplete' => $request->user()->can('completeDispensing', $prescriptionOrder),
             'canCancel' => $request->user()->can('cancelDispensing', $prescriptionOrder),

@@ -153,6 +153,7 @@ export default function RadiologySchedulingIndex({
                                     <TableHead>Patient</TableHead>
                                     <TableHead>Procedure</TableHead>
                                     <TableHead>Priority</TableHead>
+                                    <TableHead>Payment / Auth</TableHead>
                                     <TableHead className="text-right">Action</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -173,13 +174,29 @@ export default function RadiologySchedulingIndex({
                                             )}
                                         </TableCell>
                                         <TableCell>{item.order ? radiologyOrderPriorityLabel[item.order.priority] : '—'}</TableCell>
-                                        <TableCell className="text-right">
+                                        <TableCell>
+                                            {(item as any).financial_status === 'payment_required' ? (
+                                                <Badge variant="destructive" className="bg-amber-600 dark:bg-amber-700 text-white">
+                                                    PAYMENT REQUIRED
+                                                </Badge>
+                                            ) : (
+                                                <Badge variant="default" className="bg-green-600 dark:bg-green-700 text-white">
+                                                    AUTHORIZED
+                                                </Badge>
+                                            )}
+                                        </TableCell>
+                                        <TableCell className="text-right flex items-center justify-end gap-1">
+                                            {(item as any).financial_status === 'payment_required' && (item as any).patient_account_id ? (
+                                                <Button variant="outline" size="sm" asChild className="text-amber-700 dark:text-amber-400 border-amber-500/50">
+                                                    <Link href={route('billing.accounts.show', (item as any).patient_account_id)}>Pay Bill</Link>
+                                                </Button>
+                                            ) : null}
                                             {can('radiology-scheduling.create') && (
                                                 <ScheduleRadiologyItemDialog
                                                     item={item}
                                                     knownResources={knownResources}
                                                     trigger={
-                                                        <Button size="sm">
+                                                        <Button size="sm" disabled={(item as any).financial_status === 'payment_required'} title={(item as any).financial_status === 'payment_required' ? 'Payment required before scheduling' : undefined}>
                                                             <CalendarClock className="h-4 w-4" />
                                                             Schedule
                                                         </Button>
@@ -192,7 +209,7 @@ export default function RadiologySchedulingIndex({
 
                                 {unscheduledItems.data.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="p-0">
+                                        <TableCell colSpan={6} className="p-0">
                                             <EmptyState
                                                 icon={CalendarClock}
                                                 title="No orders awaiting scheduling"

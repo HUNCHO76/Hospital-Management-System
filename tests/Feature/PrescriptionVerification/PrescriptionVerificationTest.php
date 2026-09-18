@@ -36,6 +36,31 @@ test('a pending prescription can be verified by an independent pharmacist, recor
     expect($verification->verification_notes)->toBe('Reviewed and concur.');
 });
 
+test('a prescription without a configured medication price can still be verified', function () {
+    $ctx = diagnosisReadyEncounter();
+    $medication = activeMedication(['price' => null]);
+    $order = activePrescriptionOrderFor($ctx, [
+        'items' => [[
+            'medication_id' => $medication->id,
+            'dose' => '1 tablet',
+            'frequency' => 'twice_daily',
+            'route' => 'oral',
+            'duration' => 5,
+            'duration_unit' => 'days',
+            'quantity' => 10,
+        ]],
+    ]);
+    $verifier = userWithRole('pharmacist');
+
+    $verification = app(PrescriptionVerificationService::class)->verify(
+        $order->fresh(['items', 'verification']),
+        [],
+        requestAs($verifier),
+    );
+
+    expect($verification->status)->toBe(PrescriptionVerification::STATUS_VERIFIED);
+});
+
 test('a prescriber cannot verify their own prescription by default', function () {
     $ctx = diagnosisReadyEncounter();
     $order = activePrescriptionOrderFor($ctx);

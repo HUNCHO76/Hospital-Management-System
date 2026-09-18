@@ -2,12 +2,12 @@
 
 use App\Models\Charge;
 use App\Models\Dispensing;
-use App\Models\DispensingItem;
 use App\Models\Hospital;
 use App\Models\LaboratoryOrder;
 use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryTest;
 use App\Models\Patient;
+use App\Models\PrescriptionOrderItem;
 use App\Models\RadiologyOrderItem;
 use App\Services\ChargeCaptureService;
 use App\Services\DispensingService;
@@ -144,9 +144,12 @@ test('cancelling a radiology order voids its captured charges', function () {
     expect($charge->status)->toBe(Charge::STATUS_VOIDED);
 });
 
-test('completing dispensing for a priced medication automatically captures a charge from Medication.price', function () {
+test('placing a prescription order for a priced medication automatically captures a charge from Medication.price at order time', function () {
+    // Step 62: charge is now captured at ORDER time (PrescriptionOrderItem source),
+    // not at dispensing-complete time, so the patient can pay before dispensing starts.
     $ctx = diagnosisReadyEncounter();
     $medication = activeMedication(['price' => 5000]);
+
     $order = app(PrescriptionOrderService::class)->create($ctx['encounter'], [
         'items' => [[
             'medication_id' => $medication->id,
@@ -159,33 +162,33 @@ test('completing dispensing for a priced medication automatically captures a cha
             'instructions' => 'Take after meals',
         ]],
     ], requestAs($ctx['doctor']['user']));
+
     $orderItem = $order->items->sole();
-    receiveStock($medication, $ctx['hospital']);
-
-    $pharmacist = userWithRole('pharmacist');
-    app(PrescriptionVerificationService::class)->verify($order->fresh(), [], requestAs($pharmacist));
-    $dispensing = app(DispensingService::class)->start($order->fresh(), requestAs($pharmacist));
-
-    app(DispensingService::class)->complete($dispensing, [
-        'items' => [['prescription_order_item_id' => $orderItem->id, 'dispensed_quantity' => 10]],
-    ], requestAs($pharmacist));
-
-    $dispensingItem = DispensingItem::query()->where('dispensing_id', $dispensing->id)->sole();
-    $charge = Charge::query()->where('source_type', DispensingItem::class)->where('source_id', $dispensingItem->id)->first();
+    $charge = Charge::query()
+        ->where('source_type', PrescriptionOrderItem::class)
+        ->where('source_id', $orderItem->id)
+        ->first();
 
     expect($charge)->not->toBeNull();
     expect($charge->status)->toBe(Charge::STATUS_PENDING);
-    expect($charge->quantity)->toBe(10);
+    expect($charge->quantity)->toBe(15);
     expect((float) $charge->unit_price)->toBe(5000.0);
-    expect((float) $charge->net_amount)->toBe(50000.0);
+    expect((float) $charge->net_amount)->toBe(75000.0);
     expect($charge->service_id)->toBeNull();
     expect($charge->service_code_snapshot)->toBe($orderItem->medication_code_snapshot);
     expect($charge->description)->toBe($orderItem->medication_name_snapshot);
+    expect($charge->patient_id)->toBe($ctx['patient']->id);
+    expect($charge->hospital_id)->toBe($ctx['hospital']->id);
+    expect($charge->encounter_id)->toBe($ctx['encounter']->id);
 });
 
-test('completing dispensing for a medication with no configured price does not block dispensing and captures no charge', function () {
+test('prescribing a medication with no configured price does not block the order and captures no charge', function () {
+    // Step 62: charge is now captured at ORDER time; a missing Medication.price
+    // is audited as charge_capture_skipped but never blocks the prescription.
+    // No charge → no financial gate → dispensing can also proceed normally.
     $ctx = diagnosisReadyEncounter();
     $medication = activeMedication(['price' => null]);
+
     $order = app(PrescriptionOrderService::class)->create($ctx['encounter'], [
         'items' => [[
             'medication_id' => $medication->id,
@@ -198,20 +201,19 @@ test('completing dispensing for a medication with no configured price does not b
             'instructions' => 'Take after meals',
         ]],
     ], requestAs($ctx['doctor']['user']));
-    $orderItem = $order->items->sole();
-    receiveStock($medication, $ctx['hospital']);
 
-    $pharmacist = userWithRole('pharmacist');
-    app(PrescriptionVerificationService::class)->verify($order->fresh(), [], requestAs($pharmacist));
-    $dispensing = app(DispensingService::class)->start($order->fresh(), requestAs($pharmacist));
-
-    $completed = app(DispensingService::class)->complete($dispensing, [
-        'items' => [['prescription_order_item_id' => $orderItem->id, 'dispensed_quantity' => 10]],
-    ], requestAs($pharmacist));
-
-    expect($completed->status)->toBe(Dispensing::STATUS_COMPLETED);
     $this->assertDatabaseCount('charges', 0);
     $this->assertDatabaseHas('audit_logs', ['action' => 'charge_capture_skipped']);
+
+    $orderItem = $order->items->sole();
+    receiveStock($medication, $ctx['hospital']);
+    $pharmacist = userWithRole('pharmacist');
+    app(PrescriptionVerificationService::class)->verify($order->fresh(), [], requestAs($pharmacist));
+
+    // No charge → financial gate passes → start allowed.
+    $dispensing = app(DispensingService::class)->start($order->fresh(), requestAs($pharmacist));
+    expect($dispensing->status)->toBe(Dispensing::STATUS_IN_PROGRESS);
+    $this->assertDatabaseCount('charges', 0);
 });
 
 test('a source item can never produce two charges — duplicate capture is idempotent', function () {

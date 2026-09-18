@@ -23,6 +23,8 @@ interface PharmacyVerificationShowProps {
     canVerify: boolean;
     canReturn: boolean;
     canResubmit: boolean;
+    prescriptionFinancialStatus?: string;
+    patientAccountId?: number | null;
 }
 
 function formatDateTime(value: string | null): string {
@@ -41,7 +43,15 @@ function formatDateTime(value: string | null): string {
  * once RETURNED (`canResubmit`), after they have corrected the order
  * through the ordinary encounter-page edit flow.
  */
-export default function PharmacyVerificationShow({ prescription, canVerify, canReturn, canResubmit }: PharmacyVerificationShowProps) {
+export default function PharmacyVerificationShow({
+    prescription,
+    canVerify,
+    canReturn,
+    canResubmit,
+    prescriptionFinancialStatus = 'authorized',
+    patientAccountId = null,
+}: PharmacyVerificationShowProps) {
+    const isPaymentRequired = prescriptionFinancialStatus === 'payment_required';
     const patientName = prescription.patient
         ? [prescription.patient.first_name, prescription.patient.middle_name, prescription.patient.last_name].filter(Boolean).join(' ')
         : '—';
@@ -64,6 +74,31 @@ export default function PharmacyVerificationShow({ prescription, canVerify, canR
             <Head title={`Verify ${prescription.prescription_number}`} />
 
             <div className="flex flex-col gap-6 p-4">
+                {isPaymentRequired && (
+                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 text-sm font-bold">
+                                    <span>Financial Status: PAYMENT REQUIRED</span>
+                                    <Badge variant="destructive" className="bg-amber-600 text-white dark:bg-amber-700">
+                                        PAYMENT REQUIRED
+                                    </Badge>
+                                </div>
+                                <p className="text-muted-foreground text-xs">
+                                    Prescription verification is blocked until the charges are settled at the cashier.
+                                </p>
+                            </div>
+                            {patientAccountId && (
+                                <Button size="sm" variant="default" className="bg-amber-700 text-white hover:bg-amber-800" asChild>
+                                    <Link href={route('billing.accounts.show', patientAccountId)}>
+                                        View Bill / Proceed to Payment
+                                    </Link>
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <h1 className="text-2xl font-semibold">{prescription.prescription_number}</h1>
@@ -90,7 +125,11 @@ export default function PharmacyVerificationShow({ prescription, canVerify, canR
                         {isActionable && canVerify && (
                             <VerifyPrescriptionDialog
                                 prescriptionOrderId={prescription.id}
-                                trigger={<Button>Verify Prescription</Button>}
+                                trigger={
+                                    <Button disabled={isPaymentRequired} title={isPaymentRequired ? 'Payment required before verification' : undefined}>
+                                        Verify Prescription
+                                    </Button>
+                                }
                             />
                         )}
                     </div>

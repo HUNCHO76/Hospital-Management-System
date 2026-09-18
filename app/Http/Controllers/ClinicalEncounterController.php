@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ClinicalEncounter\CancelClinicalEncounterRequest;
+use App\Http\Requests\ClinicalEncounter\ChangePractitionerRequest;
 use App\Http\Requests\ClinicalEncounter\CompleteClinicalEncounterRequest;
 use App\Http\Requests\ClinicalEncounter\StoreClinicalEncounterRequest;
 use App\Http\Resources\CarePlanResource;
@@ -23,6 +24,7 @@ use App\Models\RadiologyReport;
 use App\Models\ReceptionVisit;
 use App\Services\ClinicalEncounterSearchService;
 use App\Services\ClinicalEncounterService;
+use App\Services\FinancialAuthorizationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -197,6 +199,11 @@ class ClinicalEncounterController extends Controller
                 ->where('status', Practitioner::STATUS_ACTIVE)
                 ->with('staff:id,first_name,last_name')
                 ->get(['id', 'staff_id', 'practitioner_number']),
+            // Step 62: computed on-the-fly so the UI can show financial status
+            // without polling a separate endpoint — cashiers/reception see this
+            // immediately after payment is posted.
+            'consultationFinancialStatus' => app(FinancialAuthorizationService::class)
+                ->statusForSource(ClinicalEncounter::class, $clinicalEncounter->id),
         ]);
     }
 
@@ -270,6 +277,22 @@ class ClinicalEncounterController extends Controller
         $service->cancel($clinicalEncounter, $request->validated()['cancellation_reason'], $request);
 
         return back()->with('success', 'Clinical encounter cancelled.');
+    }
+
+    /**
+     * Reassign the practitioner on an encounter before the consultation has
+     * started, recalculating the consultation charge if the new practitioner's
+     * billing configuration differs (Step 62, spec §7).
+     */
+    public function changePractitioner(ChangePractitionerRequest $request, ClinicalEncounter $clinicalEncounter, ClinicalEncounterService $service): RedirectResponse
+    {
+        $this->authorize('update', $clinicalEncounter);
+
+        $validated = $request->validated();
+
+        $service->changePractitioner($clinicalEncounter, (int) $validated['practitioner_id'], $validated['reason'], $request);
+
+        return back()->with('success', 'Practitioner updated.');
     }
 
     /**

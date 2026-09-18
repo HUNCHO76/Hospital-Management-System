@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Appointment;
 use App\Models\Patient;
 use App\Models\PatientInsurance;
+use App\Models\Practitioner;
 use App\Models\ReceptionVisit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -13,7 +14,12 @@ use Illuminate\Validation\ValidationException;
 
 class ReceptionVisitService
 {
-    public function __construct(protected AuditLogService $auditLog, protected AppointmentService $appointments) {}
+    public function __construct(
+        protected AuditLogService $auditLog,
+        protected AppointmentService $appointments,
+        protected ChargeCaptureService $chargeCapture,
+        protected FinancialAuthorizationService $financialAuth,
+    ) {}
 
     /**
      * Check in a scheduled appointment at the front desk, creating its
@@ -38,44 +44,72 @@ class ReceptionVisitService
 
             $this->appointments->checkIn($appointment, $request);
 
-            return ReceptionVisit::create([
+            $practitioner = $appointment->practitioner_id
+                ? Practitioner::query()->find($appointment->practitioner_id)
+                : null;
+
+            $visit = ReceptionVisit::create([
                 'patient_id' => $appointment->patient_id,
                 'appointment_id' => $appointment->id,
                 'department_id' => $departmentId,
+                'practitioner_id' => $practitioner?->id,
                 'visit_type' => 'appointment',
                 'status' => ReceptionVisit::STATUS_CHECKED_IN,
             ]);
+
+            if ($practitioner?->consultation_service_id) {
+                $visit->load('department');
+                $this->chargeCapture->captureFromReceptionVisit($visit, $practitioner, $request);
+            }
+
+            return $visit;
         });
 
-        $this->auditLog->record('reception_visit_checked_in', $visit, null, $visit->only(['patient_id', 'appointment_id', 'department_id', 'status']), $request);
+        $this->auditLog->record('reception_visit_checked_in', $visit, null, $visit->only(['patient_id', 'appointment_id', 'department_id', 'practitioner_id', 'status']), $request);
 
         return $visit;
     }
 
     /**
-     * Register a walk-in patient's visit at the front desk.
+     * Register a walk-in patient's visit at the front desk. If a practitioner
+     * is provided and has a configured consultation service, the consultation
+     * charge is captured immediately so the financial gate at sendToService()
+     * can verify payment before the patient reaches the clinical queue
+     * (Step 62 fix).
      *
-     * @param  array{patient_id: int, department_id: int, visit_type: string}  $data
+     * @param  array{patient_id: int, department_id: int, visit_type: string, practitioner_id?: int|null}  $data
      *
      * @throws ValidationException
      */
     public function createWalkIn(array $data, Request $request): ReceptionVisit
     {
-        $visit = DB::transaction(function () use ($data) {
+        $visit = DB::transaction(function () use ($data, $request) {
             Patient::query()->whereKey($data['patient_id'])->lockForUpdate()->firstOrFail();
 
             $this->assertNoActiveVisit($data['patient_id']);
 
-            return ReceptionVisit::create([
+            $visit = ReceptionVisit::create([
                 'patient_id' => $data['patient_id'],
                 'appointment_id' => null,
                 'department_id' => $data['department_id'],
+                'practitioner_id' => $data['practitioner_id'] ?? null,
                 'visit_type' => $data['visit_type'],
                 'status' => ReceptionVisit::STATUS_CHECKED_IN,
             ]);
+
+            if (! empty($data['practitioner_id'])) {
+                $practitioner = Practitioner::query()->find($data['practitioner_id']);
+
+                if ($practitioner?->consultation_service_id) {
+                    $visit->load('department');
+                    $this->chargeCapture->captureFromReceptionVisit($visit, $practitioner, $request);
+                }
+            }
+
+            return $visit;
         });
 
-        $this->auditLog->record('reception_visit_walkin_created', $visit, null, $visit->only(['patient_id', 'department_id', 'visit_type', 'status']), $request);
+        $this->auditLog->record('reception_visit_walkin_created', $visit, null, $visit->only(['patient_id', 'department_id', 'practitioner_id', 'visit_type', 'status']), $request);
 
         return $visit;
     }
@@ -97,10 +131,19 @@ class ReceptionVisitService
     }
 
     /**
-     * Send a ready visit to its destination service/department.
+     * Send a ready visit to its destination service/department — the final
+     * reception step before the patient is admitted to the clinical queue.
+     * The financial gate (Step 62 fix) blocks patients whose consultation
+     * charge has not been cleared: the visit remains at ready_for_service and
+     * reception staff see a "payment required" flash message directing them
+     * to the billing counter.
+     *
+     * @throws ValidationException
      */
     public function sendToService(ReceptionVisit $visit, Request $request): ReceptionVisit
     {
+        $this->financialAuth->assertAuthorizedForSources(ReceptionVisit::class, [$visit->id]);
+
         return $this->transition($visit, ReceptionVisit::STATUS_SENT_TO_SERVICE, 'reception_visit_sent_to_service', $request);
     }
 

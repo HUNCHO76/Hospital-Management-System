@@ -45,6 +45,7 @@ use App\Services\BillingAdjustmentService;
 use App\Services\CarePlanService;
 use App\Services\CashierSessionService;
 use App\Services\ChargeService;
+use App\Services\ClinicalEncounterService;
 use App\Services\ConsultationService;
 use App\Services\DiagnosisService;
 use App\Services\DispensingService;
@@ -657,6 +658,68 @@ function billableRadiologyProcedure(Hospital $hospital, array $procedureAttribut
     priceFor($service, $hospital, $priceOverrides);
 
     return $procedure;
+}
+
+/**
+ * Create a consultation service priced at the given hospital — the minimum
+ * billing configuration needed to trigger a consultation charge in a test
+ * (Step 62, spec §2).
+ *
+ * @param  array<string, mixed>  $priceOverrides
+ */
+function billableConsultationService(Hospital $hospital, array $priceOverrides = []): Service
+{
+    $service = serviceFor([
+        'name' => 'Consultation-'.strtoupper(uniqid()),
+        'category' => 'consultation',
+    ]);
+
+    priceFor($service, $hospital, $priceOverrides);
+
+    return $service;
+}
+
+/**
+ * Create a billable consultation service + a doctor practitioner mapped to
+ * it, then build a triage-completed encounter through ClinicalEncounterService
+ * so the consultation charge is captured at encounter creation time (Step 62).
+ * Returns the encounter ready for consultation gate tests.
+ *
+ * @param  array<string, mixed>  $consultationPriceOverrides
+ * @return array{ctx: array<string, mixed>, encounter: ClinicalEncounter, doctor: array{user: User, staff: Staff, practitioner: Practitioner}, service: Service}
+ */
+function billableConsultationReadyEncounter(array $consultationPriceOverrides = []): array
+{
+    $ctx = clinicalEncounterContext();
+
+    $consultationSvc = billableConsultationService($ctx['hospital'], $consultationPriceOverrides);
+
+    $doctor = doctorWithPractitioner($ctx['hospital']);
+    $doctor['practitioner']->update(['consultation_service_id' => $consultationSvc->id]);
+
+    // Create encounter through the service so the charge is captured.
+    $nurse = userWithRole('nurse');
+    $encounter = app(ClinicalEncounterService::class)->create([
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'practitioner_id' => $doctor['practitioner']->id,
+        'encounter_type' => 'walk_in',
+    ], requestAs($nurse));
+
+    // Complete triage — required before ConsultationService::create().
+    $triageRequest = requestAs(userWithRole('nurse'));
+    $triage = app(TriageService::class)->create($encounter, $triageRequest);
+    app(TriageService::class)->start($triage, $triageRequest);
+    app(TriageService::class)->update($triage, ['triage_category' => 'urgent'], $triageRequest);
+    app(VitalSignsService::class)->record($triage, ['temperature_c' => 37.0], $triageRequest);
+    app(TriageService::class)->complete($triage->fresh(), $triageRequest);
+
+    return [
+        'ctx' => $ctx,
+        'encounter' => $encounter->fresh(),
+        'doctor' => $doctor,
+        'service' => $consultationSvc,
+    ];
 }
 
 /**

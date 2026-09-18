@@ -10,7 +10,7 @@ import { fulfillmentStatusLabel, fulfillmentStatusVariant } from '@/lib/dispensi
 import { type BreadcrumbItem, type Paginated } from '@/types';
 import { type DispensingFilters, type DispensingPrescription } from '@/types/dispensing';
 import { Head, Link, router } from '@inertiajs/react';
-import { PillBottle } from 'lucide-react';
+import { AlertCircle, PillBottle } from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Pharmacy', href: '/pharmacy' },
@@ -122,12 +122,15 @@ export default function PharmacyDispensingIndex({ prescriptions, filters }: Phar
                             <TableHead>Medications</TableHead>
                             <TableHead>Verified</TableHead>
                             <TableHead>Status</TableHead>
+                            <TableHead>Payment</TableHead>
                             <TableHead className="text-right">Action</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {prescriptions.data.map((prescription) => (
-                            <TableRow key={prescription.id}>
+                        {prescriptions.data.map((prescription) => {
+                            const paymentRequired = prescription.financial_status === 'payment_required';
+                            return (
+                            <TableRow key={prescription.id} className={paymentRequired ? 'bg-amber-500/5' : undefined}>
                                 <TableCell>{prescription.prescription_number}</TableCell>
                                 <TableCell>
                                     <div className="flex flex-col">
@@ -145,19 +148,32 @@ export default function PharmacyDispensingIndex({ prescriptions, filters }: Phar
                                         {fulfillmentStatusLabel[prescription.fulfillment_status]}
                                     </Badge>
                                 </TableCell>
+                                <TableCell>
+                                    {paymentRequired ? (
+                                        <Badge variant="destructive" className="gap-1 bg-amber-600 dark:bg-amber-700">
+                                            <AlertCircle className="h-3 w-3" />
+                                            Unpaid
+                                        </Badge>
+                                    ) : (
+                                        <Badge variant="outline" className="text-green-700 border-green-500/50 dark:text-green-400">
+                                            Cleared
+                                        </Badge>
+                                    )}
+                                </TableCell>
                                 <TableCell className="text-right">
-                                    <Button asChild size="sm" variant="outline">
+                                    <Button asChild size="sm" variant={paymentRequired ? 'outline' : 'default'}>
                                         <Link href={route('pharmacy-dispensing.show', prescription.id)}>
-                                            {prescription.fulfillment_status === 'dispensed' ? 'View' : 'Dispense'}
+                                            {prescription.fulfillment_status === 'dispensed' ? 'View' : paymentRequired ? 'View' : 'Dispense'}
                                         </Link>
                                     </Button>
                                 </TableCell>
                             </TableRow>
-                        ))}
+                            );
+                        })}
 
                         {prescriptions.data.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={7} className="p-0">
+                                <TableCell colSpan={8} className="p-0">
                                     <EmptyState
                                         icon={PillBottle}
                                         title={hasFilters ? 'No prescriptions match your search or filters' : 'Nothing awaiting dispensing'}

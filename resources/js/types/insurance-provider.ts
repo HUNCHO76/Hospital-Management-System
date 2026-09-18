@@ -5,6 +5,7 @@ export interface InsuranceProviderSummary {
     id: number;
     name: string;
     code: string;
+    api_enabled?: boolean;
 }
 
 export interface InsuranceProvider {

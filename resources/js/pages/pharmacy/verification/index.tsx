@@ -14,7 +14,7 @@ import {
     type PrescriptionVerificationStatus,
 } from '@/types/prescription';
 import { Head, Link, router } from '@inertiajs/react';
-import { ShieldCheck } from 'lucide-react';
+import { AlertCircle, ShieldCheck } from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Pharmacy', href: '/pharmacy' },
@@ -131,12 +131,15 @@ export default function PharmacyVerificationIndex({ prescriptions, filters, stat
                             <TableHead>Medications</TableHead>
                             <TableHead>Submitted</TableHead>
                             <TableHead>Status</TableHead>
+                            <TableHead>Payment</TableHead>
                             <TableHead className="text-right">Action</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {prescriptions.data.map((order) => (
-                            <TableRow key={order.id}>
+                        {prescriptions.data.map((order) => {
+                            const paymentRequired = order.financial_status === 'payment_required';
+                            return (
+                            <TableRow key={order.id} className={paymentRequired ? 'bg-amber-500/5' : undefined}>
                                 <TableCell>{order.prescription_number}</TableCell>
                                 <TableCell>
                                     <div className="flex flex-col">
@@ -154,19 +157,32 @@ export default function PharmacyVerificationIndex({ prescriptions, filters, stat
                                         </Badge>
                                     )}
                                 </TableCell>
+                                <TableCell>
+                                    {paymentRequired ? (
+                                        <Badge variant="destructive" className="gap-1 bg-amber-600 dark:bg-amber-700">
+                                            <AlertCircle className="h-3 w-3" />
+                                            Unpaid
+                                        </Badge>
+                                    ) : (
+                                        <Badge variant="outline" className="border-green-500/50 text-green-700 dark:text-green-400">
+                                            Cleared
+                                        </Badge>
+                                    )}
+                                </TableCell>
                                 <TableCell className="text-right">
                                     <Button asChild size="sm" variant="outline">
                                         <Link href={route('pharmacy-verification.review', order.id)}>
-                                            {order.verification?.status === 'pending_verification' ? 'Review' : 'View'}
+                                            {order.verification?.status === 'pending_verification' && !paymentRequired ? 'Review' : 'View'}
                                         </Link>
                                     </Button>
                                 </TableCell>
                             </TableRow>
-                        ))}
+                            );
+                        })}
 
                         {prescriptions.data.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={7} className="p-0">
+                                <TableCell colSpan={8} className="p-0">
                                     <EmptyState
                                         icon={ShieldCheck}
                                         title={hasFilters ? 'No prescriptions match your search or filters' : 'Nothing awaiting verification'}

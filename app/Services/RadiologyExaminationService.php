@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\RadiologyAppointment;
 use App\Models\RadiologyOrder;
 use App\Models\RadiologyOrderItem;
+use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -27,7 +28,11 @@ use Illuminate\Validation\ValidationException;
  */
 class RadiologyExaminationService
 {
-    public function __construct(protected AuditLogService $auditLog) {}
+    public function __construct(
+        protected AuditLogService $auditLog,
+        protected FinancialAuthorizationService $financialAuth,
+        protected NHIFPreauthorizationService $nhifPreauth,
+    ) {}
 
     /**
      * Start the examination for a READY appointment, safely serialized
@@ -49,6 +54,20 @@ class RadiologyExaminationService
 
             $this->assertTransitionAllowed($appointment, RadiologyAppointment::STATUS_IN_PROGRESS);
             $this->assertOrderAndItemActive($appointment);
+
+            $itemIds = [$appointment->radiologyOrderItem->id];
+
+            // Step 69: NHIF preauthorization gate
+            $this->nhifPreauth->assertPreauthorizedForSources(
+                RadiologyOrderItem::class,
+                $itemIds,
+            );
+
+            // Step 62: financial authorization gate
+            $this->financialAuth->assertAuthorizedForSources(
+                RadiologyOrderItem::class,
+                $itemIds,
+            );
 
             $update = [
                 'status' => RadiologyAppointment::STATUS_IN_PROGRESS,

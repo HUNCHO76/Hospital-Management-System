@@ -6,9 +6,16 @@ use App\Http\Requests\Reception\CancelVisitRequest;
 use App\Http\Requests\Reception\CheckInAppointmentRequest;
 use App\Http\Requests\Reception\StoreWalkInRequest;
 use App\Models\Appointment;
+use App\Models\Charge;
 use App\Models\Department;
+use App\Models\PatientAccount;
+use App\Models\Practitioner;
 use App\Models\ReceptionVisit;
+use App\Models\Service;
+use App\Services\FinancialAuthorizationService;
 use App\Services\ReceptionVisitService;
+use App\Services\ServicePriceResolver;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -31,7 +38,7 @@ class ReceptionVisitController extends Controller
     /**
      * Display a filterable, paginated list of reception visits.
      */
-    public function index(Request $request): Response
+    public function index(Request $request, FinancialAuthorizationService $financialAuth): Response
     {
         $this->authorize('viewAny', ReceptionVisit::class);
 
@@ -57,11 +64,29 @@ class ReceptionVisitController extends Controller
             })
             ->with([
                 'patient:id,patient_number,first_name,middle_name,last_name',
-                'department:id,name,code',
+                'department:id,name,code,hospital_id',
                 'appointment:id,appointment_number',
+                'practitioner:id,practitioner_number,staff_id',
+                'practitioner.staff:id,first_name,last_name',
             ])
             ->latest('created_at')
             ->paginate(15)
+            ->through(function (ReceptionVisit $visit) use ($financialAuth) {
+                $financialStatus = $financialAuth->statusForSource(ReceptionVisit::class, $visit->id);
+
+                $patientAccountId = null;
+                if ($visit->department?->hospital_id && $visit->patient_id) {
+                    $patientAccountId = PatientAccount::query()
+                        ->where('patient_id', $visit->patient_id)
+                        ->where('hospital_id', $visit->department->hospital_id)
+                        ->value('id');
+                }
+
+                $visit->financial_status = $financialStatus;
+                $visit->patient_account_id = $patientAccountId;
+
+                return $visit;
+            })
             ->withQueryString();
 
         return Inertia::render('reception/visits/index', [
@@ -74,21 +99,42 @@ class ReceptionVisitController extends Controller
     /**
      * Display the specified reception visit.
      */
-    public function show(ReceptionVisit $visit): Response
+    public function show(ReceptionVisit $visit, FinancialAuthorizationService $financialAuth): Response
     {
         $this->authorize('view', $visit);
 
         $visit->load([
             'patient:id,patient_number,first_name,middle_name,last_name,phone,date_of_birth,gender,status',
             'patient.insurances' => fn ($query) => $query->orderByDesc('is_primary'),
-            'department:id,name,code',
+            'department:id,name,code,hospital_id',
             'appointment:id,appointment_number,appointment_type,scheduled_start,status,practitioner_id',
             'appointment.practitioner:id,practitioner_number,staff_id',
             'appointment.practitioner.staff:id,first_name,last_name',
+            'practitioner:id,practitioner_number,staff_id,consultation_service_id',
+            'practitioner.staff:id,first_name,last_name',
         ]);
+
+        $consultationFinancialStatus = $financialAuth->statusForSource(ReceptionVisit::class, $visit->id);
+
+        $consultationCharge = Charge::query()
+            ->where('source_type', ReceptionVisit::class)
+            ->where('source_id', $visit->id)
+            ->whereNotIn('status', [Charge::STATUS_VOIDED, Charge::STATUS_CANCELLED])
+            ->first(['id', 'charge_number', 'status', 'unit_price', 'quantity', 'net_amount', 'currency']);
+
+        $patientAccount = null;
+        if ($visit->department?->hospital_id && $visit->patient_id) {
+            $patientAccount = PatientAccount::query()
+                ->where('patient_id', $visit->patient_id)
+                ->where('hospital_id', $visit->department->hospital_id)
+                ->first(['id']);
+        }
 
         return Inertia::render('reception/visits/show', [
             'visit' => $visit,
+            'consultationFinancialStatus' => $consultationFinancialStatus,
+            'consultationCharge' => $consultationCharge,
+            'patientAccountId' => $patientAccount?->id,
         ]);
     }
 
@@ -100,8 +146,12 @@ class ReceptionVisitController extends Controller
         $this->authorize('createWalkIn', ReceptionVisit::class);
 
         return Inertia::render('reception/walk-in/create', [
-            'departments' => Department::active()->orderBy('name')->get(['id', 'name', 'code']),
+            'departments' => Department::active()->orderBy('name')->get(['id', 'name', 'code', 'hospital_id']),
             'visitTypes' => ReceptionVisit::TYPES,
+            'practitioners' => Practitioner::query()
+                ->where('status', Practitioner::STATUS_ACTIVE)
+                ->with('staff:id,first_name,last_name')
+                ->get(['id', 'practitioner_number', 'staff_id', 'consultation_service_id']),
         ]);
     }
 
@@ -157,6 +207,8 @@ class ReceptionVisitController extends Controller
 
     /**
      * Send a ready visit to its destination department/service.
+     * Returns a billing-direction error when financial authorization fails
+     * so reception staff know to send the patient to the cashier first.
      */
     public function sendToService(Request $request, ReceptionVisit $visit, ReceptionVisitService $service): RedirectResponse
     {
@@ -165,6 +217,72 @@ class ReceptionVisitController extends Controller
         $service->sendToService($visit, $request);
 
         return back()->with('success', 'Visit sent to service.');
+    }
+
+    /**
+     * Return the financial authorization status for a visit as JSON — used
+     * by the frontend to decide whether to show the "Send to Service" button
+     * or the "Payment Required" block.
+     */
+    public function financialStatus(ReceptionVisit $visit, FinancialAuthorizationService $financialAuth): JsonResponse
+    {
+        $this->authorize('view', $visit);
+
+        return response()->json([
+            'status' => $financialAuth->statusForSource(ReceptionVisit::class, $visit->id),
+        ]);
+    }
+
+    /**
+     * Resolve the consultation price for a practitioner at a department's
+     * hospital — called by the walk-in form to preview the charge before
+     * submission so the receptionist can inform the patient.
+     */
+    public function consultationPrice(Request $request, ServicePriceResolver $resolver): JsonResponse
+    {
+        $this->authorize('createWalkIn', ReceptionVisit::class);
+
+        $departmentId = (int) $request->query('department_id');
+        $practitionerId = (int) $request->query('practitioner_id');
+
+        $department = $departmentId ? Department::find($departmentId, ['id', 'hospital_id']) : null;
+        $practitioner = $practitionerId ? Practitioner::find($practitionerId) : null;
+
+        if (! $department) {
+            return response()->json(['price' => null]);
+        }
+
+        $serviceId = $practitioner?->consultation_service_id;
+
+        if (! $serviceId) {
+            $code = ($practitioner && in_array($practitioner->practitioner_type, ['specialist', 'consultant', 'surgeon'], true))
+                ? 'CONSULT-SPECIALIST'
+                : 'CONSULT-GP';
+
+            $serviceId = Service::query()->where('code', $code)->value('id')
+                ?? Service::query()->where('category', 'consultation')->value('id');
+        }
+
+        if (! $serviceId) {
+            return response()->json(['price' => null]);
+        }
+
+        $service = Service::find($serviceId);
+
+        if (! $service) {
+            return response()->json(['price' => null]);
+        }
+
+        try {
+            $servicePrice = $resolver->resolvePrice($service, $department->hospital_id);
+
+            return response()->json([
+                'price' => (float) $servicePrice->amount,
+                'currency' => $servicePrice->currency ?? config('billing.currency', 'KES'),
+            ]);
+        } catch (\Throwable) {
+            return response()->json(['price' => null]);
+        }
     }
 
     /**

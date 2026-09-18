@@ -108,10 +108,15 @@ class PatientInsuranceController extends Controller
     {
         $this->ensureBelongsToPatient($patient, $patientInsurance);
 
-        $patientInsurance->load(['insuranceProvider:id,name,code', 'insuranceScheme:id,name,code']);
+        $patientInsurance->load([
+            'insuranceProvider:id,name,code,api_enabled',
+            'insuranceScheme:id,name,code',
+            'latestNhifVerification',
+            'latestNhifEligibility',
+        ]);
 
         return Inertia::render('patients/insurance/show', [
-            'patient' => $patient->only(['id', 'patient_number', 'first_name', 'middle_name', 'last_name']),
+            'patient' => $patient->only(['id', 'patient_number', 'first_name', 'middle_name', 'last_name', 'national_id']),
             'insurance' => $patientInsurance,
         ]);
     }

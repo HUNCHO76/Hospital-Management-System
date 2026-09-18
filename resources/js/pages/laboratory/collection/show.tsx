@@ -62,8 +62,16 @@ function formatAge(dateOfBirth: string | null): string {
  * a new one. Reached only from the collection worklist — this is a
  * laboratory-department screen, not part of the clinical encounter page.
  */
-export default function LaboratoryCollectionShow({ order, samples, specimenTypes, specimenContainers }: LaboratoryCollectionShowProps) {
+export default function LaboratoryCollectionShow({
+    order,
+    samples,
+    specimenTypes,
+    specimenContainers,
+    orderFinancialStatus = 'authorized',
+    patientAccountId = null,
+}: LaboratoryCollectionShowProps & { orderFinancialStatus?: string; patientAccountId?: number | null }) {
     const { can } = usePermissions();
+    const isPaymentRequired = orderFinancialStatus === 'payment_required';
     const patientName = order.patient
         ? [order.patient.first_name, order.patient.middle_name, order.patient.last_name].filter(Boolean).join(' ')
         : '—';
@@ -79,6 +87,31 @@ export default function LaboratoryCollectionShow({ order, samples, specimenTypes
             <Head title={`Collect — ${order.order_number}`} />
 
             <div className="flex flex-col gap-6 p-4">
+                {isPaymentRequired && (
+                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 font-bold text-sm">
+                                    <span>Financial Status: PAYMENT REQUIRED</span>
+                                    <Badge variant="destructive" className="bg-amber-600 dark:bg-amber-700 text-white">
+                                        PAYMENT REQUIRED
+                                    </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Specimen collection is blocked until order charges are settled at the cashier.
+                                </p>
+                            </div>
+                            {patientAccountId && (
+                                <Button size="sm" variant="default" className="bg-amber-700 hover:bg-amber-800 text-white" asChild>
+                                    <Link href={route('billing.accounts.show', patientAccountId)}>
+                                        View Bill / Proceed to Payment
+                                    </Link>
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base">Patient Identification</CardTitle>
@@ -142,7 +175,14 @@ export default function LaboratoryCollectionShow({ order, samples, specimenTypes
                             ))}
                         </ul>
 
-                        {can('laboratory-samples.collect') && <RegisterSampleForm orderId={order.id} items={order.items} />}
+                        {can('laboratory-samples.collect') && !isPaymentRequired && (
+                            <RegisterSampleForm orderId={order.id} items={order.items} />
+                        )}
+                        {isPaymentRequired && (
+                            <div className="mt-4 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
+                                Sample collection registration is disabled because this order requires payment clearance.
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
 

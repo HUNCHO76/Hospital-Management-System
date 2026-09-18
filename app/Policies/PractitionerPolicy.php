@@ -64,6 +64,19 @@ class PractitionerPolicy
     }
 
     /**
+     * Determine whether the user can trigger NHIF attendance (login/logout)
+     * for the practitioner.
+     */
+    public function nhifLogin(User $user, Practitioner $practitioner): bool
+    {
+        if (! $user->can('practitioners.nhif-login')) {
+            return false;
+        }
+
+        return $this->belongsToUsersHospital($user, $practitioner);
+    }
+
+    /**
      * A hospital-admin is restricted to practitioners on their own
      * hospital's staff; every other role holding the permission (currently
      * only super-admin, which bypasses policies via Gate::before) is

@@ -42,7 +42,15 @@ interface DraftLine {
  * regardless, spec §32). Instructions are shown read-only — pharmacy staff
  * never silently edit a doctor's prescription here (spec §16).
  */
-export default function PharmacyDispensingShow({ prescription, canStart, canComplete, canCancel }: PharmacyDispensingShowProps) {
+export default function PharmacyDispensingShow({
+    prescription,
+    canStart,
+    canComplete,
+    canCancel,
+    prescriptionFinancialStatus = 'authorized',
+    patientAccountId = null,
+}: PharmacyDispensingShowProps & { prescriptionFinancialStatus?: string; patientAccountId?: number | null }) {
+    const isPaymentRequired = prescriptionFinancialStatus === 'payment_required';
     const patientName = prescription.patient
         ? [prescription.patient.first_name, prescription.patient.middle_name, prescription.patient.last_name].filter(Boolean).join(' ')
         : '—';
@@ -96,6 +104,31 @@ export default function PharmacyDispensingShow({ prescription, canStart, canComp
             <Head title={`Dispense ${prescription.prescription_number}`} />
 
             <div className="flex flex-col gap-6 p-4">
+                {isPaymentRequired && (
+                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 font-bold text-sm">
+                                    <span>Financial Status: PAYMENT REQUIRED</span>
+                                    <Badge variant="destructive" className="bg-amber-600 dark:bg-amber-700 text-white">
+                                        PAYMENT REQUIRED
+                                    </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Pharmacy dispensing is blocked until prescription item charges are settled at the cashier.
+                                </p>
+                            </div>
+                            {patientAccountId && (
+                                <Button size="sm" variant="default" className="bg-amber-700 hover:bg-amber-800 text-white" asChild>
+                                    <Link href={route('billing.accounts.show', patientAccountId)}>
+                                        View Bill / Proceed to Payment
+                                    </Link>
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <h1 className="text-2xl font-semibold">{prescription.prescription_number}</h1>
@@ -109,7 +142,7 @@ export default function PharmacyDispensingShow({ prescription, canStart, canComp
                             {fulfillmentStatusLabel[prescription.fulfillment_status]}
                         </Badge>
                         {!inProgress && canStart && prescription.fulfillment_status !== 'dispensed' && (
-                            <Button onClick={startDispensing}>
+                            <Button onClick={startDispensing} disabled={isPaymentRequired} title={isPaymentRequired ? 'Payment required before dispensing' : undefined}>
                                 <PlayCircle className="h-4 w-4" />
                                 Start Dispensing
                             </Button>
@@ -201,13 +234,13 @@ export default function PharmacyDispensingShow({ prescription, canStart, canComp
                                     <TableHead className="text-right">Prescribed</TableHead>
                                     <TableHead className="text-right">Dispensed</TableHead>
                                     <TableHead className="text-right">Remaining</TableHead>
-                                    {inProgress && canComplete && <TableHead className="text-right">Dispense Now</TableHead>}
+                                    {inProgress && canComplete && !isPaymentRequired && <TableHead className="text-right">Dispense Now</TableHead>}
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {prescription.items.map((item) => {
                                     const line = draft[item.id];
-                                    const canDispenseThis = inProgress && canComplete && item.status === 'active' && item.remaining_quantity > 0;
+                                    const canDispenseThis = inProgress && canComplete && !isPaymentRequired && item.status === 'active' && item.remaining_quantity > 0;
 
                                     return (
                                         <TableRow key={item.id}>
@@ -231,7 +264,7 @@ export default function PharmacyDispensingShow({ prescription, canStart, canComp
                                             </TableCell>
                                             <TableCell className="text-right">{item.dispensed_quantity}</TableCell>
                                             <TableCell className="text-right">{item.remaining_quantity}</TableCell>
-                                            {inProgress && canComplete && (
+                                            {inProgress && canComplete && !isPaymentRequired && (
                                                 <TableCell className="text-right">
                                                     {canDispenseThis ? (
                                                         <div className="flex items-center justify-end gap-2">
@@ -273,24 +306,30 @@ export default function PharmacyDispensingShow({ prescription, canStart, canComp
                     </CardContent>
                 </Card>
 
-                {inProgress && canComplete && (
+                {inProgress && (canComplete || canCancel) && (
                     <Card>
                         <CardHeader>
                             <CardTitle className="text-base">Current Dispensing — {inProgress.dispensing_number}</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <div className="grid gap-1.5">
-                                <label className="text-sm font-medium" htmlFor="dispensing_notes">
-                                    Notes
-                                </label>
-                                <Textarea
-                                    id="dispensing_notes"
-                                    rows={2}
-                                    value={notes}
-                                    onChange={(e) => setNotes(e.target.value)}
-                                    placeholder="e.g. Patient counselled on administration."
-                                />
-                            </div>
+                            {isPaymentRequired ? (
+                                <p className="text-sm text-amber-700 dark:text-amber-400">
+                                    Completing this dispensing is blocked until the prescription charges are paid. You may cancel the in-progress event below.
+                                </p>
+                            ) : (
+                                <div className="grid gap-1.5">
+                                    <label className="text-sm font-medium" htmlFor="dispensing_notes">
+                                        Notes
+                                    </label>
+                                    <Textarea
+                                        id="dispensing_notes"
+                                        rows={2}
+                                        value={notes}
+                                        onChange={(e) => setNotes(e.target.value)}
+                                        placeholder="e.g. Patient counselled on administration."
+                                    />
+                                </div>
+                            )}
 
                             <div className="flex justify-end gap-2">
                                 {canCancel && (
@@ -299,12 +338,14 @@ export default function PharmacyDispensingShow({ prescription, canStart, canComp
                                         trigger={<Button variant="destructive">Cancel</Button>}
                                     />
                                 )}
-                                <CompleteDispensingDialog
-                                    prescriptionOrderId={prescription.id}
-                                    items={dialogItems.map((item) => ({ ...item, notes: '' }))}
-                                    notes={notes}
-                                    trigger={<Button>Complete Dispensing</Button>}
-                                />
+                                {canComplete && !isPaymentRequired && (
+                                    <CompleteDispensingDialog
+                                        prescriptionOrderId={prescription.id}
+                                        items={dialogItems.map((item) => ({ ...item, notes: '' }))}
+                                        notes={notes}
+                                        trigger={<Button>Complete Dispensing</Button>}
+                                    />
+                                )}
                             </div>
                         </CardContent>
                     </Card>

@@ -35,6 +35,12 @@ use App\Http\Controllers\LaboratorySampleController;
 use App\Http\Controllers\LaboratoryTestCategoryController;
 use App\Http\Controllers\LaboratoryTestController;
 use App\Http\Controllers\MedicationController;
+use App\Http\Controllers\NhifEligibilityController;
+use App\Http\Controllers\NhifMemberVerificationController;
+use App\Http\Controllers\NhifPractitionerAttendanceController;
+use App\Http\Controllers\NhifPreauthorizationController;
+use App\Http\Controllers\NhifPriceSyncController;
+use App\Http\Controllers\NhifServiceMappingController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PatientInsuranceController;
 use App\Http\Controllers\PaymentController;
@@ -75,6 +81,27 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('departments', DepartmentController::class);
     Route::resource('staff', StaffController::class);
     Route::resource('practitioners', PractitionerController::class);
+    Route::post('practitioners/{practitioner}/nhif-login', [NhifPractitionerAttendanceController::class, 'login'])->name('practitioners.nhif-login');
+    Route::post('practitioners/{practitioner}/nhif-logout', [NhifPractitionerAttendanceController::class, 'logout'])->name('practitioners.nhif-logout');
+
+    // Phase 8, Step 68 — NHIF service/price mapping administration
+    // Phase 8, Step 69 — NHIF preauthorization lifecycle
+    Route::prefix('nhif')->name('nhif.')->group(function () {
+        Route::get('service-mappings', [NhifServiceMappingController::class, 'index'])->name('service-mappings.index');
+        Route::get('service-mappings/create', [NhifServiceMappingController::class, 'create'])->name('service-mappings.create');
+        Route::post('service-mappings', [NhifServiceMappingController::class, 'store'])->name('service-mappings.store');
+        Route::get('service-mappings/{nhifServiceMapping}', [NhifServiceMappingController::class, 'show'])->name('service-mappings.show');
+        Route::get('service-mappings/{nhifServiceMapping}/edit', [NhifServiceMappingController::class, 'edit'])->name('service-mappings.edit');
+        Route::put('service-mappings/{nhifServiceMapping}', [NhifServiceMappingController::class, 'update'])->name('service-mappings.update');
+        Route::post('service-mappings/{nhifServiceMapping}/deactivate', [NhifServiceMappingController::class, 'deactivate'])->name('service-mappings.deactivate');
+        Route::get('price-sync', [NhifPriceSyncController::class, 'index'])->name('price-sync.index');
+        Route::post('price-sync', [NhifPriceSyncController::class, 'store'])->name('price-sync.store');
+
+        // Individual preauth record actions (no patient context needed for these)
+        Route::get('preauthorizations/{nhifPreauthorization}', [NhifPreauthorizationController::class, 'show'])->name('preauthorization.show');
+        Route::post('preauthorizations/{nhifPreauthorization}/submit', [NhifPreauthorizationController::class, 'submit'])->name('preauthorization.submit');
+        Route::post('preauthorizations/{nhifPreauthorization}/cancel', [NhifPreauthorizationController::class, 'cancel'])->name('preauthorization.cancel');
+    });
     Route::get('patients/search-json', [PatientController::class, 'searchJson'])->name('patients.search-json');
     Route::resource('patients', PatientController::class);
     Route::get('patients/{patient}/history', [PatientController::class, 'history'])->name('patients.history');
@@ -99,6 +126,11 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('{patientInsurance}', [PatientInsuranceController::class, 'destroy'])->name('destroy');
         Route::post('{patientInsurance}/primary', [PatientInsuranceController::class, 'makePrimary'])->name('make-primary');
         Route::patch('{patientInsurance}/verify', [PatientInsuranceController::class, 'verify'])->name('verify');
+        Route::post('{patientInsurance}/nhif-verify', [NhifMemberVerificationController::class, 'verify'])->name('nhif-verify');
+        Route::post('{patientInsurance}/nhif-eligibility', [NhifEligibilityController::class, 'verify'])->name('nhif-eligibility');
+        // Preauthorization creation/listing (patient context required for IDOR protection)
+        Route::get('{patientInsurance}/nhif-preauthorizations', [NhifPreauthorizationController::class, 'index'])->name('nhif-preauthorization.index');
+        Route::post('{patientInsurance}/nhif-preauthorizations', [NhifPreauthorizationController::class, 'store'])->name('nhif-preauthorization.store');
     });
 
     // No destroy route: appointments are never hard-deleted, only cancelled
@@ -128,10 +160,12 @@ Route::middleware(['auth'])->group(function () {
         Route::get('visits/{visit}', [ReceptionVisitController::class, 'show'])->name('visits.show');
         Route::get('walk-in/create', [ReceptionVisitController::class, 'createWalkIn'])->name('walk-in.create');
         Route::post('walk-in', [ReceptionVisitController::class, 'storeWalkIn'])->name('walk-in.store');
+        Route::get('consultation-price', [ReceptionVisitController::class, 'consultationPrice'])->name('consultation-price');
         Route::post('appointments/{appointment}/check-in', [ReceptionVisitController::class, 'checkInAppointment'])->name('appointments.check-in');
         Route::post('visits/{visit}/waiting', [ReceptionVisitController::class, 'markWaiting'])->name('visits.waiting');
         Route::post('visits/{visit}/ready', [ReceptionVisitController::class, 'markReady'])->name('visits.ready');
         Route::post('visits/{visit}/send-to-service', [ReceptionVisitController::class, 'sendToService'])->name('visits.send-to-service');
+        Route::get('visits/{visit}/financial-status', [ReceptionVisitController::class, 'financialStatus'])->name('visits.financial-status');
         Route::post('visits/{visit}/complete', [ReceptionVisitController::class, 'complete'])->name('visits.complete');
         Route::post('visits/{visit}/cancel', [ReceptionVisitController::class, 'cancel'])->name('visits.cancel');
     });
@@ -146,6 +180,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('{clinicalEncounter}/start', [ClinicalEncounterController::class, 'start'])->name('start');
         Route::post('{clinicalEncounter}/complete', [ClinicalEncounterController::class, 'complete'])->name('complete');
         Route::post('{clinicalEncounter}/cancel', [ClinicalEncounterController::class, 'cancel'])->name('cancel');
+        Route::post('{clinicalEncounter}/change-practitioner', [ClinicalEncounterController::class, 'changePractitioner'])->name('change-practitioner');
 
         // Triage and vital signs are presented as part of this same
         // encounter screen (spec §38) — every action redirects back here

@@ -8,9 +8,11 @@ use App\Models\DispensingItem;
 use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryTest;
 use App\Models\Medication;
+use App\Models\Practitioner;
 use App\Models\PrescriptionOrderItem;
 use App\Models\RadiologyOrderItem;
 use App\Models\RadiologyProcedure;
+use App\Models\ReceptionVisit;
 use App\Models\Service;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -123,6 +125,155 @@ class ChargeCaptureService
     }
 
     /**
+     * Capture a consultation charge for a clinical encounter, using the
+     * assigned practitioner's configured consultation service (Step 62,
+     * spec §2/§4). Source = ClinicalEncounter so the financial gate in
+     * ConsultationService::create() can query by encounter ID. Returns null
+     * (never throws) when no consultation service is mapped to the
+     * practitioner — the no-charge rule applies and the gate passes.
+     */
+    public function captureFromClinicalEncounter(ClinicalEncounter $encounter, Practitioner $practitioner, Request $request): ?Charge
+    {
+        try {
+            if (! $practitioner->consultation_service_id) {
+                throw ValidationException::withMessages([
+                    'service' => 'No consultation service is configured for this practitioner.',
+                ]);
+            }
+
+            $service = Service::query()->find($practitioner->consultation_service_id);
+
+            if (! $service) {
+                throw ValidationException::withMessages([
+                    'service' => 'The consultation service configured for this practitioner no longer exists.',
+                ]);
+            }
+
+            return $this->createFromCatalogService(
+                $service,
+                $encounter->department->hospital_id,
+                $encounter->patient_id,
+                $encounter->id,
+                ClinicalEncounter::class,
+                $encounter->id,
+                1,
+                $request,
+            );
+        } catch (ValidationException $e) {
+            $this->recordCaptureSkipped(ClinicalEncounter::class, $encounter->id, $e, $request);
+
+            return null;
+        }
+    }
+
+    /**
+     * Capture a consultation charge at RECEPTION time (Step 62 fix) — sourced
+     * to the ReceptionVisit so the financial gate in
+     * ReceptionVisitService::sendToService() can check payment status before
+     * the patient is admitted to the clinical queue. Source =
+     * ReceptionVisit::class + visit->id; encounter_id is null until
+     * releaseReceptionVisitChargeToEncounter() later transfers it. Returns
+     * null (never throws) — same no-charge rule as captureFromClinicalEncounter.
+     */
+    public function captureFromReceptionVisit(ReceptionVisit $visit, Practitioner $practitioner, Request $request): ?Charge
+    {
+        try {
+            if (! $practitioner->consultation_service_id) {
+                throw ValidationException::withMessages([
+                    'service' => 'No consultation service is configured for this practitioner.',
+                ]);
+            }
+
+            $service = Service::query()->find($practitioner->consultation_service_id);
+
+            if (! $service) {
+                throw ValidationException::withMessages([
+                    'service' => 'The consultation service configured for this practitioner no longer exists.',
+                ]);
+            }
+
+            $visit->loadMissing('department');
+
+            return $this->createFromCatalogService(
+                $service,
+                $visit->department->hospital_id,
+                $visit->patient_id,
+                null,
+                ReceptionVisit::class,
+                $visit->id,
+                1,
+                $request,
+            );
+        } catch (ValidationException $e) {
+            $this->recordCaptureSkipped(ReceptionVisit::class, $visit->id, $e, $request);
+
+            return null;
+        }
+    }
+
+    /**
+     * Transfer a reception-visit consultation charge to its newly-created
+     * clinical encounter (Step 62 fix) — updates source_type/source_id and
+     * encounter_id so the financial gate in ConsultationService::create() can
+     * find the charge by encounter ID. Call only after the encounter exists
+     * and inside the same transaction. No-op when no reception-visit charge
+     * exists (no-charge rule then applies at ConsultationService).
+     */
+    public function releaseReceptionVisitChargeToEncounter(ReceptionVisit $visit, ClinicalEncounter $encounter): void
+    {
+        Charge::query()
+            ->where('source_type', ReceptionVisit::class)
+            ->where('source_id', $visit->id)
+            ->whereNotIn('status', [Charge::STATUS_VOIDED, Charge::STATUS_CANCELLED])
+            ->update([
+                'source_type' => ClinicalEncounter::class,
+                'source_id' => $encounter->id,
+                'encounter_id' => $encounter->id,
+            ]);
+    }
+
+    /**
+     * Capture a charge for a prescription order item at ORDER time (Phase 7,
+     * Step 62) — mirrors captureFromLaboratoryOrderItem()'s own at-order-time
+     * pattern so the charge exists before dispensing starts, enabling the
+     * financial authorization gate. Quantity = prescribed quantity (the
+     * financial commitment the patient pays at the cashier before dispensing).
+     * Prices from `Medication.price` directly (spec §12, same rule as the
+     * older captureFromDispensingItem). Returns null (never throws) when no
+     * price is configured — billing gap, not a clinical blocker.
+     */
+    public function captureFromPrescriptionOrderItem(PrescriptionOrderItem $item, ClinicalEncounter $encounter, Request $request): ?Charge
+    {
+        try {
+            $medication = $item->medication;
+
+            if (! $medication || $medication->price === null) {
+                throw ValidationException::withMessages([
+                    'price' => 'No price is configured for this medication.',
+                ]);
+            }
+
+            return $this->createFromResolvedPrice(
+                hospitalId: $encounter->department->hospital_id,
+                patientId: $encounter->patient_id,
+                encounterId: $encounter->id,
+                serviceId: null,
+                sourceType: PrescriptionOrderItem::class,
+                sourceId: $item->id,
+                serviceCodeSnapshot: $item->medication_code_snapshot ?? $medication->code,
+                description: $item->medication_name_snapshot ?? $medication->generic_name,
+                quantity: $item->quantity,
+                unitPrice: (string) $medication->price,
+                request: $request,
+            );
+        } catch (ValidationException $e) {
+            $this->recordCaptureSkipped(PrescriptionOrderItem::class, $item->id, $e, $request);
+
+            return null;
+        }
+    }
+
+    /**
      * Capture a charge for one dispensing fulfillment event (spec §12/§17)
      * — one `DispensingItem` row is always exactly one dispensing event
      * (Step 48's own architecture: a new event, a new row, never a running
@@ -131,6 +282,11 @@ class ChargeCaptureService
      * "remaining quantity" bookkeeping is needed here. Prices from
      * `Medication.price` directly (see this class's own docblock for why),
      * never `ServicePriceResolver`.
+     *
+     * @deprecated Step 62: charge is now captured at prescription ORDER time
+     *             via captureFromPrescriptionOrderItem(). This method is kept
+     *             for backward compatibility but is no longer called by
+     *             DispensingService::complete().
      */
     public function captureFromDispensingItem(DispensingItem $item, PrescriptionOrderItem $orderItem, ClinicalEncounter $encounter, Request $request): ?Charge
     {

@@ -210,6 +210,7 @@ export default function VisitsIndex({ visits, filters, departments }: VisitsInde
                                 <TableHead>Department</TableHead>
                                 <TableHead>Type</TableHead>
                                 <TableHead>Status</TableHead>
+                                <TableHead>Payment / Auth</TableHead>
                                 <TableHead>Created</TableHead>
                                 <TableHead>Actions</TableHead>
                             </TableRow>
@@ -233,9 +234,27 @@ export default function VisitsIndex({ visits, filters, departments }: VisitsInde
                                         <Badge variant={receptionStatusVariant[visit.status]}>{receptionStatusLabel[visit.status]}</Badge>
                                     </TableCell>
                                     <TableCell>
-                                        {new Date(visit.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                                        {visit.financial_status === 'payment_required' ? (
+                                            <Badge variant="destructive" className="bg-amber-600 dark:bg-amber-700 text-white">
+                                                PAYMENT REQUIRED
+                                            </Badge>
+                                        ) : visit.financial_status === 'authorized' ? (
+                                            <Badge variant="default" className="bg-green-600 dark:bg-green-700 text-white">
+                                                AUTHORIZED
+                                            </Badge>
+                                        ) : (
+                                            <span className="text-muted-foreground text-xs">—</span>
+                                        )}
                                     </TableCell>
                                     <TableCell>
+                                        {new Date(visit.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                                    </TableCell>
+                                    <TableCell className="flex items-center gap-1">
+                                        {visit.financial_status === 'payment_required' && visit.patient_account_id ? (
+                                            <Button variant="outline" size="sm" asChild className="text-amber-700 dark:text-amber-400 border-amber-500/50">
+                                                <Link href={route('billing.accounts.show', visit.patient_account_id)}>Pay Bill</Link>
+                                            </Button>
+                                        ) : null}
                                         <Button variant="ghost" size="sm" asChild>
                                             <Link href={route('reception.visits.show', visit.id)}>View</Link>
                                         </Button>
@@ -245,7 +264,7 @@ export default function VisitsIndex({ visits, filters, departments }: VisitsInde
 
                             {visits.data.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="p-0">
+                                    <TableCell colSpan={8} className="p-0">
                                         <EmptyState
                                             icon={ClipboardList}
                                             title={hasFilters ? 'No visits match your search or filters' : 'No visits found'}

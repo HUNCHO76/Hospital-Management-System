@@ -45,7 +45,7 @@ class InvoiceResource extends JsonResource
                 'id' => $this->patientAccount->id,
                 'account_number' => $this->patientAccount->account_number,
             ] : null),
-            'charges' => ChargeResource::collection($this->whenLoaded('charges')),
+            'charges' => $this->whenLoaded('charges', fn () => ChargeResource::collection($this->charges)->resolve()),
             'created_by' => $this->whenLoaded('createdBy', fn () => $this->createdBy ? [
                 'id' => $this->createdBy->id,
                 'name' => $this->createdBy->UserName,

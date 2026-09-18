@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\LaboratoryOrder;
 use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratorySample;
+use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +23,11 @@ use Illuminate\Validation\ValidationException;
  */
 class LaboratorySampleService
 {
-    public function __construct(protected AuditLogService $auditLog) {}
+    public function __construct(
+        protected AuditLogService $auditLog,
+        protected FinancialAuthorizationService $financialAuth,
+        protected NHIFPreauthorizationService $nhifPreauth,
+    ) {}
 
     /**
      * Register a new specimen against one or more of an order's compatible
@@ -56,6 +61,21 @@ class LaboratorySampleService
                     'item_ids' => 'One or more selected tests do not belong to this order or are no longer active.',
                 ]);
             }
+
+            $itemIds = $items->pluck('id')->all();
+
+            // Step 69: NHIF preauthorization gate — runs before financial auth
+            // and only blocks when the service mapping requires preauth.
+            $this->nhifPreauth->assertPreauthorizedForSources(
+                LaboratoryOrderItem::class,
+                $itemIds,
+            );
+
+            // Step 62: financial authorization gate
+            $this->financialAuth->assertAuthorizedForSources(
+                LaboratoryOrderItem::class,
+                $itemIds,
+            );
 
             $containerType = $data['container_type'] ?? null;
             $this->assertSpecimenMatchesCatalog($items, $data['specimen_type'], $containerType);

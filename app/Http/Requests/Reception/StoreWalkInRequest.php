@@ -37,6 +37,7 @@ class StoreWalkInRequest extends FormRequest
             'patient_id' => ['required', 'integer', 'exists:patients,id'],
             'department_id' => ['required', 'integer', Rule::exists('departments', 'id')->where(fn ($query) => $query->where('status', 'active'))],
             'visit_type' => ['required', Rule::in(ReceptionVisit::TYPES)],
+            'practitioner_id' => ['nullable', 'integer', Rule::exists('practitioners', 'id')->where(fn ($query) => $query->where('status', 'active'))],
         ];
     }
 }

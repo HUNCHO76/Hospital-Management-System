@@ -19,7 +19,7 @@ class PermissionSeeder extends Seeder
         'hospitals' => ['view', 'create', 'update', 'delete'],
         'departments' => ['view', 'create', 'update', 'delete'],
         'staff' => ['view', 'create', 'update', 'delete'],
-        'practitioners' => ['view', 'create', 'update', 'delete'],
+        'practitioners' => ['view', 'create', 'update', 'delete', 'nhif-login'],
         'patients' => ['view', 'create', 'update', 'delete'],
         'insurance-providers' => ['view', 'create', 'update', 'delete'],
         'insurance-schemes' => ['view', 'create', 'update', 'delete'],
@@ -192,6 +192,15 @@ class PermissionSeeder extends Seeder
         // a read-only viewer cannot download CSV extracts.
         'billing-reports' => ['view', 'export'],
         'audit-logs' => ['view'],
+        // Phase 8, Step 68: NHIF service/price mapping admin
+        'nhif-service-mappings' => ['view', 'create', 'update', 'deactivate'],
+        'nhif-price-sync' => ['view', 'run'],
+        // Phase 8, Step 69: NHIF preauthorization. 'request' covers create +
+        // submit (one atomic action: you never create a preauth without sending
+        // it). 'cancel' is separate — mirrors the pattern set by
+        // 'billing-cashier.close' and 'billing-payments.void': a corrective
+        // action with distinct authorization from the primary create path.
+        'nhif-preauthorization' => ['view', 'request', 'cancel'],
     ];
 
     /**

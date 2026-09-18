@@ -5,12 +5,17 @@ namespace App\Http\Controllers;
 use App\Http\Requests\PrescriptionOrder\ReturnPrescriptionOrderRequest;
 use App\Http\Requests\PrescriptionOrder\VerifyPrescriptionOrderRequest;
 use App\Http\Resources\PrescriptionVerificationResource;
+use App\Models\Charge;
+use App\Models\PatientAccount;
 use App\Models\PrescriptionOrder;
+use App\Models\PrescriptionOrderItem;
 use App\Models\PrescriptionVerification;
+use App\Services\FinancialAuthorizationService;
 use App\Services\PharmacySearchService;
 use App\Services\PrescriptionVerificationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -44,7 +49,7 @@ class PrescriptionVerificationController extends Controller
         ];
     }
 
-    public function index(Request $request, PharmacySearchService $search): Response
+    public function index(Request $request, PharmacySearchService $search, FinancialAuthorizationService $financialAuth): Response
     {
         $this->authorize('viewVerificationQueue', PrescriptionOrder::class);
 
@@ -53,8 +58,13 @@ class PrescriptionVerificationController extends Controller
         $query = $search->verificationQueue($filters)->with($this->eagerLoads());
         $search->scopeToHospital($query, $this->scopedHospitalId($request));
 
-        $orders = $query->paginate(20)->withQueryString()
-            ->through(fn (PrescriptionOrder $order) => (new PrescriptionVerificationResource($order))->resolve($request));
+        $paginator = $query->paginate(20)->withQueryString();
+        $financialStatuses = $this->batchPrescriptionFinancialStatuses($paginator->getCollection(), $financialAuth);
+
+        $orders = $paginator->through(fn (PrescriptionOrder $order) => array_merge(
+            (new PrescriptionVerificationResource($order))->resolve($request),
+            ['financial_status' => $financialStatuses[$order->id] ?? FinancialAuthorizationService::STATUS_AUTHORIZED],
+        ));
 
         return Inertia::render('pharmacy/verification/index', [
             'prescriptions' => $orders,
@@ -76,11 +86,35 @@ class PrescriptionVerificationController extends Controller
 
         $service->recordReviewStarted($prescriptionOrder->verification, $request);
 
+        $financialAuth = app(FinancialAuthorizationService::class);
+        $activeItemIds = $prescriptionOrder->items
+            ->where('status', '!=', PrescriptionOrderItem::STATUS_CANCELLED)
+            ->pluck('id')
+            ->all();
+
+        $prescriptionFinancialStatus = FinancialAuthorizationService::STATUS_AUTHORIZED;
+        foreach ($activeItemIds as $itemId) {
+            if ($financialAuth->statusForSource(PrescriptionOrderItem::class, $itemId) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                $prescriptionFinancialStatus = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
+                break;
+            }
+        }
+
+        $patientAccountId = null;
+        if ($prescriptionOrder->clinicalEncounter?->patient_id && $prescriptionOrder->clinicalEncounter?->department?->hospital_id) {
+            $patientAccountId = PatientAccount::query()
+                ->where('patient_id', $prescriptionOrder->clinicalEncounter->patient_id)
+                ->where('hospital_id', $prescriptionOrder->clinicalEncounter->department->hospital_id)
+                ->value('id');
+        }
+
         return Inertia::render('pharmacy/verification/show', [
             'prescription' => (new PrescriptionVerificationResource($prescriptionOrder))->resolve($request),
             'canVerify' => $request->user()->can('verify', $prescriptionOrder),
             'canReturn' => $request->user()->can('returnForCorrection', $prescriptionOrder),
             'canResubmit' => $request->user()->can('update', $prescriptionOrder),
+            'prescriptionFinancialStatus' => $prescriptionFinancialStatus,
+            'patientAccountId' => $patientAccountId,
         ]);
     }
 
@@ -90,7 +124,8 @@ class PrescriptionVerificationController extends Controller
 
         $service->verify($prescriptionOrder, $request->validated(), $request);
 
-        return redirect()->route('pharmacy-verification.index')->with('success', 'Prescription verified.');
+        return redirect()->route('pharmacy-verification.review', $prescriptionOrder)
+            ->with('success', 'Prescription verified successfully.');
     }
 
     public function returnForCorrection(ReturnPrescriptionOrderRequest $request, PrescriptionOrder $prescriptionOrder, PrescriptionVerificationService $service): RedirectResponse
@@ -118,6 +153,48 @@ class PrescriptionVerificationController extends Controller
         $service->resubmit($prescriptionOrder, $request);
 
         return back()->with('success', 'Prescription resubmitted for verification.');
+    }
+
+    /**
+     * @param  Collection<int, PrescriptionOrder>  $orders
+     * @return array<int, string>
+     */
+    private function batchPrescriptionFinancialStatuses(Collection $orders, FinancialAuthorizationService $financialAuth): array
+    {
+        $itemIdsByOrderId = [];
+        foreach ($orders as $order) {
+            $itemIdsByOrderId[$order->id] = $order->items
+                ->where('status', '!=', PrescriptionOrderItem::STATUS_CANCELLED)
+                ->pluck('id')
+                ->all();
+        }
+
+        $allItemIds = collect(array_values($itemIdsByOrderId))->flatten()->all();
+
+        if (empty($allItemIds)) {
+            return array_fill_keys(array_keys($itemIdsByOrderId), FinancialAuthorizationService::STATUS_AUTHORIZED);
+        }
+
+        $chargesByItemId = Charge::query()
+            ->where('source_type', PrescriptionOrderItem::class)
+            ->whereIn('source_id', $allItemIds)
+            ->get()
+            ->keyBy('source_id');
+
+        $result = [];
+        foreach ($itemIdsByOrderId as $orderId => $itemIds) {
+            $status = FinancialAuthorizationService::STATUS_AUTHORIZED;
+            foreach ($itemIds as $itemId) {
+                $charge = $chargesByItemId->get($itemId);
+                if ($financialAuth->statusForCharge($charge) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                    $status = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
+                    break;
+                }
+            }
+            $result[$orderId] = $status;
+        }
+
+        return $result;
     }
 
     /**

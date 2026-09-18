@@ -1,11 +1,11 @@
-import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
 import { dispensingItemStatusLabel } from '@/lib/dispensing-status';
-import { type CompleteDispensingFormData, type DispensingItemStatus } from '@/types/dispensing';
-import { useForm } from '@inertiajs/react';
+import { type DispensingItemStatus } from '@/types/dispensing';
+import { router } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 interface CompleteDispensingDialogItem {
     prescription_order_item_id: number;
@@ -30,24 +30,41 @@ interface CompleteDispensingDialogProps {
  * the live remaining amount regardless (DispensingService::complete()).
  */
 export function CompleteDispensingDialog({ prescriptionOrderId, items, notes, trigger, onSuccess }: CompleteDispensingDialogProps) {
-    const { post, processing, errors, reset } = useForm<CompleteDispensingFormData>({
-        items: items.map((item) => ({
-            prescription_order_item_id: item.prescription_order_item_id,
-            dispensed_quantity: item.dispensed_quantity,
-            status: item.status,
-            notes: item.notes,
-        })),
-        notes,
-    });
+    const [processing, setProcessing] = useState(false);
+    const { toast } = useToast();
 
     const submit = () => {
-        post(route('pharmacy-dispensing.complete', prescriptionOrderId), {
-            preserveScroll: true,
-            onSuccess: () => {
-                reset();
-                onSuccess?.();
+        setProcessing(true);
+        router.post(
+            route('pharmacy-dispensing.complete', prescriptionOrderId),
+            {
+                items: items.map((item) => ({
+                    prescription_order_item_id: item.prescription_order_item_id,
+                    dispensed_quantity: item.dispensed_quantity,
+                    status: item.status,
+                    notes: item.notes,
+                })),
+                notes,
             },
-        });
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setProcessing(false);
+                    onSuccess?.();
+                },
+                onError: (errs) => {
+                    setProcessing(false);
+                    const message =
+                        errs.financial_authorization ??
+                        errs.status ??
+                        (errs.items as unknown as string) ??
+                        Object.values(errs)[0] ??
+                        'Dispensing could not be completed. Please try again.';
+                    toast({ variant: 'error', description: message });
+                },
+                onFinish: () => setProcessing(false),
+            },
+        );
     };
 
     const dispensedItems = items.filter((item) => Number(item.dispensed_quantity) > 0 || item.status === 'unavailable');
@@ -72,8 +89,6 @@ export function CompleteDispensingDialog({ prescriptionOrderId, items, notes, tr
                     ))}
                     {dispensedItems.length === 0 && <li className="text-muted-foreground">No medications selected.</li>}
                 </ul>
-                <InputError message={errors.items} />
-
                 <DialogFooter>
                     <Button type="button" disabled={processing || dispensedItems.length === 0} onClick={submit}>
                         {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}

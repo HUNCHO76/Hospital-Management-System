@@ -30,6 +30,9 @@ class UpdatePractitionerRequest extends FormRequest
      */
     public function rules(): array
     {
+        /** @var Practitioner $practitioner */
+        $practitioner = $this->route('practitioner');
+
         return [
             'practitioner_type' => ['required', Rule::in(Practitioner::TYPES)],
             'professional_registration_number' => ['nullable', 'string', 'max:255'],
@@ -37,6 +40,12 @@ class UpdatePractitionerRequest extends FormRequest
             'license_number' => ['nullable', 'string', 'max:255'],
             'license_expiry_date' => ['nullable', 'date'],
             'status' => ['required', Rule::in([Practitioner::STATUS_ACTIVE, Practitioner::STATUS_INACTIVE, Practitioner::STATUS_SUSPENDED])],
+            'nhif_practitioner_no' => [
+                'nullable',
+                'string',
+                'max:100',
+                Rule::unique('practitioners', 'nhif_practitioner_no')->ignore($practitioner->id),
+            ],
         ];
     }
 }

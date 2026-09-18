@@ -261,6 +261,27 @@ export default function BillingInvoiceShow({
                     </div>
                 </div>
 
+                {invoice.status === 'posted' && outstanding && outstanding.patient_outstanding <= 0 && (
+                    <div className="rounded-lg border border-green-500/50 bg-green-500/10 p-4 text-green-900 dark:text-green-200">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 font-bold text-lg">
+                                    <span className="inline-block h-3 w-3 rounded-full bg-green-500" />
+                                    PAYMENT SUCCESSFUL — AUTHORIZED
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Financial Authorization: <span className="font-semibold text-green-700 dark:text-green-300">AUTHORIZED</span> · All charges on this invoice are fully cleared. Patient is ready for service.
+                                </p>
+                            </div>
+                            <Button size="sm" className="bg-green-700 hover:bg-green-800 text-white" asChild>
+                                <Link href={route('reception.visits.index')}>
+                                    Return to Reception
+                                </Link>
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Card>
                         <CardContent className="p-5">

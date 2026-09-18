@@ -26,66 +26,66 @@ use Illuminate\Database\Seeder;
 class MedicationSeeder extends Seeder
 {
     /**
-     * @var list<array{code: string, generic_name: string, category: string, strength?: string, form: string, route: string}>
+     * @var list<array{code: string, generic_name: string, category: string, strength?: string, form: string, route: string, price: string}>
      */
     protected array $medications = [
         // Analgesics / antipyretics
-        ['code' => 'PCM-500-TAB', 'generic_name' => 'Paracetamol', 'category' => 'Analgesic', 'strength' => '500 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'IBU-400-TAB', 'generic_name' => 'Ibuprofen', 'category' => 'Analgesic', 'strength' => '400 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'DIC-50-TAB', 'generic_name' => 'Diclofenac', 'category' => 'Analgesic', 'strength' => '50 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'ASA-300-TAB', 'generic_name' => 'Aspirin', 'category' => 'Analgesic', 'strength' => '300 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'TRM-50-CAP', 'generic_name' => 'Tramadol', 'category' => 'Analgesic', 'strength' => '50 mg', 'form' => 'capsule', 'route' => 'oral'],
+        ['code' => 'PCM-500-TAB', 'generic_name' => 'Paracetamol', 'category' => 'Analgesic', 'strength' => '500 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '5.00'],
+        ['code' => 'IBU-400-TAB', 'generic_name' => 'Ibuprofen', 'category' => 'Analgesic', 'strength' => '400 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '15.00'],
+        ['code' => 'DIC-50-TAB', 'generic_name' => 'Diclofenac', 'category' => 'Analgesic', 'strength' => '50 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '10.00'],
+        ['code' => 'ASA-300-TAB', 'generic_name' => 'Aspirin', 'category' => 'Analgesic', 'strength' => '300 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '5.00'],
+        ['code' => 'TRM-50-CAP', 'generic_name' => 'Tramadol', 'category' => 'Analgesic', 'strength' => '50 mg', 'form' => 'capsule', 'route' => 'oral', 'price' => '20.00'],
 
         // Antibiotics
-        ['code' => 'AMOX-500-CAP', 'generic_name' => 'Amoxicillin', 'category' => 'Antibiotic', 'strength' => '500 mg', 'form' => 'capsule', 'route' => 'oral'],
-        ['code' => 'AMOXCL-625-TAB', 'generic_name' => 'Amoxicillin-Clavulanate', 'category' => 'Antibiotic', 'strength' => '625 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'CIP-500-TAB', 'generic_name' => 'Ciprofloxacin', 'category' => 'Antibiotic', 'strength' => '500 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'DOXY-100-CAP', 'generic_name' => 'Doxycycline', 'category' => 'Antibiotic', 'strength' => '100 mg', 'form' => 'capsule', 'route' => 'oral'],
-        ['code' => 'MET-400-TAB', 'generic_name' => 'Metronidazole', 'category' => 'Antibiotic', 'strength' => '400 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'AZI-500-TAB', 'generic_name' => 'Azithromycin', 'category' => 'Antibiotic', 'strength' => '500 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'CFT-1G-INJ', 'generic_name' => 'Ceftriaxone', 'category' => 'Antibiotic', 'strength' => '1 g', 'form' => 'injection', 'route' => 'intravenous'],
-        ['code' => 'ERY-500-TAB', 'generic_name' => 'Erythromycin', 'category' => 'Antibiotic', 'strength' => '500 mg', 'form' => 'tablet', 'route' => 'oral'],
+        ['code' => 'AMOX-500-CAP', 'generic_name' => 'Amoxicillin', 'category' => 'Antibiotic', 'strength' => '500 mg', 'form' => 'capsule', 'route' => 'oral', 'price' => '20.00'],
+        ['code' => 'AMOXCL-625-TAB', 'generic_name' => 'Amoxicillin-Clavulanate', 'category' => 'Antibiotic', 'strength' => '625 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '50.00'],
+        ['code' => 'CIP-500-TAB', 'generic_name' => 'Ciprofloxacin', 'category' => 'Antibiotic', 'strength' => '500 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '25.00'],
+        ['code' => 'DOXY-100-CAP', 'generic_name' => 'Doxycycline', 'category' => 'Antibiotic', 'strength' => '100 mg', 'form' => 'capsule', 'route' => 'oral', 'price' => '15.00'],
+        ['code' => 'MET-400-TAB', 'generic_name' => 'Metronidazole', 'category' => 'Antibiotic', 'strength' => '400 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '10.00'],
+        ['code' => 'AZI-500-TAB', 'generic_name' => 'Azithromycin', 'category' => 'Antibiotic', 'strength' => '500 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '40.00'],
+        ['code' => 'CFT-1G-INJ', 'generic_name' => 'Ceftriaxone', 'category' => 'Antibiotic', 'strength' => '1 g', 'form' => 'injection', 'route' => 'intravenous', 'price' => '300.00'],
+        ['code' => 'ERY-500-TAB', 'generic_name' => 'Erythromycin', 'category' => 'Antibiotic', 'strength' => '500 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '20.00'],
 
         // Antimalarials
-        ['code' => 'ARTLUM-20120-TAB', 'generic_name' => 'Artemether-Lumefantrine', 'category' => 'Antimalarial', 'strength' => '20 mg/120 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'QNN-300-TAB', 'generic_name' => 'Quinine', 'category' => 'Antimalarial', 'strength' => '300 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'SP-50025-TAB', 'generic_name' => 'Sulfadoxine-Pyrimethamine', 'category' => 'Antimalarial', 'strength' => '500 mg/25 mg', 'form' => 'tablet', 'route' => 'oral'],
+        ['code' => 'ARTLUM-20120-TAB', 'generic_name' => 'Artemether-Lumefantrine', 'category' => 'Antimalarial', 'strength' => '20 mg/120 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '200.00'],
+        ['code' => 'QNN-300-TAB', 'generic_name' => 'Quinine', 'category' => 'Antimalarial', 'strength' => '300 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '15.00'],
+        ['code' => 'SP-50025-TAB', 'generic_name' => 'Sulfadoxine-Pyrimethamine', 'category' => 'Antimalarial', 'strength' => '500 mg/25 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '30.00'],
 
         // Antihypertensives
-        ['code' => 'AML-5-TAB', 'generic_name' => 'Amlodipine', 'category' => 'Antihypertensive', 'strength' => '5 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'LIS-10-TAB', 'generic_name' => 'Lisinopril', 'category' => 'Antihypertensive', 'strength' => '10 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'LOS-50-TAB', 'generic_name' => 'Losartan', 'category' => 'Antihypertensive', 'strength' => '50 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'HCTZ-25-TAB', 'generic_name' => 'Hydrochlorothiazide', 'category' => 'Antihypertensive', 'strength' => '25 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'ATN-50-TAB', 'generic_name' => 'Atenolol', 'category' => 'Antihypertensive', 'strength' => '50 mg', 'form' => 'tablet', 'route' => 'oral'],
+        ['code' => 'AML-5-TAB', 'generic_name' => 'Amlodipine', 'category' => 'Antihypertensive', 'strength' => '5 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '15.00'],
+        ['code' => 'LIS-10-TAB', 'generic_name' => 'Lisinopril', 'category' => 'Antihypertensive', 'strength' => '10 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '20.00'],
+        ['code' => 'LOS-50-TAB', 'generic_name' => 'Losartan', 'category' => 'Antihypertensive', 'strength' => '50 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '25.00'],
+        ['code' => 'HCTZ-25-TAB', 'generic_name' => 'Hydrochlorothiazide', 'category' => 'Antihypertensive', 'strength' => '25 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '10.00'],
+        ['code' => 'ATN-50-TAB', 'generic_name' => 'Atenolol', 'category' => 'Antihypertensive', 'strength' => '50 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '15.00'],
 
         // Antidiabetics
-        ['code' => 'MTF-500-TAB', 'generic_name' => 'Metformin', 'category' => 'Antidiabetic', 'strength' => '500 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'GLB-5-TAB', 'generic_name' => 'Glibenclamide', 'category' => 'Antidiabetic', 'strength' => '5 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'INS-100IU-INJ', 'generic_name' => 'Insulin (Soluble)', 'category' => 'Antidiabetic', 'strength' => '100 IU/mL', 'form' => 'injection', 'route' => 'subcutaneous'],
+        ['code' => 'MTF-500-TAB', 'generic_name' => 'Metformin', 'category' => 'Antidiabetic', 'strength' => '500 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '15.00'],
+        ['code' => 'GLB-5-TAB', 'generic_name' => 'Glibenclamide', 'category' => 'Antidiabetic', 'strength' => '5 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '10.00'],
+        ['code' => 'INS-100IU-INJ', 'generic_name' => 'Insulin (Soluble)', 'category' => 'Antidiabetic', 'strength' => '100 IU/mL', 'form' => 'injection', 'route' => 'subcutaneous', 'price' => '500.00'],
 
         // Gastrointestinal
-        ['code' => 'OMZ-20-CAP', 'generic_name' => 'Omeprazole', 'category' => 'Gastrointestinal', 'strength' => '20 mg', 'form' => 'capsule', 'route' => 'oral'],
-        ['code' => 'RAN-150-TAB', 'generic_name' => 'Ranitidine', 'category' => 'Gastrointestinal', 'strength' => '150 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'MCP-10-TAB', 'generic_name' => 'Metoclopramide', 'category' => 'Gastrointestinal', 'strength' => '10 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'ORS-STD-PWD', 'generic_name' => 'Oral Rehydration Salts', 'category' => 'Gastrointestinal', 'form' => 'powder', 'route' => 'oral'],
-        ['code' => 'LOP-2-CAP', 'generic_name' => 'Loperamide', 'category' => 'Gastrointestinal', 'strength' => '2 mg', 'form' => 'capsule', 'route' => 'oral'],
+        ['code' => 'OMZ-20-CAP', 'generic_name' => 'Omeprazole', 'category' => 'Gastrointestinal', 'strength' => '20 mg', 'form' => 'capsule', 'route' => 'oral', 'price' => '20.00'],
+        ['code' => 'RAN-150-TAB', 'generic_name' => 'Ranitidine', 'category' => 'Gastrointestinal', 'strength' => '150 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '10.00'],
+        ['code' => 'MCP-10-TAB', 'generic_name' => 'Metoclopramide', 'category' => 'Gastrointestinal', 'strength' => '10 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '10.00'],
+        ['code' => 'ORS-STD-PWD', 'generic_name' => 'Oral Rehydration Salts', 'category' => 'Gastrointestinal', 'form' => 'powder', 'route' => 'oral', 'price' => '30.00'],
+        ['code' => 'LOP-2-CAP', 'generic_name' => 'Loperamide', 'category' => 'Gastrointestinal', 'strength' => '2 mg', 'form' => 'capsule', 'route' => 'oral', 'price' => '10.00'],
 
         // Respiratory / allergy
-        ['code' => 'SAL-100MCG-INH', 'generic_name' => 'Salbutamol', 'category' => 'Respiratory', 'strength' => '100 mcg/dose', 'form' => 'inhaler', 'route' => 'inhalation'],
-        ['code' => 'CTZ-10-TAB', 'generic_name' => 'Cetirizine', 'category' => 'Antihistamine', 'strength' => '10 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'CPM-4-TAB', 'generic_name' => 'Chlorpheniramine', 'category' => 'Antihistamine', 'strength' => '4 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'PRED-5-TAB', 'generic_name' => 'Prednisolone', 'category' => 'Corticosteroid', 'strength' => '5 mg', 'form' => 'tablet', 'route' => 'oral'],
+        ['code' => 'SAL-100MCG-INH', 'generic_name' => 'Salbutamol', 'category' => 'Respiratory', 'strength' => '100 mcg/dose', 'form' => 'inhaler', 'route' => 'inhalation', 'price' => '150.00'],
+        ['code' => 'CTZ-10-TAB', 'generic_name' => 'Cetirizine', 'category' => 'Antihistamine', 'strength' => '10 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '15.00'],
+        ['code' => 'CPM-4-TAB', 'generic_name' => 'Chlorpheniramine', 'category' => 'Antihistamine', 'strength' => '4 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '5.00'],
+        ['code' => 'PRED-5-TAB', 'generic_name' => 'Prednisolone', 'category' => 'Corticosteroid', 'strength' => '5 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '10.00'],
 
         // Vitamins / supplements
-        ['code' => 'FESO4-200-TAB', 'generic_name' => 'Ferrous Sulphate', 'category' => 'Supplement', 'strength' => '200 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'FA-5-TAB', 'generic_name' => 'Folic Acid', 'category' => 'Supplement', 'strength' => '5 mg', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'MVI-STD-TAB', 'generic_name' => 'Multivitamin', 'category' => 'Supplement', 'form' => 'tablet', 'route' => 'oral'],
-        ['code' => 'VITC-100-TAB', 'generic_name' => 'Vitamin C', 'category' => 'Supplement', 'strength' => '100 mg', 'form' => 'tablet', 'route' => 'oral'],
+        ['code' => 'FESO4-200-TAB', 'generic_name' => 'Ferrous Sulphate', 'category' => 'Supplement', 'strength' => '200 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '5.00'],
+        ['code' => 'FA-5-TAB', 'generic_name' => 'Folic Acid', 'category' => 'Supplement', 'strength' => '5 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '5.00'],
+        ['code' => 'MVI-STD-TAB', 'generic_name' => 'Multivitamin', 'category' => 'Supplement', 'form' => 'tablet', 'route' => 'oral', 'price' => '10.00'],
+        ['code' => 'VITC-100-TAB', 'generic_name' => 'Vitamin C', 'category' => 'Supplement', 'strength' => '100 mg', 'form' => 'tablet', 'route' => 'oral', 'price' => '5.00'],
 
         // Topical / wound care
-        ['code' => 'PVI-10PCT-SOL', 'generic_name' => 'Povidone-Iodine', 'category' => 'Antiseptic', 'strength' => '10%', 'form' => 'solution', 'route' => 'topical'],
-        ['code' => 'SSD-1PCT-CRM', 'generic_name' => 'Silver Sulfadiazine', 'category' => 'Antiseptic', 'strength' => '1%', 'form' => 'cream', 'route' => 'topical'],
-        ['code' => 'HCT-1PCT-CRM', 'generic_name' => 'Hydrocortisone Cream', 'category' => 'Topical', 'strength' => '1%', 'form' => 'cream', 'route' => 'topical'],
+        ['code' => 'PVI-10PCT-SOL', 'generic_name' => 'Povidone-Iodine', 'category' => 'Antiseptic', 'strength' => '10%', 'form' => 'solution', 'route' => 'topical', 'price' => '100.00'],
+        ['code' => 'SSD-1PCT-CRM', 'generic_name' => 'Silver Sulfadiazine', 'category' => 'Antiseptic', 'strength' => '1%', 'form' => 'cream', 'route' => 'topical', 'price' => '200.00'],
+        ['code' => 'HCT-1PCT-CRM', 'generic_name' => 'Hydrocortisone Cream', 'category' => 'Topical', 'strength' => '1%', 'form' => 'cream', 'route' => 'topical', 'price' => '80.00'],
     ];
 
     /**

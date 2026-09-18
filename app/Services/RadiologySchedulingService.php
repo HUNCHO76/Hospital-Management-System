@@ -20,7 +20,10 @@ use Illuminate\Validation\ValidationException;
  */
 class RadiologySchedulingService
 {
-    public function __construct(protected AuditLogService $auditLog) {}
+    public function __construct(
+        protected AuditLogService $auditLog,
+        protected FinancialAuthorizationService $financialAuth,
+    ) {}
 
     /**
      * Schedule a single, still-unscheduled order item onto a resource/time
@@ -40,6 +43,13 @@ class RadiologySchedulingService
             $item = RadiologyOrderItem::query()->whereKey($item->id)->lockForUpdate()->firstOrFail();
 
             $this->assertItemSchedulable($item);
+
+            // Step 62: financial authorization gate — the radiology charge must
+            // be paid before an appointment slot is allocated.
+            $this->financialAuth->assertAuthorizedForSources(
+                RadiologyOrderItem::class,
+                [$item->id],
+            );
 
             $start = $data['scheduled_start'];
             $end = $data['scheduled_end'];

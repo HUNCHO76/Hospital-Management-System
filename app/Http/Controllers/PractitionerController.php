@@ -86,7 +86,12 @@ class PractitionerController extends Controller
      */
     public function show(Practitioner $practitioner): Response
     {
-        $practitioner->load(['staff:id,hospital_id,department_id,staff_number,first_name,middle_name,last_name', 'staff.hospital:id,name', 'staff.department:id,name']);
+        $practitioner->load([
+            'staff:id,hospital_id,department_id,staff_number,first_name,middle_name,last_name',
+            'staff.hospital:id,name,code',
+            'staff.department:id,name',
+            'latestNhifAttendance',
+        ]);
 
         return Inertia::render('practitioners/show', [
             'practitioner' => $practitioner,

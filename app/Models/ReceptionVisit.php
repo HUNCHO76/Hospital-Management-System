@@ -81,6 +81,7 @@ class ReceptionVisit extends Model
         'patient_id',
         'appointment_id',
         'department_id',
+        'practitioner_id',
         'visit_type',
         'status',
         'completed_at',
@@ -142,5 +143,16 @@ class ReceptionVisit extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    /**
+     * The practitioner selected at reception (Step 62 fix) — drives the
+     * consultation charge that must be cleared before the patient is sent to
+     * the clinical queue. Null means no specific provider was selected and
+     * no consultation charge requirement was created (no-charge rule applies).
+     */
+    public function practitioner(): BelongsTo
+    {
+        return $this->belongsTo(Practitioner::class);
     }
 }

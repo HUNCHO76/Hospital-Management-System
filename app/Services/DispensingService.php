@@ -7,6 +7,7 @@ use App\Models\DispensingItem;
 use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
 use App\Models\PrescriptionVerification;
+use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -41,7 +42,13 @@ use Illuminate\Validation\ValidationException;
  */
 class DispensingService
 {
-    public function __construct(protected AuditLogService $auditLog, protected StockService $stockService, protected ChargeCaptureService $chargeCapture) {}
+    public function __construct(
+        protected AuditLogService $auditLog,
+        protected StockService $stockService,
+        protected ChargeCaptureService $chargeCapture,
+        protected FinancialAuthorizationService $financialAuth,
+        protected NHIFPreauthorizationService $nhifPreauth,
+    ) {}
 
     /**
      * Open a new dispensing event for a verified prescription.
@@ -59,6 +66,18 @@ class DispensingService
             $order = PrescriptionOrder::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
 
             $this->assertEligible($order);
+
+            $activeItemIds = $order->items()
+                ->where('status', '!=', PrescriptionOrderItem::STATUS_CANCELLED)
+                ->pluck('id')
+                ->all();
+
+            // Step 69: NHIF preauthorization gate
+            $this->nhifPreauth->assertPreauthorizedForSources(PrescriptionOrderItem::class, $activeItemIds);
+
+            // Step 62: financial authorization gate — all prescription order items
+            // must have their charges paid before dispensing may begin.
+            $this->financialAuth->assertAuthorizedForSources(PrescriptionOrderItem::class, $activeItemIds);
 
             if ($order->dispensings()->where('status', Dispensing::STATUS_IN_PROGRESS)->exists()) {
                 throw ValidationException::withMessages([
@@ -137,12 +156,10 @@ class DispensingService
                         ),
                     ];
 
-                    $this->chargeCapture->captureFromDispensingItem(
-                        $dispensingItem,
-                        $itemData['order_item'],
-                        $order->clinicalEncounter,
-                        $request,
-                    );
+                    // Step 62: charge was already captured at prescription ORDER time
+                    // via PrescriptionOrderService::addItem() → captureFromPrescriptionOrderItem().
+                    // No second capture here — the financial gate at start() already
+                    // verified payment against that charge.
                 }
             }
 

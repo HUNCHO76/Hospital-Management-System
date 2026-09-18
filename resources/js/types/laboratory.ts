@@ -108,6 +108,7 @@ export interface LaboratoryOrder {
     patient: LaboratoryOrderPatient | null;
     encounter: LaboratoryOrderEncounter | null;
     created_at: string;
+    financial_status?: 'authorized' | 'payment_required';
 }
 
 export interface LaboratoryOrderFormData {

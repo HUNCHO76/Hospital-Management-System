@@ -15,7 +15,7 @@ import {
 import { type BreadcrumbItem, type Paginated } from '@/types';
 import { type LaboratoryCollectionFilters, type LaboratoryOrder, type LaboratoryOrderPriority } from '@/types/laboratory';
 import { Head, Link, router } from '@inertiajs/react';
-import { TestTubes } from 'lucide-react';
+import { AlertCircle, TestTubes } from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Laboratory', href: '/laboratory' },
@@ -134,12 +134,15 @@ export default function LaboratoryCollectionIndex({ orders, filters, priorities 
                             <TableHead>Priority</TableHead>
                             <TableHead>Ordered At</TableHead>
                             <TableHead>Status</TableHead>
+                            <TableHead>Payment</TableHead>
                             <TableHead />
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {orders.data.map((order) => (
-                            <TableRow key={order.id}>
+                        {orders.data.map((order) => {
+                            const paymentRequired = order.financial_status === 'payment_required';
+                            return (
+                            <TableRow key={order.id} className={paymentRequired ? 'bg-amber-500/5' : undefined}>
                                 <TableCell className="font-medium">{order.order_number}</TableCell>
                                 <TableCell>
                                     <div className="flex flex-col">
@@ -155,16 +158,31 @@ export default function LaboratoryCollectionIndex({ orders, filters, priorities 
                                     <Badge variant={laboratoryOrderStatusVariant[order.status]}>{laboratoryOrderStatusLabel[order.status]}</Badge>
                                 </TableCell>
                                 <TableCell>
-                                    <Button asChild size="sm">
-                                        <Link href={route('laboratory.collection.show', order.id)}>Collect</Link>
+                                    {paymentRequired ? (
+                                        <Badge variant="destructive" className="gap-1 bg-amber-600 dark:bg-amber-700">
+                                            <AlertCircle className="h-3 w-3" />
+                                            Unpaid
+                                        </Badge>
+                                    ) : (
+                                        <Badge variant="outline" className="text-green-700 border-green-500/50 dark:text-green-400">
+                                            Cleared
+                                        </Badge>
+                                    )}
+                                </TableCell>
+                                <TableCell>
+                                    <Button asChild size="sm" variant={paymentRequired ? 'outline' : 'default'}>
+                                        <Link href={route('laboratory.collection.show', order.id)}>
+                                            {paymentRequired ? 'View' : 'Collect'}
+                                        </Link>
                                     </Button>
                                 </TableCell>
                             </TableRow>
-                        ))}
+                            );
+                        })}
 
                         {orders.data.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={8} className="p-0">
+                                <TableCell colSpan={9} className="p-0">
                                     <EmptyState
                                         icon={TestTubes}
                                         title={hasFilters ? 'No orders match your search or filters' : 'Nothing awaiting collection'}
