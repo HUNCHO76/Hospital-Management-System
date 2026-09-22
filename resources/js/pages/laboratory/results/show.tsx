@@ -32,14 +32,17 @@ import {
     laboratorySpecimenContainerLabel,
     laboratorySpecimenTypeLabel,
 } from '@/lib/laboratory-status';
+import { NhifUtilizationStatus } from '@/components/nhif/nhif-utilization-status';
 import { type BreadcrumbItem } from '@/types';
 import { type LaboratoryAbnormalFlag, type LaboratoryResult, type SaveLaboratoryResultDraftFormData } from '@/types/laboratory';
+import { type NhifUtilization } from '@/types/nhif';
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import { CheckCircle2, LoaderCircle } from 'lucide-react';
 import { type FormEventHandler } from 'react';
 
 interface LaboratoryResultShowProps {
     result: LaboratoryResult;
+    nhifUtilizations?: NhifUtilization[];
 }
 
 const FLAGS = Object.keys(laboratoryAbnormalFlagLabel) as LaboratoryAbnormalFlag[];
@@ -66,7 +69,7 @@ function formatAge(dateOfBirth: string | null): string {
  * to read-only for ordinary editing from PENDING_VERIFICATION onward — the
  * backend enforces this independently of what buttons are shown here.
  */
-export default function LaboratoryResultShow({ result }: LaboratoryResultShowProps) {
+export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: LaboratoryResultShowProps) {
     const { can } = usePermissions();
 
     const patientName = result.patient
@@ -115,6 +118,14 @@ export default function LaboratoryResultShow({ result }: LaboratoryResultShowPro
             <Head title={`Result — ${result.item?.test_name ?? result.id}`} />
 
             <div className="flex flex-col gap-6 p-4">
+                {nhifUtilizations.length > 0 && (
+                    <div className="flex flex-col gap-2 rounded-md border p-3">
+                        {nhifUtilizations.map((u) => (
+                            <NhifUtilizationStatus key={u.id} utilization={u} linkable />
+                        ))}
+                    </div>
+                )}
+
                 {result.is_ready_for_release && (
                     <div className="border-primary bg-primary/5 flex items-center gap-2 rounded-md border p-3 text-sm">
                         <CheckCircle2 className="text-primary h-5 w-5 shrink-0" />

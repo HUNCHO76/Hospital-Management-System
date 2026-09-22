@@ -9,8 +9,10 @@ import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { dispensingItemStatusLabel, dispensingStatusLabel, dispensingStatusVariant, fulfillmentStatusLabel, fulfillmentStatusVariant } from '@/lib/dispensing-status';
 import { prescriptionDurationUnitLabel, prescriptionFrequencyLabel, prescriptionOrderStatusLabel, prescriptionOrderStatusVariant, prescriptionRouteLabel } from '@/lib/prescription-status';
+import { NhifUtilizationStatus } from '@/components/nhif/nhif-utilization-status';
 import { type BreadcrumbItem } from '@/types';
 import { type DispensingItemStatus, type DispensingPrescription } from '@/types/dispensing';
+import { type NhifUtilization } from '@/types/nhif';
 import { Head, Link, router } from '@inertiajs/react';
 import { PlayCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -20,6 +22,7 @@ interface PharmacyDispensingShowProps {
     canStart: boolean;
     canComplete: boolean;
     canCancel: boolean;
+    nhifUtilizations?: NhifUtilization[];
 }
 
 function formatDateTime(value: string | null): string {
@@ -49,6 +52,7 @@ export default function PharmacyDispensingShow({
     canCancel,
     prescriptionFinancialStatus = 'authorized',
     patientAccountId = null,
+    nhifUtilizations = [],
 }: PharmacyDispensingShowProps & { prescriptionFinancialStatus?: string; patientAccountId?: number | null }) {
     const isPaymentRequired = prescriptionFinancialStatus === 'payment_required';
     const patientName = prescription.patient
@@ -149,6 +153,14 @@ export default function PharmacyDispensingShow({
                         )}
                     </div>
                 </div>
+
+                {nhifUtilizations.length > 0 && (
+                    <div className="flex flex-col gap-2 rounded-md border p-3">
+                        {nhifUtilizations.map((u) => (
+                            <NhifUtilizationStatus key={u.id} utilization={u} linkable />
+                        ))}
+                    </div>
+                )}
 
                 <div className="grid gap-4 md:grid-cols-2">
                     <Card>

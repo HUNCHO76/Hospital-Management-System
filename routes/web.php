@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AdmissionController;
 use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\BillingAdjustmentController;
@@ -35,12 +36,18 @@ use App\Http\Controllers\LaboratorySampleController;
 use App\Http\Controllers\LaboratoryTestCategoryController;
 use App\Http\Controllers\LaboratoryTestController;
 use App\Http\Controllers\MedicationController;
+use App\Http\Controllers\NhifAuthorizationContextController;
+use App\Http\Controllers\NhifClaimController;
+use App\Http\Controllers\NhifClaimReconciliationController;
+use App\Http\Controllers\NhifDashboardController;
 use App\Http\Controllers\NhifEligibilityController;
 use App\Http\Controllers\NhifMemberVerificationController;
 use App\Http\Controllers\NhifPractitionerAttendanceController;
 use App\Http\Controllers\NhifPreauthorizationController;
 use App\Http\Controllers\NhifPriceSyncController;
+use App\Http\Controllers\NhifServiceCatalogController;
 use App\Http\Controllers\NhifServiceMappingController;
+use App\Http\Controllers\NhifUtilizationController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PatientInsuranceController;
 use App\Http\Controllers\PaymentController;
@@ -84,9 +91,30 @@ Route::middleware(['auth'])->group(function () {
     Route::post('practitioners/{practitioner}/nhif-login', [NhifPractitionerAttendanceController::class, 'login'])->name('practitioners.nhif-login');
     Route::post('practitioners/{practitioner}/nhif-logout', [NhifPractitionerAttendanceController::class, 'logout'])->name('practitioners.nhif-logout');
 
+    // Phase 8, Step 70 — Admissions lifecycle
+    Route::prefix('admissions')->name('admissions.')->group(function () {
+        Route::get('', [AdmissionController::class, 'index'])->name('index');
+        Route::get('create', [AdmissionController::class, 'create'])->name('create');
+        Route::post('', [AdmissionController::class, 'store'])->name('store');
+        Route::get('{admission}', [AdmissionController::class, 'show'])->name('show');
+        Route::post('{admission}/confirm', [AdmissionController::class, 'confirm'])->name('confirm');
+        Route::post('{admission}/discharge', [AdmissionController::class, 'discharge'])->name('discharge');
+        Route::post('{admission}/cancel', [AdmissionController::class, 'cancel'])->name('cancel');
+        Route::post('{admission}/transfers', [AdmissionController::class, 'storeTransfer'])->name('transfers.store');
+        Route::post('{admission}/transfers/{transfer}/complete', [AdmissionController::class, 'completeTransfer'])->name('transfers.complete');
+        Route::post('{admission}/nhif-submit', [AdmissionController::class, 'submitNhif'])->name('nhif-submit');
+        Route::post('{admission}/transfers/{transfer}/nhif-submit', [AdmissionController::class, 'submitTransferNhif'])->name('transfers.nhif-submit');
+    });
+
     // Phase 8, Step 68 — NHIF service/price mapping administration
     // Phase 8, Step 69 — NHIF preauthorization lifecycle
+    // Phase 8 Refactor — NHIF authorization-number lookup
     Route::prefix('nhif')->name('nhif.')->group(function () {
+        // Phase 8, Step 75 — NHIF operational dashboard (read-only).
+        Route::get('dashboard', [NhifDashboardController::class, 'index'])->name('dashboard');
+
+        Route::get('authorization-context', [NhifAuthorizationContextController::class, 'index'])->name('authorization-context.index');
+        Route::post('authorization-context/lookup', [NhifAuthorizationContextController::class, 'lookup'])->name('authorization-context.lookup');
         Route::get('service-mappings', [NhifServiceMappingController::class, 'index'])->name('service-mappings.index');
         Route::get('service-mappings/create', [NhifServiceMappingController::class, 'create'])->name('service-mappings.create');
         Route::post('service-mappings', [NhifServiceMappingController::class, 'store'])->name('service-mappings.store');
@@ -96,11 +124,46 @@ Route::middleware(['auth'])->group(function () {
         Route::post('service-mappings/{nhifServiceMapping}/deactivate', [NhifServiceMappingController::class, 'deactivate'])->name('service-mappings.deactivate');
         Route::get('price-sync', [NhifPriceSyncController::class, 'index'])->name('price-sync.index');
         Route::post('price-sync', [NhifPriceSyncController::class, 'store'])->name('price-sync.store');
+        Route::get('catalog/services', [NhifServiceCatalogController::class, 'services'])->name('catalog.services');
+        Route::get('catalog/packages', [NhifServiceCatalogController::class, 'packages'])->name('catalog.packages');
 
         // Individual preauth record actions (no patient context needed for these)
         Route::get('preauthorizations/{nhifPreauthorization}', [NhifPreauthorizationController::class, 'show'])->name('preauthorization.show');
         Route::post('preauthorizations/{nhifPreauthorization}/submit', [NhifPreauthorizationController::class, 'submit'])->name('preauthorization.submit');
         Route::post('preauthorizations/{nhifPreauthorization}/cancel', [NhifPreauthorizationController::class, 'cancel'])->name('preauthorization.cancel');
+
+        // Phase 8, Step 71 — NHIF clinical service utilization monitoring & recovery.
+        // Records are created only by clinical completion events, never through HTTP.
+        Route::get('utilizations', [NhifUtilizationController::class, 'index'])->name('utilization.index');
+        Route::get('utilizations/{nhifUtilization}', [NhifUtilizationController::class, 'show'])->name('utilization.show');
+        Route::post('utilizations/{nhifUtilization}/submit', [NhifUtilizationController::class, 'submit'])->name('utilization.submit');
+        Route::post('utilizations/{nhifUtilization}/authorization', [NhifUtilizationController::class, 'attachAuthorization'])->name('utilization.authorization');
+        Route::post('utilizations/{nhifUtilization}/reconcile', [NhifUtilizationController::class, 'reconcile'])->name('utilization.reconcile');
+
+        // Phase 8, Step 72 — NHIF claim / folio PREPARATION (up to READY_FOR_SUBMISSION).
+        // There is deliberately no submit route here; submission is Step 73.
+        Route::get('claims', [NhifClaimController::class, 'index'])->name('claims.index');
+        Route::post('claims', [NhifClaimController::class, 'store'])->name('claims.store');
+        Route::get('claims/{nhifClaim}', [NhifClaimController::class, 'show'])->name('claims.show');
+        Route::post('claims/{nhifClaim}/regenerate', [NhifClaimController::class, 'regenerate'])->name('claims.regenerate');
+        Route::post('claims/{nhifClaim}/validate', [NhifClaimController::class, 'validateClaim'])->name('claims.validate');
+        Route::post('claims/{nhifClaim}/finalize', [NhifClaimController::class, 'finalize'])->name('claims.finalize');
+        Route::post('claims/{nhifClaim}/submit', [NhifClaimController::class, 'submit'])->name('claims.submit');
+        Route::post('claims/{nhifClaim}/cancel', [NhifClaimController::class, 'cancel'])->name('claims.cancel');
+        Route::post('claims/{nhifClaim}/items', [NhifClaimController::class, 'addItem'])->name('claims.items.store');
+        Route::delete('claims/{nhifClaim}/items/{nhifClaimItem}', [NhifClaimController::class, 'removeItem'])->name('claims.items.destroy');
+        Route::post('claims/{nhifClaim}/documents', [NhifClaimController::class, 'uploadDocument'])->name('claims.documents.store');
+        Route::get('claims/{nhifClaim}/documents/{nhifClaimDocument}', [NhifClaimController::class, 'downloadDocument'])->name('claims.documents.download');
+        Route::delete('claims/{nhifClaim}/documents/{nhifClaimDocument}', [NhifClaimController::class, 'destroyDocument'])->name('claims.documents.destroy');
+
+        // Phase 8, Step 74 — NHIF claim reconciliation & response handling.
+        // Reuses Step 73's submission data; there is no way to hand-set a claim's
+        // NHIF outcome — only to (re-)derive it from an actual NHIF response.
+        Route::get('reconciliation', [NhifClaimReconciliationController::class, 'index'])->name('reconciliation.index');
+        Route::get('claims/{nhifClaim}/reconciliation', [NhifClaimReconciliationController::class, 'show'])->name('claims.reconciliation.show');
+        Route::post('claims/{nhifClaim}/reconciliation/reconcile', [NhifClaimReconciliationController::class, 'reconcile'])->name('claims.reconciliation.reconcile');
+        Route::post('claims/{nhifClaim}/reconciliation/refresh', [NhifClaimReconciliationController::class, 'refreshStatus'])->name('claims.reconciliation.refresh');
+        Route::post('claims/{nhifClaim}/reconciliation/discrepancies/{nhifClaimDiscrepancy}/resolve', [NhifClaimReconciliationController::class, 'resolveDiscrepancy'])->name('claims.reconciliation.discrepancies.resolve');
     });
     Route::get('patients/search-json', [PatientController::class, 'searchJson'])->name('patients.search-json');
     Route::resource('patients', PatientController::class);

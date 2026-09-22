@@ -278,7 +278,7 @@ class ReceptionVisitController extends Controller
 
             return response()->json([
                 'price' => (float) $servicePrice->amount,
-                'currency' => $servicePrice->currency ?? config('billing.currency', 'KES'),
+                'currency' => $servicePrice->currency ?? config('billing.currency', 'TZS'),
             ]);
         } catch (\Throwable) {
             return response()->json(['price' => null]);

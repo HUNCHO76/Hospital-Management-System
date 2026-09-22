@@ -80,6 +80,13 @@ class RoleSeeder extends Seeder
             'nhif-service-mappings.view', 'nhif-service-mappings.create', 'nhif-service-mappings.update', 'nhif-service-mappings.deactivate',
             'nhif-price-sync.view', 'nhif-price-sync.run',
             'nhif-preauthorization.view', 'nhif-preauthorization.request', 'nhif-preauthorization.cancel',
+            'nhif-authorization-context.lookup',
+            'admission.view', 'admission.create', 'admission.confirm', 'admission.discharge', 'admission.transfer', 'admission.nhif-submit',
+            'nhif-utilization.view', 'nhif-utilization.submit', 'nhif-utilization.reconcile',
+            'nhif-claims.view', 'nhif-claims.create', 'nhif-claims.update', 'nhif-claims.validate', 'nhif-claims.finalize', 'nhif-claims.cancel',
+            'nhif-claims.submit', 'nhif-claims.view-submission', 'nhif-claims.retry-submission',
+            'nhif-claims.view-reconciliation', 'nhif-claims.reconcile', 'nhif-claims.refresh-status', 'nhif-claims.resolve-discrepancy',
+            'nhif-dashboard.view',
         ],
 
         'doctor' => [
@@ -117,6 +124,7 @@ class RoleSeeder extends Seeder
             'clinical-notes.view', 'clinical-notes.create', 'clinical-notes.update', 'clinical-notes.sign', 'clinical-notes.amend', 'clinical-notes.cancel',
             'clinical-history.view',
             'laboratory-samples.view', 'laboratory-samples.collect', 'laboratory-samples.label', 'laboratory-samples.recollect', 'laboratory-samples.cancel',
+            'admission.view', 'admission.create', 'admission.confirm', 'admission.discharge', 'admission.transfer',
         ],
 
         // Phase 6, Step 44: the pharmacy-facing role that receives and views
@@ -230,6 +238,7 @@ class RoleSeeder extends Seeder
             'patient-insurance.view', 'patient-insurance.create', 'patient-insurance.update', 'patient-insurance.verify',
             'appointments.view', 'appointments.create', 'appointments.update', 'appointments.confirm', 'appointments.reschedule', 'appointments.cancel', 'appointments.checkin', 'appointments.no_show',
             'reception.view', 'reception.dashboard', 'reception.checkin', 'reception.create_walkin', 'reception.update', 'reception.cancel', 'reception.complete',
+            'nhif-authorization-context.lookup',
         ],
 
         // Phase 7, Step 52: the billing/payment foundation's own operational

@@ -7,6 +7,7 @@ use App\Models\DispensingItem;
 use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
 use App\Models\PrescriptionVerification;
+use App\Services\NHIF\NHIFClinicalUtilizationService;
 use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -48,6 +49,7 @@ class DispensingService
         protected ChargeCaptureService $chargeCapture,
         protected FinancialAuthorizationService $financialAuth,
         protected NHIFPreauthorizationService $nhifPreauth,
+        protected NHIFClinicalUtilizationService $nhifUtilization,
     ) {}
 
     /**
@@ -204,6 +206,14 @@ class DispensingService
             $dispensing->only(['status', 'completed_at']),
             $request,
         );
+
+        // Phase 8, Step 71: each actually-dispensed DispensingItem (partial
+        // dispensing = separate rows/events) is a performed service. Report
+        // them to NHIF post-commit; never throws, never blocks or reverses the
+        // dispensing or its stock deduction.
+        foreach ($dispensing->items as $item) {
+            $this->nhifUtilization->captureDispensingItem($item, $request);
+        }
 
         return $dispensing;
     }
