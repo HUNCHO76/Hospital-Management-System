@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\RadiologyAppointment;
 use App\Models\RadiologyOrder;
 use App\Models\RadiologyOrderItem;
+use App\Services\NHIF\NHIFClinicalUtilizationService;
 use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +33,7 @@ class RadiologyExaminationService
         protected AuditLogService $auditLog,
         protected FinancialAuthorizationService $financialAuth,
         protected NHIFPreauthorizationService $nhifPreauth,
+        protected NHIFClinicalUtilizationService $nhifUtilization,
     ) {}
 
     /**
@@ -183,6 +185,12 @@ class RadiologyExaminationService
             $appointment->only(['status', 'completed_at', 'completed_by']),
             $request,
         );
+
+        // Phase 8, Step 71: a COMPLETED examination is the performed service.
+        // Report it to NHIF post-commit; never throws, never blocks or reverses
+        // the completion. (Aborted/uncompleted examinations and report-only
+        // activity never reach this line.)
+        $this->nhifUtilization->captureRadiologyExamination($appointment, $request);
 
         return $appointment;
     }

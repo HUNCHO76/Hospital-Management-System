@@ -6,6 +6,7 @@ use App\Models\LaboratoryOrder;
 use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryResult;
 use App\Models\LaboratorySample;
+use App\Services\NHIF\NHIFClinicalUtilizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -22,7 +23,10 @@ use Illuminate\Validation\ValidationException;
  */
 class LaboratoryResultService
 {
-    public function __construct(protected AuditLogService $auditLog) {}
+    public function __construct(
+        protected AuditLogService $auditLog,
+        protected NHIFClinicalUtilizationService $nhifUtilization,
+    ) {}
 
     /**
      * Create the result record for a single test the moment its processing
@@ -389,6 +393,12 @@ class LaboratoryResultService
         );
 
         $this->recomputeOrderCompletion($result->item->laboratoryOrder, $request);
+
+        // Phase 8, Step 71: RELEASED is this module's completion event. Report
+        // the performed service to NHIF (post-commit; never throws, never
+        // blocks or reverses the release — a NHIF problem only affects the
+        // utilization record's own status).
+        $this->nhifUtilization->captureLaboratoryResult($result, $request);
 
         return $result;
     }

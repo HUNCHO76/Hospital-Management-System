@@ -73,7 +73,7 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
             .then((r) => r.json())
             .then((json: { price: number | null; currency?: string }) => {
                 if (!ctrl.signal.aborted) {
-                    setConsultationPrice({ price: json.price, currency: json.currency ?? 'KES' });
+                    setConsultationPrice({ price: json.price, currency: json.currency ?? 'TZS' });
                 }
             })
             .catch(() => {

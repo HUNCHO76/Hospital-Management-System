@@ -13,6 +13,7 @@ use App\Models\PrescriptionOrderItem;
 use App\Services\DispensingSearchService;
 use App\Services\DispensingService;
 use App\Services\FinancialAuthorizationService;
+use App\Services\NHIF\NHIFClinicalUtilizationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -150,6 +151,13 @@ class DispensingController extends Controller
             'canStart' => $request->user()->can('startDispensing', $prescriptionOrder),
             'canComplete' => $request->user()->can('completeDispensing', $prescriptionOrder),
             'canCancel' => $request->user()->can('cancelDispensing', $prescriptionOrder),
+            // Phase 8, Step 71: NHIF utilization status per dispensing event (empty unless the user may view it).
+            'nhifUtilizations' => app(NHIFClinicalUtilizationService::class)->summariesFor(
+                $request->user(),
+                PrescriptionOrderItem::class,
+                $prescriptionOrder->items->pluck('id')->all(),
+                $request,
+            ),
         ]);
     }
 

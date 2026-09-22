@@ -7,6 +7,7 @@ use App\Models\ChargeInsuranceAllocation;
 use App\Models\DispensingItem;
 use App\Models\InsuranceCoverageRule;
 use App\Models\Invoice;
+use App\Models\NhifPreauthorization;
 use App\Models\Patient;
 use App\Models\PatientInsurance;
 use App\Models\Service;
@@ -146,13 +147,42 @@ class InsuranceBillingService
         $service = $charge->relationLoaded('service') ? $charge->service : ($charge->service_id ? Service::find($charge->service_id) : null);
         $category = $this->resolveCategory($charge, $service);
 
-        // NHIF-aware eligible-amount adjustment (Step 68): when the insurance
-        // scheme belongs to an API-enabled (NHIF) provider, look up the service
-        // mapping. An excluded service is NOT_COVERED immediately; a service
-        // with an NHIF allowable amount caps the eligible amount at that value.
+        // NHIF-aware coverage (Step 68 + Step 70 integration):
+        // For API-enabled (NHIF) providers, check in priority order:
+        //   1. An approved NhifPreauthorization for this specific charge source —
+        //      NHIF's explicit per-patient authorization supersedes general rules.
+        //   2. General NHIF service mapping (exclusion check + allowable cap).
         $coverage->loadMissing('insuranceScheme.insuranceProvider');
 
         if ($coverage->insuranceScheme?->insuranceProvider?->api_enabled) {
+            $approvedPreauth = $this->resolveApprovedPreauth($charge, $coverage);
+
+            if ($approvedPreauth !== null) {
+                // NHIF approved a specific amount for this patient's service.
+                // Use it directly — it overrides both exclusion rules and generic
+                // coverage-rule percentages for this authorization.
+                $coveredAmount = round(min((float) $approvedPreauth->approved_amount, $eligibleAmount), 2);
+                $patientResponsibility = round($eligibleAmount - $coveredAmount, 2);
+                $rule = $this->coverageRules->resolveRule(
+                    $coverage->insuranceScheme,
+                    $service,
+                    $category,
+                    Carbon::parse($referenceDate),
+                );
+
+                return [
+                    'insurance_coverage_rule_id' => $rule?->id,
+                    'coverage_type_applied' => $rule?->coverage_type,
+                    'coverage_percentage_applied' => null,
+                    'copay_amount_applied' => null,
+                    'eligible_amount' => $eligibleAmount,
+                    'covered_amount' => $coveredAmount,
+                    'patient_responsibility' => $patientResponsibility,
+                    'status' => $this->statusFor($coveredAmount, $patientResponsibility),
+                    'rejection_reason' => null,
+                ];
+            }
+
             $nhifContext = $this->nhifMapping->resolveForService(
                 $service,
                 $charge->hospital_id,
@@ -354,5 +384,27 @@ class InsuranceBillingService
         }
 
         return ChargeInsuranceAllocation::STATUS_PARTIALLY_COVERED;
+    }
+
+    /**
+     * Find the most-recent approved NhifPreauthorization for this charge's
+     * clinical source and insurance record, if any exists.
+     * Returns null when the charge has no source, the provider is not NHIF,
+     * or no approved preauth was ever submitted for this source.
+     */
+    protected function resolveApprovedPreauth(Charge $charge, PatientInsurance $coverage): ?NhifPreauthorization
+    {
+        if (! $charge->source_type || ! $charge->source_id) {
+            return null;
+        }
+
+        return NhifPreauthorization::query()
+            ->where('source_type', $charge->source_type)
+            ->where('source_id', $charge->source_id)
+            ->where('patient_insurance_id', $coverage->id)
+            ->where('status', NhifPreauthorization::STATUS_APPROVED)
+            ->whereNotNull('approved_amount')
+            ->latest('resolved_at')
+            ->first();
     }
 }

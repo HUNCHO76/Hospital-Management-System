@@ -15,7 +15,9 @@ import {
     radiologyModalityLabel,
     radiologyOrderPriorityLabel,
 } from '@/lib/radiology-status';
+import { NhifUtilizationStatus } from '@/components/nhif/nhif-utilization-status';
 import { type BreadcrumbItem } from '@/types';
+import { type NhifUtilization } from '@/types/nhif';
 import { type RadiologyAppointment, type RadiologyTechnicalFieldsByModality } from '@/types/radiology';
 import { Head, Link } from '@inertiajs/react';
 import { CheckCircle2, CircleDot, XCircle } from 'lucide-react';
@@ -25,6 +27,7 @@ interface RadiologyExaminationShowProps {
     abortReasons: string[];
     technicalFields: RadiologyTechnicalFieldsByModality;
     canManageImages: boolean;
+    nhifUtilizations?: NhifUtilization[];
 }
 
 function formatDateTime(value: string | null): string {
@@ -39,7 +42,7 @@ function formatDateTime(value: string | null): string {
  * ability independently re-checked server-side (Part 21) — hiding a button
  * is a convenience, never the actual guard.
  */
-export default function RadiologyExaminationShow({ appointment, technicalFields, canManageImages }: RadiologyExaminationShowProps) {
+export default function RadiologyExaminationShow({ appointment, technicalFields, canManageImages, nhifUtilizations = [] }: RadiologyExaminationShowProps) {
     const { can } = usePermissions();
 
     const patientName = appointment.patient
@@ -80,6 +83,14 @@ export default function RadiologyExaminationShow({ appointment, technicalFields,
                         {canAbort && <RadiologyExaminationAbortDialog appointmentId={appointment.id} />}
                     </div>
                 </div>
+
+                {nhifUtilizations.length > 0 && (
+                    <div className="flex flex-col gap-2 rounded-md border p-3">
+                        {nhifUtilizations.map((u) => (
+                            <NhifUtilizationStatus key={u.id} utilization={u} linkable />
+                        ))}
+                    </div>
+                )}
 
                 <div className="grid gap-4 md:grid-cols-2">
                     <Card>

@@ -8,9 +8,12 @@ import {
     Activity,
     Building2,
     CalendarClock,
+    ClipboardCheck,
     ClipboardList,
+    FileText,
     FlaskConical,
     LayoutGrid,
+    LineChart,
     Network,
     Pill,
     Receipt,
@@ -47,6 +50,10 @@ export function AppSidebar() {
         ...(can('insurance-providers.view') ? [{ title: 'Insurance Providers', url: '/insurance/providers', icon: ShieldCheck }] : []),
         ...(can('insurance-schemes.view') ? [{ title: 'Insurance Schemes', url: '/insurance/schemes', icon: ShieldCheck }] : []),
         ...(can('patient-insurance.view') ? [{ title: 'Patient Insurance', url: '/insurance/patient-insurance', icon: ShieldCheck }] : []),
+        ...(can('nhif-dashboard.view') ? [{ title: 'NHIF Dashboard', url: '/nhif/dashboard', icon: LineChart }] : []),
+        ...(can('nhif-utilization.view') ? [{ title: 'NHIF Utilization', url: '/nhif/utilizations', icon: Activity }] : []),
+        ...(can('nhif-claims.view') ? [{ title: 'NHIF Claims', url: '/nhif/claims', icon: FileText }] : []),
+        ...(can('nhif-claims.view-reconciliation') ? [{ title: 'NHIF Reconciliation', url: '/nhif/reconciliation', icon: ClipboardCheck }] : []),
         ...(can('audit-logs.view') ? [{ title: 'Audit Logs', url: '/audit-logs', icon: ScrollText }] : []),
     ];
 

@@ -201,6 +201,30 @@ class PermissionSeeder extends Seeder
         // 'billing-cashier.close' and 'billing-payments.void': a corrective
         // action with distinct authorization from the primary create path.
         'nhif-preauthorization' => ['view', 'request', 'cancel'],
+        // Phase 8 Refactor: authorization-number lookup (authorizationNo → member info → patient link)
+        'nhif-authorization-context' => ['lookup'],
+        // Phase 8, Step 70: Admissions lifecycle
+        'admission' => ['view', 'create', 'confirm', 'discharge', 'transfer', 'nhif-submit'],
+        // Phase 8, Step 71: NHIF clinical service utilization. Records are made by
+        // clinical completion events, never by users, so there is no 'create'.
+        // 'submit' covers retry + attaching the visit's authorization number;
+        // 'reconcile' is separate — recording an out-of-band NHIF outcome is a
+        // corrective action with its own authorization (same reasoning as
+        // 'nhif-preauthorization.cancel').
+        'nhif-utilization' => ['view', 'submit', 'reconcile'],
+        // Phase 8, Steps 72-74: NHIF claim preparation, submission and reconciliation.
+        // 'finalize' freezes the claim (folio number + snapshot).
+        // 'submit', 'view-submission', 'retry-submission' added in Step 73.
+        // 'view-reconciliation'/'reconcile'/'refresh-status'/'resolve-discrepancy' added in
+        // Step 74; 'reconcile' only ever re-derives from a real NHIF response, it can never
+        // set APPROVED/PAID/ACCEPTED by hand (same reasoning as 'nhif-utilization.reconcile').
+        'nhif-claims' => [
+            'view', 'create', 'update', 'validate', 'finalize', 'cancel',
+            'submit', 'view-submission', 'retry-submission',
+            'view-reconciliation', 'reconcile', 'refresh-status', 'resolve-discrepancy',
+        ],
+        // Phase 8, Step 75: NHIF operational dashboard (read-only aggregate view).
+        'nhif-dashboard' => ['view'],
     ];
 
     /**

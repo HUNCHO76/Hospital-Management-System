@@ -9,7 +9,9 @@ use App\Http\Requests\RadiologyExamination\UpdateRadiologyExaminationRequest;
 use App\Http\Resources\RadiologyAppointmentResource;
 use App\Models\RadiologyAppointment;
 use App\Models\RadiologyOrder;
+use App\Models\RadiologyOrderItem;
 use App\Models\RadiologyProcedure;
+use App\Services\NHIF\NHIFClinicalUtilizationService;
 use App\Services\RadiologyExaminationService;
 use App\Services\RadiologySchedulingSearchService;
 use Illuminate\Http\RedirectResponse;
@@ -80,6 +82,13 @@ class RadiologyExaminationController extends Controller
             'abortReasons' => RadiologyAppointment::ABORT_REASONS,
             'technicalFields' => RadiologyAppointment::TECHNICAL_FIELDS_BY_MODALITY,
             'canManageImages' => $request->user()->can('manageImages', $radiologyAppointment),
+            // Phase 8, Step 71: NHIF utilization status (empty unless the user may view it).
+            'nhifUtilizations' => app(NHIFClinicalUtilizationService::class)->summariesFor(
+                $request->user(),
+                RadiologyOrderItem::class,
+                [$radiologyAppointment->radiology_order_item_id],
+                $request,
+            ),
         ]);
     }
 

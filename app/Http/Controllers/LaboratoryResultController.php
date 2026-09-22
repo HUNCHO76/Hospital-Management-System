@@ -12,11 +12,13 @@ use App\Http\Requests\LaboratoryResult\UpdateLaboratoryResultRequest;
 use App\Http\Requests\LaboratoryResult\VerifyLaboratoryResultRequest;
 use App\Http\Resources\LaboratoryResultResource;
 use App\Models\LaboratoryOrder;
+use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryReport;
 use App\Models\LaboratoryResult;
 use App\Models\LaboratoryTest;
 use App\Services\LaboratoryReportService;
 use App\Services\LaboratoryResultService;
+use App\Services\NHIF\NHIFClinicalUtilizationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -114,6 +116,13 @@ class LaboratoryResultController extends Controller
         return Inertia::render('laboratory/results/show', [
             'result' => (new LaboratoryResultResource($result))->resolve($request),
             'returnReasons' => LaboratoryResult::RETURN_REASONS,
+            // Phase 8, Step 71: NHIF utilization status (empty unless the user may view it).
+            'nhifUtilizations' => app(NHIFClinicalUtilizationService::class)->summariesFor(
+                $request->user(),
+                LaboratoryOrderItem::class,
+                [$result->laboratory_order_item_id],
+                $request,
+            ),
         ]);
     }
 
