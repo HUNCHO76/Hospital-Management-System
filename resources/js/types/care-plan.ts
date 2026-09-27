@@ -43,6 +43,10 @@ export interface CarePlanItem {
     referred_to_practitioner: { id: number; name: string | null } | null;
     prescription: Prescription | null;
     created_by: CarePlanUser | null;
+    activated_at: string | null;
+    activated_by: CarePlanUser | null;
+    completed_at: string | null;
+    completed_by: CarePlanUser | null;
     cancelled_at: string | null;
     cancellation_reason: string | null;
     corrected_at: string | null;

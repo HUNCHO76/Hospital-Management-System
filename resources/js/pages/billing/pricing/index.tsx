@@ -73,6 +73,7 @@ export default function BillingPricingIndex({ prices, filters }: BillingPricingI
                         <TableRow>
                             <TableHead>Service</TableHead>
                             <TableHead>Facility</TableHead>
+                            <TableHead>Practitioner</TableHead>
                             <TableHead className="text-right">Amount</TableHead>
                             <TableHead>Effective From</TableHead>
                             <TableHead>Effective To</TableHead>
@@ -92,6 +93,7 @@ export default function BillingPricingIndex({ prices, filters }: BillingPricingI
                                     )}
                                 </TableCell>
                                 <TableCell>{price.hospital?.name ?? '—'}</TableCell>
+                                <TableCell>{price.practitioner ? price.practitioner.name : 'Facility-wide'}</TableCell>
                                 <TableCell className="text-right">{formatMoney(price.amount, price.currency)}</TableCell>
                                 <TableCell>{price.effective_from}</TableCell>
                                 <TableCell>{price.effective_to ?? 'Ongoing'}</TableCell>
@@ -106,7 +108,7 @@ export default function BillingPricingIndex({ prices, filters }: BillingPricingI
 
                         {prices.data.length === 0 && (
                             <TableRow>
-                                <TableCell colSpan={6} className="p-0">
+                                <TableCell colSpan={7} className="p-0">
                                     <EmptyState
                                         icon={Receipt}
                                         title={hasFilters ? 'No prices match your search' : 'No prices configured yet'}

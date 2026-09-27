@@ -39,6 +39,7 @@ class ServicePrice extends Model
     protected $fillable = [
         'service_id',
         'hospital_id',
+        'practitioner_id',
         'amount',
         'currency',
         'effective_from',
@@ -100,6 +101,17 @@ class ServicePrice extends Model
     public function hospital(): BelongsTo
     {
         return $this->belongsTo(Hospital::class);
+    }
+
+    /**
+     * The specific practitioner this price applies to — null means
+     * facility-wide (see the create_service_prices_table migration's own
+     * docblock and ServicePriceResolver's precedence rule: a
+     * practitioner-specific price always wins over the facility-wide one).
+     */
+    public function practitioner(): BelongsTo
+    {
+        return $this->belongsTo(Practitioner::class);
     }
 
     /**

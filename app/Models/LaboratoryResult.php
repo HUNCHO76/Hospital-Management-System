@@ -6,6 +6,7 @@ use Database\Factories\LaboratoryResultFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * The result for a single requested test (Phase 4, Steps 33-35) — one row
@@ -134,6 +135,23 @@ class LaboratoryResult extends Model
     ];
 
     /**
+     * How the result value was provided (Phase 4 Machine Document Upload) —
+     * 'machine_document' is set automatically when a document is first
+     * uploaded; null is treated as manual entry.
+     */
+    public const RESULT_SOURCE_MANUAL = 'manual';
+
+    public const RESULT_SOURCE_MACHINE_DOCUMENT = 'machine_document';
+
+    /**
+     * @var list<string>
+     */
+    public const RESULT_SOURCES = [
+        self::RESULT_SOURCE_MANUAL,
+        self::RESULT_SOURCE_MACHINE_DOCUMENT,
+    ];
+
+    /**
      * Result-type metadata mirrored from LaboratoryTest::RESULT_TYPES
      * (Step 29) — snapshotted per result, not redeclared independently.
      */
@@ -174,6 +192,7 @@ class LaboratoryResult extends Model
         'laboratory_sample_id',
         'laboratory_test_id',
         'status',
+        'result_source',
         'result_type',
         'unit',
         'reference_range',
@@ -322,5 +341,32 @@ class LaboratoryResult extends Model
     public function releasedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'released_by');
+    }
+
+    /**
+     * Machine/analyzer documents uploaded to support this result (Phase 4).
+     */
+    public function resultDocuments(): HasMany
+    {
+        return $this->hasMany(LaboratoryResultDocument::class);
+    }
+
+    /**
+     * Per-parameter result values for multi-component tests (Phase 4 Batch B).
+     * Empty for legacy single-analyte results that store their value directly
+     * on this row.
+     */
+    public function resultValues(): HasMany
+    {
+        return $this->hasMany(LaboratoryResultValue::class);
+    }
+
+    /**
+     * True when this result stores its value in per-parameter rows rather
+     * than directly in value_numeric/value_text/value_code.
+     */
+    public function isParameterized(): bool
+    {
+        return $this->resultValues()->exists();
     }
 }

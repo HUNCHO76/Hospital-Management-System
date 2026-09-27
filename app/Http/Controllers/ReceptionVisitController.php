@@ -8,6 +8,7 @@ use App\Http\Requests\Reception\StoreWalkInRequest;
 use App\Models\Appointment;
 use App\Models\Charge;
 use App\Models\Department;
+use App\Models\NhifPreApprovalSessionItem;
 use App\Models\PatientAccount;
 use App\Models\Practitioner;
 use App\Models\ReceptionVisit;
@@ -72,7 +73,7 @@ class ReceptionVisitController extends Controller
             ->latest('created_at')
             ->paginate(15)
             ->through(function (ReceptionVisit $visit) use ($financialAuth) {
-                $financialStatus = $financialAuth->statusForSource(ReceptionVisit::class, $visit->id);
+                $financialStatus = $financialAuth->statusForSource(ReceptionVisit::class, $visit->id, FinancialAuthorizationService::STATUS_AUTHORIZED);
 
                 $patientAccountId = null;
                 if ($visit->department?->hospital_id && $visit->patient_id) {
@@ -114,7 +115,7 @@ class ReceptionVisitController extends Controller
             'practitioner.staff:id,first_name,last_name',
         ]);
 
-        $consultationFinancialStatus = $financialAuth->statusForSource(ReceptionVisit::class, $visit->id);
+        $consultationFinancialStatus = $financialAuth->statusForSource(ReceptionVisit::class, $visit->id, FinancialAuthorizationService::STATUS_AUTHORIZED);
 
         $consultationCharge = Charge::query()
             ->where('source_type', ReceptionVisit::class)
@@ -122,19 +123,27 @@ class ReceptionVisitController extends Controller
             ->whereNotIn('status', [Charge::STATUS_VOIDED, Charge::STATUS_CANCELLED])
             ->first(['id', 'charge_number', 'status', 'unit_price', 'quantity', 'net_amount', 'currency']);
 
-        $patientAccount = null;
-        if ($visit->department?->hospital_id && $visit->patient_id) {
-            $patientAccount = PatientAccount::query()
-                ->where('patient_id', $visit->patient_id)
-                ->where('hospital_id', $visit->department->hospital_id)
-                ->first(['id']);
-        }
+        $nhifSessionItem = NhifPreApprovalSessionItem::query()
+            ->where('source_type', ReceptionVisit::class)
+            ->where('source_id', $visit->id)
+            ->with('session:id,nhif_request_no,nhif_request_id,status')
+            ->latest()
+            ->first();
+
+        $nhifPreApprovalItem = $nhifSessionItem ? [
+            'approval_status' => $nhifSessionItem->approval_status,
+            'nhif_request_no' => $nhifSessionItem->session?->nhif_request_no,
+            'rejection_reason' => $nhifSessionItem->rejection_reason,
+            'nhif_percent_covered' => $nhifSessionItem->nhif_percent_covered !== null
+                ? (float) $nhifSessionItem->nhif_percent_covered
+                : null,
+        ] : null;
 
         return Inertia::render('reception/visits/show', [
             'visit' => $visit,
             'consultationFinancialStatus' => $consultationFinancialStatus,
             'consultationCharge' => $consultationCharge,
-            'patientAccountId' => $patientAccount?->id,
+            'nhifPreApprovalItem' => $nhifPreApprovalItem,
         ]);
     }
 
@@ -151,7 +160,7 @@ class ReceptionVisitController extends Controller
             'practitioners' => Practitioner::query()
                 ->where('status', Practitioner::STATUS_ACTIVE)
                 ->with('staff:id,first_name,last_name')
-                ->get(['id', 'practitioner_number', 'staff_id', 'consultation_service_id']),
+                ->get(['id', 'practitioner_number', 'staff_id', 'consultation_service_id', 'practitioner_type']),
         ]);
     }
 
@@ -164,7 +173,13 @@ class ReceptionVisitController extends Controller
 
         $visit = $service->createWalkIn($request->validated(), $request);
 
-        return to_route('reception.visits.show', $visit)->with('success', "Walk-in visit {$visit->visit_number} created.");
+        $redirect = to_route('reception.visits.show', $visit)->with('success', "Walk-in visit {$visit->visit_number} created.");
+
+        if ($visit->billing_warning ?? null) {
+            $redirect->with('warning', $visit->billing_warning);
+        }
+
+        return $redirect;
     }
 
     /**
@@ -178,7 +193,13 @@ class ReceptionVisitController extends Controller
 
         $visit = $service->checkInAppointment($appointment, $departmentId, $request);
 
-        return to_route('reception.visits.show', $visit)->with('success', "Patient checked in — visit {$visit->visit_number}.");
+        $redirect = to_route('reception.visits.show', $visit)->with('success', "Patient checked in — visit {$visit->visit_number}.");
+
+        if ($visit->billing_warning ?? null) {
+            $redirect->with('warning', $visit->billing_warning);
+        }
+
+        return $redirect;
     }
 
     /**
@@ -229,7 +250,7 @@ class ReceptionVisitController extends Controller
         $this->authorize('view', $visit);
 
         return response()->json([
-            'status' => $financialAuth->statusForSource(ReceptionVisit::class, $visit->id),
+            'status' => $financialAuth->statusForSource(ReceptionVisit::class, $visit->id, FinancialAuthorizationService::STATUS_AUTHORIZED),
         ]);
     }
 
@@ -255,9 +276,17 @@ class ReceptionVisitController extends Controller
         $serviceId = $practitioner?->consultation_service_id;
 
         if (! $serviceId) {
-            $code = ($practitioner && in_array($practitioner->practitioner_type, ['specialist', 'consultant', 'surgeon'], true))
-                ? 'CONSULT-SPECIALIST'
-                : 'CONSULT-GP';
+            $practitionerType = $practitioner?->practitioner_type;
+            $specialtyType = $request->query('specialty_type');
+
+            $code = match (true) {
+                $practitionerType === 'dentist' => 'CONSULT-DENTAL',
+                $practitionerType === 'ophthalmologist' => 'CONSULT-EYE',
+                in_array($practitionerType, ['specialist', 'consultant', 'surgeon'], true) => 'CONSULT-SPECIALIST',
+                $specialtyType === 'dental' => 'CONSULT-DENTAL',
+                $specialtyType === 'eye' => 'CONSULT-EYE',
+                default => 'CONSULT-GP',
+            };
 
             $serviceId = Service::query()->where('code', $code)->value('id')
                 ?? Service::query()->where('category', 'consultation')->value('id');

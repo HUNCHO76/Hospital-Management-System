@@ -38,6 +38,7 @@ class PrescriptionOrderItemResource extends JsonResource
             'quantity' => $this->quantity,
             'quantity_unit' => $this->quantity_unit,
             'instructions' => $this->instructions,
+            'safety_override_justification' => $this->safety_override_justification,
             'status' => $this->status,
             'cancelled_at' => optional($this->cancelled_at)->toIso8601String(),
             'cancelled_by' => $this->whenLoaded('cancelledBy', fn () => $this->cancelledBy ? [

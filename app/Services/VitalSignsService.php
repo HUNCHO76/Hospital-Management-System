@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Admission;
+use App\Models\ClinicalEncounter;
 use App\Models\TriageAssessment;
 use App\Models\VitalSign;
 use Illuminate\Http\Request;
@@ -38,6 +40,52 @@ class VitalSignsService
         ]);
 
         $this->auditLog->record('vital_sign_recorded', $vitalSign, null, $vitalSign->only(VitalSign::MEASUREMENTS), $request);
+
+        return $vitalSign;
+    }
+
+    /**
+     * Record a new vital-sign observation directly against an inpatient
+     * clinical encounter (no triage assessment). Mirrors record() exactly
+     * except the context is an active admission encounter rather than a
+     * triage assessment row.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @throws ValidationException
+     */
+    public function recordForAdmission(Admission $admission, ClinicalEncounter $encounter, array $data, Request $request): VitalSign
+    {
+        if (! $admission->isActive()) {
+            throw ValidationException::withMessages([
+                'admission_id' => 'Vital signs can only be recorded against an active admission.',
+            ]);
+        }
+
+        if ($encounter->admission_id !== $admission->id) {
+            throw ValidationException::withMessages([
+                'encounter_id' => 'The encounter does not belong to this admission.',
+            ]);
+        }
+
+        $data['bmi'] = $this->calculateBmi($data['weight_kg'] ?? null, $data['height_cm'] ?? null);
+
+        $vitalSign = VitalSign::create([
+            ...$data,
+            'clinical_encounter_id' => $encounter->id,
+            'triage_assessment_id' => null,
+            'admission_id' => $admission->id,
+            'recorded_by' => $request->user()->id,
+            'recorded_at' => now(),
+        ]);
+
+        $this->auditLog->record(
+            'inpatient_vital_recorded',
+            $vitalSign,
+            null,
+            array_merge($vitalSign->only(VitalSign::MEASUREMENTS), ['admission_id' => $admission->id]),
+            $request,
+        );
 
         return $vitalSign;
     }

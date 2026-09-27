@@ -44,7 +44,7 @@ class DiagnosisService
 
             return EncounterDiagnosis::create([
                 'clinical_encounter_id' => $encounter->id,
-                'consultation_id' => $consultation->id,
+                'consultation_id' => $consultation?->id,
                 'diagnosis_code_id' => $data['diagnosis_code_id'],
                 'diagnosis_type' => $data['diagnosis_type'],
                 'status' => EncounterDiagnosis::STATUS_PROVISIONAL,
@@ -260,10 +260,19 @@ class DiagnosisService
      * which may happen before or after the consultation note is marked
      * complete, but never before it has been started.
      *
+     * Inpatient encounters (Step 74) have no consultation context — the
+     * clinician opens the encounter directly against the admission during a
+     * ward round and is not required to complete a triage/consultation flow
+     * before recording a diagnosis.
+     *
      * @throws ValidationException
      */
-    protected function assertConsultationEligible(ClinicalEncounter $encounter): Consultation
+    protected function assertConsultationEligible(ClinicalEncounter $encounter): ?Consultation
     {
+        if ($encounter->encounter_type === 'inpatient') {
+            return null;
+        }
+
         $consultation = $encounter->consultation;
 
         if (! $consultation || ! in_array($consultation->status, [Consultation::STATUS_IN_PROGRESS, Consultation::STATUS_COMPLETED], true)) {

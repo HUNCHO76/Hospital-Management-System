@@ -23,9 +23,13 @@ class NhifMemberVerification extends Model
 
     public const STATUS_ERROR = 'error';
 
+    public const STATUS_LOOKUP_FOUND = 'lookup_found';
+
+    public const STATUS_VERIFICATION_FAILED = 'verification_failed';
+
     public const TYPE_NIN = 'nin';
 
-    public const TYPE_CARD_NUMBER = 'card_number';
+    public const TYPE_CARD_NUMBER = 'CardNo';
 
     /**
      * @var list<string>
@@ -41,6 +45,11 @@ class NhifMemberVerification extends Model
         'nhif_expiry_date',
         'nhif_membership_no',
         'nhif_plan_name',
+        'nhif_authorization_no',
+        'nhif_scheme_id',
+        'nhif_facility_code',
+        'verify_card_request',
+        'verify_card_response',
         'http_status',
         'error_message',
         'correlation_id',
@@ -55,6 +64,8 @@ class NhifMemberVerification extends Model
         return [
             'request_data' => 'array',
             'response_data' => 'array',
+            'verify_card_request' => 'array',
+            'verify_card_response' => 'array',
             'verified_at' => 'datetime',
         ];
     }

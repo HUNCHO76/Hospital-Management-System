@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Patient;
+use App\Models\PatientInsurance;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -91,6 +92,11 @@ class PatientService
      * Create a patient and their contacts in a single transaction, and
      * record the change in the audit log.
      *
+     * When $insuranceData is provided the insurance record is created in the
+     * same transaction so patient + insurance are always atomic. NHIF
+     * verification (an external API call) must be done by the caller AFTER
+     * this method returns — never inside a database transaction.
+     *
      * findConfirmedDuplicate() is only a check-then-insert — it cannot by
      * itself prevent two concurrent requests for the same national ID/
      * passport from both passing the check before either commits. The
@@ -101,20 +107,25 @@ class PatientService
      * raw database exception.
      *
      * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>|null  $insuranceData
      *
      * @throws ValidationException
      */
-    public function create(array $data, Request $request): Patient
+    public function create(array $data, Request $request, ?array $insuranceData = null): Patient
     {
         $contacts = $data['contacts'] ?? [];
         unset($data['contacts']);
 
         try {
-            $patient = DB::transaction(function () use ($data, $contacts) {
+            $patient = DB::transaction(function () use ($data, $contacts, $insuranceData) {
                 $patient = Patient::create($data);
 
                 foreach ($contacts as $contact) {
                     $patient->contacts()->create($contact);
+                }
+
+                if ($insuranceData !== null) {
+                    $patient->insurances()->create(array_merge($insuranceData, ['is_primary' => true]));
                 }
 
                 return $patient;
@@ -134,6 +145,12 @@ class PatientService
         }
 
         $this->auditLog->record('patient_created', $patient, null, $data, $request);
+
+        if ($insuranceData !== null) {
+            /** @var PatientInsurance $insurance */
+            $insurance = $patient->insurances()->latest('id')->first();
+            $this->auditLog->record('patient_insurance_created', $insurance, null, $insuranceData, $request);
+        }
 
         return $patient;
     }

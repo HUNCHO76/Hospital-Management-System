@@ -46,6 +46,7 @@ class UpdatePractitionerRequest extends FormRequest
                 'max:100',
                 Rule::unique('practitioners', 'nhif_practitioner_no')->ignore($practitioner->id),
             ],
+            'consultation_service_id' => ['nullable', 'integer', 'exists:services,id'],
         ];
     }
 }

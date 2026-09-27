@@ -36,6 +36,11 @@ class ServicePriceResource extends JsonResource
                 'id' => $this->hospital->id,
                 'name' => $this->hospital->name,
             ] : null),
+            'practitioner' => $this->whenLoaded('practitioner', fn () => $this->practitioner ? [
+                'id' => $this->practitioner->id,
+                'practitioner_number' => $this->practitioner->practitioner_number,
+                'name' => trim($this->practitioner->staff->first_name.' '.$this->practitioner->staff->last_name),
+            ] : null),
             'created_by' => $this->whenLoaded('createdBy', fn () => $this->createdBy ? [
                 'id' => $this->createdBy->id,
                 'name' => $this->createdBy->UserName,

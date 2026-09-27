@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { type Practitioner, type PractitionerFormData, type PractitionerStaff } from '@/types/practitioner';
+import { type ConsultationServiceOption, type Practitioner, type PractitionerFormData, type PractitionerStaff } from '@/types/practitioner';
 import { Link, useForm } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { type FormEventHandler } from 'react';
@@ -12,12 +12,13 @@ interface PractitionerFormProps {
     practitioner?: Practitioner;
     eligibleStaff?: PractitionerStaff[];
     practitionerTypes: string[];
+    services?: ConsultationServiceOption[];
 }
 
-export function PractitionerForm({ practitioner, eligibleStaff, practitionerTypes }: PractitionerFormProps) {
+export function PractitionerForm({ practitioner, eligibleStaff, practitionerTypes, services }: PractitionerFormProps) {
     const isEditing = Boolean(practitioner);
 
-    const { data, setData, post, put, processing, errors } = useForm<PractitionerFormData>({
+    const { data, setData, post, put, processing, errors, transform } = useForm<PractitionerFormData>({
         staff_id: practitioner ? String(practitioner.staff_id) : '',
         practitioner_type: practitioner?.practitioner_type ?? '',
         professional_registration_number: practitioner?.professional_registration_number ?? '',
@@ -26,7 +27,13 @@ export function PractitionerForm({ practitioner, eligibleStaff, practitionerType
         license_expiry_date: practitioner?.license_expiry_date ?? '',
         status: practitioner?.status ?? 'active',
         nhif_practitioner_no: practitioner?.nhif_practitioner_no ?? '',
+        consultation_service_id: practitioner?.consultation_service_id ? String(practitioner.consultation_service_id) : '',
     });
+
+    transform((data) => ({
+        ...data,
+        consultation_service_id: data.consultation_service_id === '' ? null : data.consultation_service_id,
+    }));
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -139,6 +146,27 @@ export function PractitionerForm({ practitioner, eligibleStaff, practitionerType
                         placeholder="Leave blank if not yet registered with NHIF"
                     />
                     <InputError message={errors.nhif_practitioner_no} />
+                </div>
+
+                <div className="grid gap-2 sm:col-span-2">
+                    <Label htmlFor="consultation_service_id">Consultation Service</Label>
+                    <Select
+                        value={data.consultation_service_id || 'none'}
+                        onValueChange={(value) => setData('consultation_service_id', value === 'none' ? '' : value)}
+                    >
+                        <SelectTrigger id="consultation_service_id">
+                            <SelectValue placeholder="Use facility default" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="none">Use facility default</SelectItem>
+                            {services?.map((service) => (
+                                <SelectItem key={service.id} value={String(service.id)}>
+                                    {service.code} — {service.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <InputError message={errors.consultation_service_id} />
                 </div>
             </div>
 

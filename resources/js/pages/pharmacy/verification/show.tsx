@@ -297,6 +297,11 @@ export default function PharmacyVerificationShow({
                                                             {prescriptionVerificationFlagLabel[flag]}
                                                         </span>
                                                     ))}
+                                                    {item.safety_override_justification && (
+                                                        <p className="text-muted-foreground mt-1 text-xs">
+                                                            <strong>Prescriber justification:</strong> {item.safety_override_justification}
+                                                        </p>
+                                                    )}
                                                 </div>
                                             )}
                                         </TableCell>

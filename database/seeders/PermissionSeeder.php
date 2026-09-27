@@ -58,6 +58,7 @@ class PermissionSeeder extends Seeder
         'laboratory-reports' => ['view', 'print', 'download'],
         'laboratory-tests' => ['view', 'create', 'update', 'activate', 'deactivate'],
         'laboratory-categories' => ['view', 'manage'],
+        'laboratory-test-parameters' => ['manage'],
         'radiology' => ['view'],
         'radiology-orders' => ['view', 'create', 'update', 'cancel'],
         'radiology-procedures' => ['view', 'create', 'update', 'activate', 'deactivate'],
@@ -203,8 +204,35 @@ class PermissionSeeder extends Seeder
         'nhif-preauthorization' => ['view', 'request', 'cancel'],
         // Phase 8 Refactor: authorization-number lookup (authorizationNo → member info → patient link)
         'nhif-authorization-context' => ['lookup'],
-        // Phase 8, Step 70: Admissions lifecycle
-        'admission' => ['view', 'create', 'confirm', 'discharge', 'transfer', 'nhif-submit'],
+        // Pre-approval session workflow (request services → sync approval → issue approved services).
+        // 'create' covers create + submit + sync + issue (all mutating workflow steps).
+        'nhif-preapproval' => ['view', 'create'],
+        // Phase 8, Step 70 schema; Phase 9, Step 71 workflow; Phase 9, Step 72
+        // review/approval workflow. 'review' covers startReview +
+        // returnForCorrection (both are reviewer-only actions). 'approve' and
+        // 'reject' are separate so a future policy split is trivial.
+        'admission' => ['view', 'create', 'review', 'approve', 'reject', 'confirm', 'discharge', 'cancel', 'transfer', 'nhif-submit'],
+        // Phase 9, Step 74: Inpatient clinical care actions.
+        // 'encounter.create' — open an inpatient ClinicalEncounter against an active admission.
+        // 'clinical-status.update' — update the patient's clinical status (stable/critical/etc.).
+        // Phase 9, Step 75: MAR — medication administration, hold, refusal, missed-dose, and correction.
+        // 'medications.view' — see the MAR worklist for an admission.
+        // 'medications.administer' — record a dose as administered.
+        // 'medications.hold' — hold a scheduled dose with a reason.
+        // 'medications.record-refusal' — document patient refusal.
+        // 'medications.record-missed' — document a missed dose (e.g. patient off ward).
+        // 'medications.correct' — amend an existing MAR record (immutable amendment chain).
+        'inpatient' => [
+            'encounter.create',
+            'clinical-status.update',
+            'medications.view',
+            'medications.administer',
+            'medications.hold',
+            'medications.record-refusal',
+            'medications.record-missed',
+            'medications.correct',
+        ],
+
         // Phase 8, Step 71: NHIF clinical service utilization. Records are made by
         // clinical completion events, never by users, so there is no 'create'.
         // 'submit' covers retry + attaching the visit's authorization number;
@@ -222,6 +250,8 @@ class PermissionSeeder extends Seeder
             'view', 'create', 'update', 'validate', 'finalize', 'cancel',
             'submit', 'view-submission', 'retry-submission',
             'view-reconciliation', 'reconcile', 'refresh-status', 'resolve-discrepancy',
+            // OCS: sign folio, retrieve receipt, monthly claim, bill confirmation
+            'sign', 'receipt', 'monthly-submit', 'bill-confirmation',
         ],
         // Phase 8, Step 75: NHIF operational dashboard (read-only aggregate view).
         'nhif-dashboard' => ['view'],

@@ -29,11 +29,19 @@ class UpdateLaboratoryResultRequest extends FormRequest
     public function rules(): array
     {
         return [
+            // Single-value path (legacy single-analyte tests)
             'value_numeric' => ['nullable', 'numeric'],
             'value_text' => ['nullable', 'string', 'max:4000'],
             'value_code' => ['nullable', 'string', 'max:255'],
             'abnormal_flag' => ['nullable', 'string', Rule::in(LaboratoryResult::ABNORMAL_FLAGS)],
             'result_comment' => ['nullable', 'string', 'max:1000'],
+            // Multi-parameter path (parameterized tests)
+            'parameter_values' => ['nullable', 'array'],
+            'parameter_values.*.parameter_id' => ['required_with:parameter_values', 'integer', 'min:1'],
+            'parameter_values.*.value_numeric' => ['nullable', 'numeric'],
+            'parameter_values.*.value_text' => ['nullable', 'string', 'max:4000'],
+            'parameter_values.*.value_code' => ['nullable', 'string', 'max:255'],
+            'parameter_values.*.result_comment' => ['nullable', 'string', 'max:1000'],
         ];
     }
 }

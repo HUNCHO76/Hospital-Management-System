@@ -113,10 +113,15 @@ class PrescriptionVerificationService
             // Step 69: NHIF preauthorization gate
             $this->nhifPreauth->assertPreauthorizedForSources(PrescriptionOrderItem::class, $activeItemIds);
 
-            // A missing medication price means no charge was captured and is
-            // a billing configuration gap, not a reason to block verification.
-            // Captured charges are still required to be fully authorized.
-            $this->financialAuth->assertAuthorizedForSources(PrescriptionOrderItem::class, $activeItemIds);
+            // No-charge rule: when a medication has no configured price the
+            // charge capture is skipped (audited). That billing gap is never a
+            // reason to block clinical verification; only items that DO have a
+            // charge require it to be fully authorized before proceeding.
+            $this->financialAuth->assertAuthorizedForSources(
+                PrescriptionOrderItem::class,
+                $activeItemIds,
+                FinancialAuthorizationService::STATUS_AUTHORIZED,
+            );
 
             $verification->update([
                 'status' => PrescriptionVerification::STATUS_VERIFIED,

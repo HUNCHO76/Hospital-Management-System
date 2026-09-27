@@ -21,6 +21,7 @@ import {
 import { type Consultation } from '@/types/consultation';
 import { type MedicationSearchResult } from '@/types/medication';
 import {
+    type MedicationSafetyWarning,
     type PrescriptionDurationUnit,
     type PrescriptionFrequency,
     type PrescriptionOrder,
@@ -28,13 +29,14 @@ import {
     type PrescriptionRoute,
 } from '@/types/prescription';
 import { Link, router, useForm } from '@inertiajs/react';
-import { ClipboardPlus, LoaderCircle, Plus, RotateCcw, XCircle } from 'lucide-react';
+import { AlertTriangle, ClipboardPlus, LoaderCircle, Plus, RotateCcw, XCircle } from 'lucide-react';
 import { type FormEventHandler, useState } from 'react';
 
 interface PrescriptionOrdersSectionProps {
     encounterId: number;
     consultation: Consultation | null;
     prescriptionOrders: PrescriptionOrder[];
+    medicationSafetyRules: Record<number, MedicationSafetyWarning[]>;
 }
 
 const FREQUENCIES = Object.keys(prescriptionFrequencyLabel) as PrescriptionFrequency[];
@@ -75,7 +77,7 @@ function itemSummary(item: {
  * has no diagnosis requirement, since an urgent prescription must not be
  * blocked on a final diagnosis not yet being entered.
  */
-export function PrescriptionOrdersSection({ encounterId, consultation, prescriptionOrders }: PrescriptionOrdersSectionProps) {
+export function PrescriptionOrdersSection({ encounterId, consultation, prescriptionOrders, medicationSafetyRules }: PrescriptionOrdersSectionProps) {
     const { can } = usePermissions();
     const consultationEngaged = consultation?.status === 'in_progress' || consultation?.status === 'completed';
 
@@ -108,7 +110,9 @@ export function PrescriptionOrdersSection({ encounterId, consultation, prescript
                     <p className="text-muted-foreground text-sm">No prescriptions have been written for this encounter yet.</p>
                 )}
 
-                {can('prescription-orders.create') && <AddPrescriptionOrderForm encounterId={encounterId} />}
+                {can('prescription-orders.create') && (
+                    <AddPrescriptionOrderForm encounterId={encounterId} medicationSafetyRules={medicationSafetyRules} />
+                )}
             </CardContent>
         </Card>
     );
@@ -211,12 +215,19 @@ interface DraftItem {
     instructions: string;
 }
 
-function AddPrescriptionOrderForm({ encounterId }: { encounterId: number }) {
+function AddPrescriptionOrderForm({
+    encounterId,
+    medicationSafetyRules,
+}: {
+    encounterId: number;
+    medicationSafetyRules: Record<number, MedicationSafetyWarning[]>;
+}) {
     const { data, setData, post, processing, errors, reset } = useForm<PrescriptionOrderFormData>({
         items: [],
         clinical_notes: '',
     });
     const [addedItems, setAddedItems] = useState<DraftItem[]>([]);
+    const [itemJustifications, setItemJustifications] = useState<Record<number, string>>({});
 
     const [medication, setMedication] = useState<MedicationSearchResult | null>(null);
     const [dose, setDose] = useState('');
@@ -247,6 +258,14 @@ function AddPrescriptionOrderForm({ encounterId }: { encounterId: number }) {
     };
 
     const canAddItem = medication && dose.trim() !== '' && frequency !== '' && administrationRoute !== '' && quantity.trim() !== '';
+
+    const updateJustification = (index: number, value: string) => {
+        setItemJustifications((prev) => ({ ...prev, [index]: value }));
+        setData(
+            'items',
+            data.items.map((item, i) => (i === index ? { ...item, safety_override_justification: value } : item)),
+        );
+    };
 
     const addItem = () => {
         if (!medication || frequency === '' || administrationRoute === '') {
@@ -280,6 +299,7 @@ function AddPrescriptionOrderForm({ encounterId }: { encounterId: number }) {
                 quantity,
                 quantity_unit: quantityUnit,
                 instructions,
+                safety_override_justification: '',
             },
         ]);
         resetDraft();
@@ -291,6 +311,11 @@ function AddPrescriptionOrderForm({ encounterId }: { encounterId: number }) {
             'items',
             data.items.filter((_, i) => i !== index),
         );
+        setItemJustifications((prev) => {
+            const next = { ...prev };
+            delete next[index];
+            return next;
+        });
     };
 
     const submit: FormEventHandler = (e) => {
@@ -310,27 +335,59 @@ function AddPrescriptionOrderForm({ encounterId }: { encounterId: number }) {
             <h3 className="text-sm font-medium">New Prescription</h3>
 
             {addedItems.length > 0 && (
-                <ul className="space-y-1">
-                    {addedItems.map((item, index) => (
-                        <li key={index} className="bg-muted/50 flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm">
-                            <span>
-                                {itemSummary({
-                                    medication_name_snapshot: item.medication.generic_name,
-                                    strength_snapshot: item.medication.strength,
-                                    dose: item.dose,
-                                    dose_unit: item.dose_unit || null,
-                                    route: item.route,
-                                    frequency: item.frequency,
-                                    duration: item.duration ? Number(item.duration) : null,
-                                    duration_unit: item.duration_unit || null,
-                                })}
-                            </span>
-                            <Button type="button" size="sm" variant="ghost" onClick={() => removeItem(index)}>
-                                <XCircle className="h-4 w-4" />
-                                Remove
-                            </Button>
-                        </li>
-                    ))}
+                <ul className="space-y-2">
+                    {addedItems.map((item, index) => {
+                        const warnings = medicationSafetyRules[item.medication.id] ?? [];
+                        const justificationError = (errors as Record<string, string>)[`items.${index}.safety_override_justification`];
+                        return (
+                            <li key={index} className="bg-muted/50 space-y-2 rounded-md px-3 py-2 text-sm">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span>
+                                        {itemSummary({
+                                            medication_name_snapshot: item.medication.generic_name,
+                                            strength_snapshot: item.medication.strength,
+                                            dose: item.dose,
+                                            dose_unit: item.dose_unit || null,
+                                            route: item.route,
+                                            frequency: item.frequency,
+                                            duration: item.duration ? Number(item.duration) : null,
+                                            duration_unit: item.duration_unit || null,
+                                        })}
+                                    </span>
+                                    <Button type="button" size="sm" variant="ghost" onClick={() => removeItem(index)}>
+                                        <XCircle className="h-4 w-4" />
+                                        Remove
+                                    </Button>
+                                </div>
+
+                                {warnings.length > 0 && (
+                                    <div className="space-y-1.5">
+                                        {warnings.map((w, wi) => (
+                                            <div key={wi} className="text-destructive flex items-start gap-1.5 text-xs">
+                                                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                                                <span>
+                                                    <strong className="capitalize">{w.rule_type}</strong> ({w.diagnosis_code}): {w.description}
+                                                </span>
+                                            </div>
+                                        ))}
+                                        <div className="grid gap-1">
+                                            <label className="text-xs font-medium">
+                                                Clinical justification for prescribing <span className="text-destructive">*</span>
+                                            </label>
+                                            <textarea
+                                                className="border-input bg-background focus-visible:ring-ring min-h-[60px] w-full rounded-md border px-3 py-1.5 text-xs shadow-sm focus-visible:ring-1 focus-visible:outline-none"
+                                                rows={2}
+                                                placeholder="Explain the clinical rationale for prescribing despite this warning…"
+                                                value={itemJustifications[index] ?? ''}
+                                                onChange={(e) => updateJustification(index, e.target.value)}
+                                            />
+                                            {justificationError && <InputError message={justificationError} />}
+                                        </div>
+                                    </div>
+                                )}
+                            </li>
+                        );
+                    })}
                 </ul>
             )}
             <InputError message={errors.items} />

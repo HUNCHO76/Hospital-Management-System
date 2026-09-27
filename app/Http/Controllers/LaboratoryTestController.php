@@ -98,7 +98,14 @@ class LaboratoryTestController extends Controller
      */
     public function show(LaboratoryTest $laboratoryTest): Response
     {
-        $laboratoryTest->load(['category:id,name,code', 'department:id,name,code', 'createdBy:id,UserName', 'updatedBy:id,UserName']);
+        $laboratoryTest->load([
+            'category:id,name,code',
+            'department:id,name,code',
+            'createdBy:id,UserName',
+            'updatedBy:id,UserName',
+            'parameters' => fn ($q) => $q->orderBy('display_order'),
+            'parameters.referenceRanges',
+        ]);
 
         return Inertia::render('laboratory/tests/show', [
             'test' => $laboratoryTest,

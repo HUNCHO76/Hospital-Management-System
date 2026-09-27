@@ -1,3 +1,4 @@
+import { Pagination } from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,14 +13,14 @@ import {
     serviceStatusLabel,
     serviceStatusVariant,
 } from '@/lib/service-status';
-import { type BreadcrumbItem } from '@/types';
+import { type BreadcrumbItem, type Paginated } from '@/types';
 import { type Service, type ServicePrice } from '@/types/service';
 import { Head, Link, router } from '@inertiajs/react';
 import { Pencil, Plus } from 'lucide-react';
 
 interface BillingServiceShowProps {
     service: Service;
-    prices: ServicePrice[];
+    prices: Paginated<ServicePrice>;
     canCreatePrice: boolean;
 }
 
@@ -96,6 +97,7 @@ export default function BillingServiceShow({ service, prices, canCreatePrice }: 
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Facility</TableHead>
+                                    <TableHead>Practitioner</TableHead>
                                     <TableHead className="text-right">Amount</TableHead>
                                     <TableHead>Effective From</TableHead>
                                     <TableHead>Effective To</TableHead>
@@ -103,9 +105,10 @@ export default function BillingServiceShow({ service, prices, canCreatePrice }: 
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {prices.map((price) => (
+                                {prices.data.map((price) => (
                                     <TableRow key={price.id}>
                                         <TableCell>{price.hospital?.name ?? '—'}</TableCell>
+                                        <TableCell>{price.practitioner ? price.practitioner.name : 'Facility-wide'}</TableCell>
                                         <TableCell className="text-right">{formatMoney(price.amount, price.currency)}</TableCell>
                                         <TableCell>{price.effective_from}</TableCell>
                                         <TableCell>{price.effective_to ?? 'Ongoing'}</TableCell>
@@ -120,15 +123,17 @@ export default function BillingServiceShow({ service, prices, canCreatePrice }: 
                                     </TableRow>
                                 ))}
 
-                                {prices.length === 0 && (
+                                {prices.data.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-muted-foreground py-6 text-center text-sm">
+                                        <TableCell colSpan={6} className="text-muted-foreground py-6 text-center text-sm">
                                             No price has been configured for this service yet.
                                         </TableCell>
                                     </TableRow>
                                 )}
                             </TableBody>
                         </Table>
+
+                        <Pagination links={prices.links} />
                     </CardContent>
                 </Card>
             </div>

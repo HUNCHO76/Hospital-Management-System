@@ -54,6 +54,20 @@ export interface NhifPriceSyncLog {
     completed_at: string | null;
 }
 
+export interface NhifUtilization {
+    id: number;
+    utilization_number: string;
+    module: string;
+    status: 'pending' | 'submitted' | 'accepted' | 'rejected' | 'reconciled' | 'failed' | 'excluded';
+    nhif_item_code: string;
+    nhif_item_name: string;
+    quantity: number;
+    hms_amount: number | null;
+    nhif_approved_amount: number | null;
+    service_date: string | null;
+    error_message: string | null;
+}
+
 export interface NhifDashboardStats {
     pending_verifications: number;
     pending_eligibility_checks: number;

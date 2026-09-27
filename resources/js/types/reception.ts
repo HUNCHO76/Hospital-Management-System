@@ -44,6 +44,7 @@ export interface ReceptionPractitioner {
     practitioner_number: string;
     staff_id: number;
     consultation_service_id: number | null;
+    practitioner_type: string | null;
     staff?: { first_name: string; last_name: string };
 }
 
@@ -55,6 +56,22 @@ export interface ConsultationCharge {
     quantity: number;
     net_amount: number;
     currency: string;
+}
+
+export type NhifApprovalStatus =
+    | 'pending'
+    | 'accepted'
+    | 'pending_approval'
+    | 'approved'
+    | 'rejected'
+    | 'issued'
+    | 'unknown';
+
+export interface NhifPreApprovalItem {
+    approval_status: NhifApprovalStatus;
+    nhif_request_no: string | null;
+    rejection_reason: string | null;
+    nhif_percent_covered: number | null;
 }
 
 export interface ReceptionVisit {
@@ -95,6 +112,8 @@ export interface TodaysAppointmentRow {
     practitioner: { first_name: string; last_name: string } | null;
     reception_visit: { id: number; visit_number: string; status: ReceptionVisitStatus } | null;
     insurance_indicator: InsuranceIndicator;
+    financial_status: ConsultationFinancialStatus | null;
+    patient_account_id: number | null;
 }
 
 export interface ReceptionDashboardSummary {

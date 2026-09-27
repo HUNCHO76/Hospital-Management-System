@@ -32,6 +32,7 @@ class NhifPreauthorization extends Model
         'patient_insurance_id',
         'source_type',
         'source_id',
+        'authorization_no',
         'status',
         'approved_amount',
         'rejection_reason',

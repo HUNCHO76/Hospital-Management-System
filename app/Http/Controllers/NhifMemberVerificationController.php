@@ -2,11 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\InsuranceProvider;
 use App\Models\NhifMemberVerification;
+use App\Models\NhifSchemeService;
 use App\Models\Patient;
 use App\Models\PatientInsurance;
+use App\Services\AuditLogService;
 use App\Services\NHIF\NhifEligibilityService;
 use App\Services\NHIF\NhifMemberVerificationService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -25,6 +29,176 @@ use Illuminate\Validation\Rule;
  */
 class NhifMemberVerificationController extends Controller
 {
+    public function __construct(protected AuditLogService $auditLog) {}
+
+    /**
+     * Look up an NHIF member by card number or NIN BEFORE a patient exists,
+     * for the NHIF-first registration auto-fill flow (Phase 8). Internal HMS
+     * endpoint — React never calls the NHIF API directly; this delegates to
+     * the same NhifMemberVerificationService/NhifHttpClient the
+     * post-registration nhif-verify action already uses.
+     *
+     * Authorized via the 'create' ability on Patient (the same permission
+     * that already gates the registration page/form) rather than a new
+     * bespoke permission, since this is only a pre-fill step within
+     * registration itself.
+     *
+     * Route: POST patients/nhif-lookup
+     */
+    public function lookup(Request $request, NhifMemberVerificationService $verifier): JsonResponse
+    {
+        $this->authorize('create', Patient::class);
+
+        $validated = $request->validate([
+            'identifier_type' => ['required', Rule::in([NhifMemberVerification::TYPE_NIN, NhifMemberVerification::TYPE_CARD_NUMBER])],
+            'identifier_value' => ['required', 'string', 'max:50'],
+        ]);
+
+        $result = $verifier->lookup($validated['identifier_type'], $validated['identifier_value'], $request);
+
+        if (! $result['success']) {
+            return response()->json([
+                'success' => false,
+                'status' => $result['status'],
+                'message' => $result['error'],
+                'member' => null,
+                'existing_patient' => null,
+            ]);
+        }
+
+        $member = $result['data'];
+        $existingPatient = $this->findExistingPatient($validated['identifier_type'], $validated['identifier_value'], $member);
+
+        if ($existingPatient) {
+            $this->auditLog->record('nhif_duplicate_member_detected', null, null, [
+                'identifier_type' => $validated['identifier_type'],
+                'existing_patient_id' => $existingPatient->id,
+            ], $request);
+
+            return response()->json([
+                'success' => true,
+                'status' => 'duplicate_patient',
+                'message' => 'This NHIF member is already registered.',
+                'member' => $member,
+                'existing_patient' => $existingPatient->only(['id', 'patient_number', 'first_name', 'middle_name', 'last_name']),
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'status' => 'found',
+            'message' => null,
+            'member' => $member,
+            'existing_patient' => null,
+        ]);
+    }
+
+    /**
+     * Find an existing HMS patient already linked to this NHIF member — by
+     * membership/card number under the NHIF provider, or by NIN on the
+     * patient record itself — so registration never creates a duplicate for
+     * a member who is already in the system (spec §11/§12).
+     *
+     * @param  array<string, mixed>  $member
+     */
+    protected function findExistingPatient(string $identifierType, string $identifierValue, array $member): ?Patient
+    {
+        $nhifProvider = InsuranceProvider::query()->where('api_enabled', true)->orderBy('id')->first(['id']);
+
+        if ($nhifProvider) {
+            $membershipNumber = $member['membership_number'] ?? null;
+            $cardNumber = $member['card_number'] ?? null;
+
+            if ($membershipNumber || $cardNumber) {
+                $insurance = PatientInsurance::query()
+                    ->where('insurance_provider_id', $nhifProvider->id)
+                    ->where(function ($query) use ($membershipNumber, $cardNumber) {
+                        if ($membershipNumber) {
+                            $query->orWhere('membership_number', $membershipNumber);
+                        }
+                        if ($cardNumber) {
+                            $query->orWhere('card_number', $cardNumber);
+                        }
+                    })
+                    ->with('patient')
+                    ->first();
+
+                if ($insurance?->patient) {
+                    return $insurance->patient;
+                }
+            }
+        }
+
+        if ($identifierType === NhifMemberVerification::TYPE_NIN) {
+            return Patient::where('national_id', $identifierValue)->first();
+        }
+
+        return null;
+    }
+
+    /**
+     * Return the list of card verifiers for the given card number from NHIF.
+     * Used by the NHIF-first registration form to populate the verifier selector.
+     *
+     * Route: POST patients/nhif-verifiers
+     */
+    public function getVerifiers(Request $request, NhifMemberVerificationService $verifier): JsonResponse
+    {
+        $this->authorize('create', Patient::class);
+
+        $validated = $request->validate([
+            'card_no' => ['required', 'string', 'max:50'],
+        ]);
+
+        $result = $verifier->fetchVerifiers($validated['card_no'], $request);
+
+        return response()->json([
+            'success' => $result['success'],
+            'data' => $result['data'],
+            'error' => $result['error'],
+        ]);
+    }
+
+    /**
+     * Return the list of visit types from NHIF.
+     * Used by the NHIF-first registration form to populate the visit type selector.
+     *
+     * Route: GET patients/nhif-visit-types
+     */
+    public function getVisitTypes(Request $request, NhifMemberVerificationService $verifier): JsonResponse
+    {
+        $this->authorize('create', Patient::class);
+
+        $result = $verifier->fetchVisitTypes($request);
+
+        return response()->json([
+            'success' => $result['success'],
+            'data' => $result['data'],
+            'error' => $result['error'],
+        ]);
+    }
+
+    /**
+     * Return the active NHIF-covered services for a scheme.
+     * Used by the registration form to display what is covered for the patient.
+     *
+     * Route: GET patients/nhif-scheme-services?scheme_id=1001
+     */
+    public function getSchemeServices(Request $request): JsonResponse
+    {
+        $this->authorize('create', Patient::class);
+
+        $validated = $request->validate(['scheme_id' => ['required', 'integer', 'min:1']]);
+
+        $services = NhifSchemeService::active()
+            ->where('scheme_id', $validated['scheme_id'])
+            ->orderBy('type_name')
+            ->orderBy('item_name')
+            ->get(['item_code', 'item_name', 'item_type_id', 'type_name', 'unit_price']);
+
+        return response()->json(['success' => true, 'data' => $services]);
+    }
+
     /**
      * Trigger an NHIF member/card verification for the given PatientInsurance
      * record, immediately followed by an eligibility check when verification
@@ -46,6 +220,12 @@ class NhifMemberVerificationController extends Controller
         $validated = $request->validate([
             'identifier_type' => ['required', Rule::in([NhifMemberVerification::TYPE_NIN, NhifMemberVerification::TYPE_CARD_NUMBER])],
             'identifier_value' => ['required', 'string', 'max:50'],
+            'visit_type_id' => ['nullable', 'integer'],
+            'verifier_id' => ['nullable', 'string', 'max:50'],
+            'card_type_id' => ['nullable', 'string', 'max:50'],
+            'remarks' => ['nullable', 'string', 'max:500'],
+            'referral_no' => ['nullable', 'string', 'max:100'],
+            'biometric_method' => ['nullable', 'string', Rule::in(['NONE'])],
         ]);
 
         $record = $verifier->verify(
@@ -53,12 +233,15 @@ class NhifMemberVerificationController extends Controller
             $validated['identifier_type'],
             $validated['identifier_value'],
             $request,
+            (int) ($validated['visit_type_id'] ?? 1),
+            $validated['verifier_id'] ?? null,
+            $validated['card_type_id'] ?? null,
+            $validated['remarks'] ?? null,
+            $validated['referral_no'] ?? null,
+            $validated['biometric_method'] ?? 'NONE',
         );
 
-        // Run eligibility immediately after a successful verification so that
-        // coverage information is available for the current visit.
         if ($record->isSuccessful()) {
-            // Refresh to pick up card_number written by NhifMemberVerificationService.
             $patientInsurance->refresh();
             $eligibility->check($patientInsurance, $request);
         }
@@ -68,6 +251,8 @@ class NhifMemberVerificationController extends Controller
             NhifMemberVerification::STATUS_NOT_FOUND => 'NHIF member not found. Check the membership number.',
             NhifMemberVerification::STATUS_INVALID => 'NHIF identity mismatch: the name or NIN returned by NHIF does not match this patient.',
             NhifMemberVerification::STATUS_INACTIVE => 'NHIF membership is inactive, expired, or suspended.',
+            NhifMemberVerification::STATUS_LOOKUP_FOUND => 'NHIF card details found but VerifyCard step is required.',
+            NhifMemberVerification::STATUS_VERIFICATION_FAILED => 'NHIF card verification (VerifyCard) failed. Please check the verifier and visit type.',
             default => 'NHIF verification failed. Please try again or contact NHIF.',
         };
 

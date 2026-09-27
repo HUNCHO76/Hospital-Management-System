@@ -3,11 +3,10 @@
 namespace App\Services\NHIF;
 
 use App\Models\Hospital;
-use App\Models\NhifExcludedService;
 use App\Models\NhifPackage;
 use App\Models\NhifPriceSyncLog;
+use App\Models\NhifSchemeService;
 use App\Models\NhifService;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Synchronizes the NHIF service catalog and price lists to local tables (Phase 8, Step 68).
@@ -55,6 +54,7 @@ class NhifCatalogSyncService
 
             if (! $code) {
                 $counts['skipped']++;
+
                 continue;
             }
 
@@ -128,6 +128,7 @@ class NhifCatalogSyncService
 
             if (! $code) {
                 $counts['skipped']++;
+
                 continue;
             }
 
@@ -167,5 +168,109 @@ class NhifCatalogSyncService
         ]);
 
         return $log;
+    }
+
+    /**
+     * Sync NHIF-covered items for a specific scheme via GetAllowedItems.
+     * Uses serviceTypeId=0 and empty productCode to fetch all items.
+     */
+    public function syncSchemeServices(int $schemeId): NhifPriceSyncLog
+    {
+        $log = NhifPriceSyncLog::create([
+            'sync_type' => 'scheme_services',
+            'status' => 'started',
+            'started_at' => now(),
+            'performed_by' => auth()->id() ?? 1,
+        ]);
+
+        $result = $this->client->getAllowedItems(0, $schemeId, '');
+
+        if (! $result['success']) {
+            $log->update([
+                'status' => 'failed',
+                'error_message' => $result['error'],
+                'completed_at' => now(),
+            ]);
+
+            return $log;
+        }
+
+        $items = $result['data']['Items'] ?? $result['data']['items'] ?? $result['data'] ?? [];
+        if (! is_array($items)) {
+            $items = [];
+        }
+
+        $schemeName = $result['data']['SchemeName'] ?? $result['data']['schemeName'] ?? null;
+        $counts = ['total' => count($items), 'new' => 0, 'updated' => 0, 'skipped' => 0];
+        $now = now();
+
+        foreach ($items as $item) {
+            $code = $item['ItemCode'] ?? $item['itemCode'] ?? $item['NhifItemCode'] ?? null;
+
+            if (! $code) {
+                $counts['skipped']++;
+
+                continue;
+            }
+
+            $exists = NhifSchemeService::where('scheme_id', $schemeId)->where('item_code', $code)->exists();
+
+            NhifSchemeService::updateOrCreate(
+                ['scheme_id' => $schemeId, 'item_code' => $code],
+                [
+                    'scheme_name' => $schemeName,
+                    'item_name' => $item['ItemName'] ?? $item['itemName'] ?? 'Unknown',
+                    'item_type_id' => $item['ItemTypeId'] ?? $item['itemTypeId'] ?? null,
+                    'type_name' => $item['ItemTypeName'] ?? $item['itemTypeName'] ?? null,
+                    'unit_price' => $item['UnitPrice'] ?? $item['unitPrice'] ?? null,
+                    'dosage' => $item['Dosage'] ?? $item['dosage'] ?? null,
+                    'strength' => $item['Strength'] ?? $item['strength'] ?? null,
+                    'start_date' => $item['StartDate'] ?? $item['startDate'] ?? null,
+                    'end_date' => $item['EndDate'] ?? $item['endDate'] ?? null,
+                    'is_active' => true,
+                    'synced_at' => $now,
+                    'raw_data' => $item,
+                ],
+            );
+
+            if ($exists) {
+                $counts['updated']++;
+            } else {
+                $counts['new']++;
+            }
+        }
+
+        $log->update([
+            'status' => 'completed',
+            'total_records' => $counts['total'],
+            'new_records' => $counts['new'],
+            'updated_records' => $counts['updated'],
+            'skipped_records' => $counts['skipped'],
+            'completed_at' => now(),
+        ]);
+
+        return $log;
+    }
+
+    /**
+     * Sync scheme services for all known NHIF schemes (from nhif_packages).
+     *
+     * @return array<int, NhifPriceSyncLog>
+     */
+    public function syncAllSchemeServices(): array
+    {
+        $schemeIds = NhifPackage::whereNotNull('scheme_id')
+            ->distinct()
+            ->pluck('scheme_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $logs = [];
+        foreach ($schemeIds as $schemeId) {
+            $logs[$schemeId] = $this->syncSchemeServices($schemeId);
+        }
+
+        return $logs;
     }
 }

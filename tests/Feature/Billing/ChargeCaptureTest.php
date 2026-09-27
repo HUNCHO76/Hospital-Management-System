@@ -9,12 +9,15 @@ use App\Models\LaboratoryTest;
 use App\Models\Patient;
 use App\Models\PrescriptionOrderItem;
 use App\Models\RadiologyOrderItem;
+use App\Models\ReceptionVisit;
 use App\Services\ChargeCaptureService;
 use App\Services\DispensingService;
+use App\Services\FinancialAuthorizationService;
 use App\Services\LaboratoryOrderService;
 use App\Services\PrescriptionOrderService;
 use App\Services\PrescriptionVerificationService;
 use App\Services\RadiologyOrderService;
+use App\Services\ReceptionVisitService;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -295,4 +298,129 @@ test('manual charge capture rejects an encounter that does not belong to the sel
         'encounter_id' => $ctx['encounter']->id,
         'notes' => 'reason',
     ], requestAs(userWithRole('accountant'))))->toThrow(ValidationException::class);
+});
+
+/**
+ * Facility default consultation service (payment-gating audit follow-up):
+ * a missing practitioner-level consultation_service_id must never by itself
+ * mean the consultation is free — ChargeCaptureService::resolveConsultationService()
+ * falls back to the hospital's default_consultation_service_id, and only
+ * the true configuration gap (neither resolves) reaches the no-charge
+ * safety net.
+ */
+test('a practitioner with no consultation service falls back to the facility default when checking in a walk-in', function () {
+    $ctx = clinicalEncounterContext();
+    $defaultService = hospitalWithDefaultConsultationService($ctx['hospital'], ['amount' => 8000]);
+
+    $visit = app(ReceptionVisitService::class)->createWalkIn([
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'visit_type' => 'walk_in',
+        'practitioner_id' => $ctx['practitioner']->id,
+    ], requestAs(userWithRole('receptionist')));
+
+    $charge = Charge::query()->where('source_type', ReceptionVisit::class)->where('source_id', $visit->id)->sole();
+
+    expect($charge->service_id)->toBe($defaultService->id);
+    expect((float) $charge->unit_price)->toBe(8000.0);
+});
+
+test('a practitioner-specific consultation service wins over the facility default', function () {
+    $ctx = clinicalEncounterContext();
+    hospitalWithDefaultConsultationService($ctx['hospital'], ['amount' => 5000]);
+    $ownService = billableConsultationService($ctx['hospital'], ['amount' => 12000]);
+    $ctx['practitioner']->update(['consultation_service_id' => $ownService->id]);
+
+    $visit = app(ReceptionVisitService::class)->createWalkIn([
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'visit_type' => 'walk_in',
+        'practitioner_id' => $ctx['practitioner']->id,
+    ], requestAs(userWithRole('receptionist')));
+
+    $charge = Charge::query()->where('source_type', ReceptionVisit::class)->where('source_id', $visit->id)->sole();
+
+    expect($charge->service_id)->toBe($ownService->id);
+    expect((float) $charge->unit_price)->toBe(12000.0);
+});
+
+test('a practitioner-specific price on the facility default service wins over the facility-wide price', function () {
+    $ctx = clinicalEncounterContext();
+    $defaultService = hospitalWithDefaultConsultationService($ctx['hospital'], ['amount' => 2000]);
+    priceFor($defaultService, $ctx['hospital'], ['amount' => 5000, 'practitioner_id' => $ctx['practitioner']->id]);
+
+    $visit = app(ReceptionVisitService::class)->createWalkIn([
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'visit_type' => 'walk_in',
+        'practitioner_id' => $ctx['practitioner']->id,
+    ], requestAs(userWithRole('receptionist')));
+
+    $charge = Charge::query()->where('source_type', ReceptionVisit::class)->where('source_id', $visit->id)->sole();
+
+    expect($charge->service_id)->toBe($defaultService->id);
+    expect((float) $charge->unit_price)->toBe(5000.0);
+});
+
+test('a walk-in with no practitioner-specific or facility default consultation service still succeeds with no charge captured', function () {
+    $ctx = clinicalEncounterContext();
+
+    $visit = app(ReceptionVisitService::class)->createWalkIn([
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'visit_type' => 'walk_in',
+        'practitioner_id' => $ctx['practitioner']->id,
+    ], requestAs(userWithRole('receptionist')));
+
+    expect($visit->id)->not->toBeNull();
+    $this->assertDatabaseCount('charges', 0);
+    $this->assertDatabaseHas('audit_logs', ['action' => 'charge_capture_skipped']);
+});
+
+test('a facility default consultation service priced at zero produces a real charge, distinct from no charge at all', function () {
+    $ctx = clinicalEncounterContext();
+    hospitalWithDefaultConsultationService($ctx['hospital'], ['amount' => 0]);
+
+    $visit = app(ReceptionVisitService::class)->createWalkIn([
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'visit_type' => 'walk_in',
+        'practitioner_id' => $ctx['practitioner']->id,
+    ], requestAs(userWithRole('receptionist')));
+
+    $charge = Charge::query()->where('source_type', ReceptionVisit::class)->where('source_id', $visit->id)->sole();
+    expect((float) $charge->unit_price)->toBe(0.0);
+
+    $status = app(FinancialAuthorizationService::class)->statusForSource(
+        ReceptionVisit::class,
+        $visit->id,
+        FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED,
+    );
+    expect($status)->toBe(FinancialAuthorizationService::STATUS_AUTHORIZED);
+});
+
+test('an unpaid default-consultation charge blocks send-to-service, and paying it unblocks', function () {
+    $ctx = clinicalEncounterContext();
+    hospitalWithDefaultConsultationService($ctx['hospital'], ['amount' => 6000]);
+
+    $receptionist = userWithRole('receptionist');
+    $visit = app(ReceptionVisitService::class)->createWalkIn([
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'visit_type' => 'walk_in',
+        'practitioner_id' => $ctx['practitioner']->id,
+    ], requestAs($receptionist));
+
+    $visit = app(ReceptionVisitService::class)->markWaiting($visit, requestAs($receptionist));
+    $visit = app(ReceptionVisitService::class)->markReadyForService($visit, requestAs($receptionist));
+
+    expect(fn () => app(ReceptionVisitService::class)->sendToService($visit, requestAs($receptionist)))
+        ->toThrow(ValidationException::class);
+
+    $charge = Charge::query()->where('source_type', ReceptionVisit::class)->where('source_id', $visit->id)->sole();
+    paymentFor($charge->invoice, ['amount' => 6000]);
+
+    $visit = app(ReceptionVisitService::class)->sendToService($visit->fresh(), requestAs($receptionist));
+
+    expect($visit->status)->toBe(ReceptionVisit::STATUS_SENT_TO_SERVICE);
 });

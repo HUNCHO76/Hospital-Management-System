@@ -53,6 +53,9 @@ class LaboratoryResultController extends Controller
             'authorizedBy:id,UserName',
             'returnedBy:id,UserName',
             'releasedBy:id,UserName',
+            'resultDocuments.uploadedBy:id,UserName',
+            'resultValues.parameter',
+            'laboratoryTest.activeParameters.referenceRanges',
         ];
     }
 

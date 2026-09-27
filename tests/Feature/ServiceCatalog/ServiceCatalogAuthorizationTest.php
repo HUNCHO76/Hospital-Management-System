@@ -56,6 +56,25 @@ test('a doctor and a pharmacist hold no pricing-management permission', function
     $this->actingAs($pharmacist)->get(route('billing-services.create'))->assertForbidden();
 });
 
+test('a receptionist holds no service-catalog or pricing-management permission', function () {
+    $receptionist = userWithRole('receptionist');
+    $hospital = Hospital::factory()->create();
+    $service = serviceFor();
+    $price = priceFor($service, $hospital);
+
+    $this->actingAs($receptionist)->get(route('billing-services.index'))->assertForbidden();
+    $this->actingAs($receptionist)->get(route('billing-services.create'))->assertForbidden();
+    $this->actingAs($receptionist)->post(route('billing-services.store'), [
+        'code' => 'RECEP-TEST', 'name' => 'x', 'category' => 'consultation',
+    ])->assertForbidden();
+    $this->actingAs($receptionist)->get(route('billing-pricing.index'))->assertForbidden();
+    $this->actingAs($receptionist)->get(route('billing-pricing.create'))->assertForbidden();
+    $this->actingAs($receptionist)->post(route('billing-pricing.store'), [
+        'service_id' => $service->id, 'hospital_id' => $hospital->id, 'amount' => 100, 'effective_from' => now()->toDateString(),
+    ])->assertForbidden();
+    $this->actingAs($receptionist)->post(route('billing-pricing.cancel', $price), ['reason' => 'x'])->assertForbidden();
+});
+
 test('an accountant can manage the service catalog and pricing end to end', function () {
     $hospital = Hospital::factory()->create();
     $accountant = userWithRole('accountant');

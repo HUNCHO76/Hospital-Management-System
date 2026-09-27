@@ -29,7 +29,7 @@ return new class extends Migration
             $table->foreignId('submitted_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 
-            $table->index(['nhif_claim_id', 'submission_status']);
+            $table->index(['nhif_claim_id', 'submission_status'], 'nhif_claim_sub_attempt_status_idx');
         });
     }
 

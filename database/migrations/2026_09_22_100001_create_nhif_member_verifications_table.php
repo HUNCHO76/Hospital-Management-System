@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Schema;
  * recent success is what PatientInsurance::latestNhifVerification() surfaces.
  *
  * identifier_type: 'nin' — lookup used the patient's national ID number.
- *                 'card_number' — lookup used the NHIF card number.
+ *                 'CardNo' — lookup used the NHIF card number.
  *
  * verification_status: mirrors NhifVerificationStatus in patient-insurance.ts.
  */
@@ -21,7 +21,7 @@ return new class extends Migration
         Schema::create('nhif_member_verifications', function (Blueprint $table) {
             $table->id();
             $table->foreignId('patient_insurance_id')->constrained()->restrictOnDelete();
-            $table->string('identifier_type');      // nin | card_number
+            $table->string('identifier_type');      // nin | CardNo
             $table->string('identifier_value');
             $table->string('nhif_operation');        // NHIF API endpoint called
             $table->string('verification_status');   // verified | not_found | invalid | expired | inactive | error
@@ -39,7 +39,7 @@ return new class extends Migration
             $table->foreignId('verified_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 
-            $table->index(['patient_insurance_id', 'verification_status']);
+            $table->index(['patient_insurance_id', 'verification_status'], 'nhif_verif_insurance_status_idx');
             $table->index('verified_at');
         });
     }

@@ -35,24 +35,31 @@ function formatDateTime(value: string): string {
 export function TriagePanel({ encounterId, encounterStatus, triage }: TriagePanelProps) {
     const { can } = usePermissions();
 
+    const { post: doStartTriage, processing: startingTriage, errors: startTriageErrors } = useForm({});
+
     const startTriage = () => {
-        router.post(route('clinical-encounters.triage.store', encounterId), {}, { preserveScroll: true });
+        doStartTriage(route('clinical-encounters.triage.store', encounterId), { preserveScroll: true });
     };
 
     if (!triage) {
+        const startError = startTriageErrors.financial_authorization ?? startTriageErrors.clinical_encounter_id;
+
         return (
             <Card>
                 <CardHeader>
                     <CardTitle className="text-base">Triage</CardTitle>
                 </CardHeader>
-                <CardContent className="flex items-center justify-between gap-4">
-                    <p className="text-muted-foreground text-sm">No triage assessment has been started for this encounter yet.</p>
-                    {can('triage.create') && encounterStatus !== 'completed' && encounterStatus !== 'cancelled' && (
-                        <Button size="sm" onClick={startTriage}>
-                            <ClipboardPlus className="h-4 w-4" />
-                            Start Triage
-                        </Button>
-                    )}
+                <CardContent className="space-y-2">
+                    <div className="flex items-center justify-between gap-4">
+                        <p className="text-muted-foreground text-sm">No triage assessment has been started for this encounter yet.</p>
+                        {can('triage.create') && encounterStatus !== 'completed' && encounterStatus !== 'cancelled' && (
+                            <Button size="sm" onClick={startTriage} disabled={startingTriage}>
+                                {startingTriage ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ClipboardPlus className="h-4 w-4" />}
+                                Start Triage
+                            </Button>
+                        )}
+                    </div>
+                    {startError && <InputError message={startError} />}
                 </CardContent>
             </Card>
         );

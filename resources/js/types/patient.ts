@@ -75,6 +75,7 @@ export interface PatientSearchResult {
     middle_name: string | null;
     last_name: string;
     phone: string | null;
+    has_active_nhif?: boolean;
 }
 
 export interface PossibleDuplicatePatient {
@@ -100,6 +101,9 @@ export interface PatientContactFormData {
     [key: string]: string | number | boolean | undefined;
 }
 
+export type PatientPaymentType = 'cash' | 'insurance' | '';
+export type NhifIdentifierType = 'nin' | 'CardNo' | '';
+
 export interface PatientFormData {
     first_name: string;
     middle_name: string;
@@ -121,6 +125,28 @@ export interface PatientFormData {
     status: PatientStatus;
     confirm_duplicate: boolean;
     contacts: PatientContactFormData[];
+    /** Payment classification selected at registration time. */
+    payment_type: PatientPaymentType;
+    /** NHIF provider ID — set when payment_type is 'insurance'. */
+    nhif_provider_id: string;
+    /** NHIF scheme ID (optional). */
+    nhif_scheme_id: string;
+    /** NHIF membership number. */
+    nhif_membership_number: string;
+    /** NHIF card number — required when nhif_identifier_type is 'CardNo'. */
+    nhif_card_number: string;
+    /** Whether to verify via the patient's NIN or their card number. */
+    nhif_identifier_type: NhifIdentifierType;
+    /** NHIF visit type ID selected from GetVisitTypes response. */
+    nhif_visit_type_id: string;
+    /** Verifier ID selected from GetCardVerifiers response. */
+    nhif_verifier_id: string;
+    /** Card type ID selected from the chosen verifier's card types. */
+    nhif_card_type_id: string;
+    /** Remarks — required when the selected visit type has RequiresRemarks. */
+    nhif_remarks: string;
+    /** Referral number — required when the selected visit type has RequiresReferralNo. */
+    nhif_referral_no: string;
     [key: string]: string | boolean | PatientContactFormData[];
 }
 

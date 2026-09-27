@@ -65,6 +65,14 @@ export default function HospitalsShow({ hospital }: HospitalsShowProps) {
                                     <dt className="text-muted-foreground">Email</dt>
                                     <dd>{hospital.email ?? '—'}</dd>
                                 </div>
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-muted-foreground">Default Consultation Service</dt>
+                                    <dd>
+                                        {hospital.default_consultation_service
+                                            ? `${hospital.default_consultation_service.code} — ${hospital.default_consultation_service.name}`
+                                            : '—'}
+                                    </dd>
+                                </div>
                             </dl>
                         </CardContent>
                     </Card>

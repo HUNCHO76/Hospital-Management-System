@@ -26,7 +26,9 @@ class ClinicalEncounterFactory extends Factory
             'appointment_id' => null,
             'department_id' => Department::factory(),
             'practitioner_id' => null,
-            'encounter_type' => fake()->randomElement(ClinicalEncounter::TYPES),
+            // Exclude 'inpatient' — inpatient encounters require an admission_id
+            // FK and are only valid when created through InpatientClinicalService.
+            'encounter_type' => fake()->randomElement(['opd', 'walk_in', 'scheduled', 'follow_up']),
             'status' => ClinicalEncounter::STATUS_OPEN,
             'started_at' => null,
             'ended_at' => null,

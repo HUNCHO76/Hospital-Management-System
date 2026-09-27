@@ -80,10 +80,25 @@ export interface PrescriptionOrderItem {
     quantity: number;
     quantity_unit: string | null;
     instructions: string | null;
+    /** Doctor's clinical justification when a safety rule was overridden at prescribing time. */
+    safety_override_justification: string | null;
     status: PrescriptionOrderItemStatus;
     cancelled_at: string | null;
     cancelled_by: PrescriptionOrderUser | null;
     cancellation_reason: string | null;
+}
+
+/**
+ * A pre-computed safety warning for a medication, derived from the patient's
+ * active diagnoses and the diagnosis_medication_rules table. Keyed by
+ * medication_id in the medicationSafetyRules page prop.
+ */
+export interface MedicationSafetyWarning {
+    rule_type: 'contraindication' | 'caution';
+    severity: 'high' | 'medium' | 'low';
+    description: string;
+    diagnosis_code: string;
+    diagnosis_description: string;
 }
 
 export interface PrescriptionOrder {
@@ -132,6 +147,7 @@ export interface PrescriptionOrderFormData {
         quantity: string;
         quantity_unit: string;
         instructions: string;
+        safety_override_justification: string;
     }[];
     clinical_notes: string;
     [key: string]: string | PrescriptionOrderFormData['items'];
@@ -169,8 +185,10 @@ export interface PrescriptionVerification {
  * A safety flag a verifier should notice (spec §12) — a workflow/data check
  * computed server-side by PrescriptionVerificationResource, never a
  * clinical decision.
+ * 'safety_override': the prescriber acknowledged a diagnosis-medication
+ * rule and recorded a clinical justification.
  */
-export type PrescriptionVerificationFlag = 'medication_inactive' | 'duplicate_medication';
+export type PrescriptionVerificationFlag = 'medication_inactive' | 'duplicate_medication' | 'safety_override';
 
 export interface PrescriptionVerificationItem extends PrescriptionOrderItem {
     flags: PrescriptionVerificationFlag[];

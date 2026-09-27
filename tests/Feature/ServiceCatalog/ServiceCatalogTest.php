@@ -79,3 +79,16 @@ test('a deactivated service can be reactivated', function () {
     expect($reactivated->status)->toBe(Service::STATUS_ACTIVE);
     $this->assertDatabaseHas('audit_logs', ['action' => 'service_activated']);
 });
+
+test('a service with more than one page of price history is paginated on its show page', function () {
+    $service = serviceFor();
+    $hospitals = Hospital::factory()->count(21)->create();
+    $hospitals->each(fn ($hospital) => priceFor($service, $hospital));
+    $accountant = userWithRole('accountant');
+
+    $this->actingAs($accountant)->get(route('billing-services.show', $service))
+        ->assertInertia(fn ($page) => $page
+            ->has('prices.data', 20)
+            ->where('prices.total', 21)
+            ->has('prices.links'));
+});

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Hospital\StoreHospitalRequest;
 use App\Http\Requests\Hospital\UpdateHospitalRequest;
 use App\Models\Hospital;
+use App\Models\Service;
 use App\Services\HospitalService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -55,7 +56,9 @@ class HospitalController extends Controller
      */
     public function create(): Response
     {
-        return Inertia::render('hospitals/create');
+        return Inertia::render('hospitals/create', [
+            'consultationServices' => Service::consultationOptions(),
+        ]);
     }
 
     /**
@@ -73,7 +76,10 @@ class HospitalController extends Controller
      */
     public function show(Hospital $hospital): Response
     {
-        $hospital->load(['departments' => fn ($query) => $query->orderBy('name')]);
+        $hospital->load([
+            'departments' => fn ($query) => $query->orderBy('name'),
+            'defaultConsultationService:id,code,name',
+        ]);
 
         return Inertia::render('hospitals/show', [
             'hospital' => $hospital,
@@ -87,6 +93,7 @@ class HospitalController extends Controller
     {
         return Inertia::render('hospitals/edit', [
             'hospital' => $hospital,
+            'consultationServices' => Service::consultationOptions(),
         ]);
     }
 

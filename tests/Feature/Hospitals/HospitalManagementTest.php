@@ -226,3 +226,44 @@ test('a hospital-admin can only update their own hospital', function () {
 
     expect($otherHospital->fresh()->name)->not->toBe('Hijacked Name');
 });
+
+test('an authorized user can set a hospital default consultation service', function () {
+    $user = userWithRole('super-admin');
+    $service = serviceFor(['category' => 'consultation']);
+
+    $response = $this->actingAs($user)->post(route('hospitals.store'), [
+        'name' => 'City General Hospital',
+        'code' => 'CGH2',
+        'status' => 'active',
+        'default_consultation_service_id' => $service->id,
+    ]);
+
+    $response->assertRedirect(route('hospitals.index'));
+    $this->assertDatabaseHas('hospitals', ['code' => 'CGH2', 'default_consultation_service_id' => $service->id]);
+});
+
+test('a hospital default consultation service can be cleared back to null', function () {
+    $user = userWithRole('super-admin');
+    $service = serviceFor(['category' => 'consultation']);
+    $hospital = Hospital::factory()->create(['default_consultation_service_id' => $service->id]);
+
+    $this->actingAs($user)->put(route('hospitals.update', $hospital), [
+        'name' => $hospital->name,
+        'code' => $hospital->code,
+        'status' => 'active',
+        'default_consultation_service_id' => null,
+    ])->assertRedirect(route('hospitals.index'));
+
+    expect($hospital->fresh()->default_consultation_service_id)->toBeNull();
+});
+
+test('setting a hospital default consultation service to a non-existent id is rejected', function () {
+    $user = userWithRole('super-admin');
+
+    $this->actingAs($user)->post(route('hospitals.store'), [
+        'name' => 'X',
+        'code' => 'XCODE',
+        'status' => 'active',
+        'default_consultation_service_id' => 999999,
+    ])->assertSessionHasErrors('default_consultation_service_id');
+});

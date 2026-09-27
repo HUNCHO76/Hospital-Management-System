@@ -2,11 +2,13 @@
 
 namespace App\Services;
 
+use App\Models\Admission;
 use App\Models\Appointment;
 use App\Models\AuditLog;
 use App\Models\CarePlan;
 use App\Models\ClinicalEncounter;
 use App\Models\EncounterDiagnosis;
+use App\Models\MedicationAdministration;
 use App\Models\Patient;
 use App\Models\PatientInsurance;
 use App\Models\ReceptionVisit;
@@ -37,6 +39,9 @@ class PatientHistoryService
         $appointmentIds = Appointment::query()->where('patient_id', $patient->id)->pluck('id');
         $visitIds = ReceptionVisit::query()->where('patient_id', $patient->id)->pluck('id');
         $encounterIds = ClinicalEncounter::query()->where('patient_id', $patient->id)->pluck('id');
+        // Admissions and MAR records for inpatient events on the timeline.
+        $admissionIds = Admission::query()->where('patient_id', $patient->id)->pluck('id');
+        $marIds = MedicationAdministration::query()->whereIn('admission_id', $admissionIds)->pluck('id');
         // Triage/vital-sign audit entries are scoped through the patient's
         // own encounters rather than a redundant patient_id column on those
         // tables (Step 22 deliberately avoids duplicating patient
@@ -54,7 +59,7 @@ class PatientHistoryService
 
         return AuditLog::query()
             ->with('user:id,UserName')
-            ->where(function ($query) use ($patient, $insuranceIds, $appointmentIds, $visitIds, $encounterIds, $triageIds, $vitalSignIds, $diagnosisIds, $carePlanIds) {
+            ->where(function ($query) use ($patient, $insuranceIds, $appointmentIds, $visitIds, $encounterIds, $triageIds, $vitalSignIds, $diagnosisIds, $carePlanIds, $admissionIds, $marIds) {
                 $query->where(fn ($query) => $query->where('auditable_type', Patient::class)->where('auditable_id', $patient->id))
                     ->orWhere(fn ($query) => $query->where('auditable_type', PatientInsurance::class)->whereIn('auditable_id', $insuranceIds))
                     ->orWhere(fn ($query) => $query->where('auditable_type', Appointment::class)->whereIn('auditable_id', $appointmentIds))
@@ -63,7 +68,9 @@ class PatientHistoryService
                     ->orWhere(fn ($query) => $query->where('auditable_type', TriageAssessment::class)->whereIn('auditable_id', $triageIds))
                     ->orWhere(fn ($query) => $query->where('auditable_type', VitalSign::class)->whereIn('auditable_id', $vitalSignIds))
                     ->orWhere(fn ($query) => $query->where('auditable_type', EncounterDiagnosis::class)->whereIn('auditable_id', $diagnosisIds))
-                    ->orWhere(fn ($query) => $query->where('auditable_type', CarePlan::class)->whereIn('auditable_id', $carePlanIds));
+                    ->orWhere(fn ($query) => $query->where('auditable_type', CarePlan::class)->whereIn('auditable_id', $carePlanIds))
+                    ->orWhere(fn ($query) => $query->where('auditable_type', Admission::class)->whereIn('auditable_id', $admissionIds))
+                    ->orWhere(fn ($query) => $query->where('auditable_type', MedicationAdministration::class)->whereIn('auditable_id', $marIds));
             })
             ->latest('created_at')
             ->latest('id')

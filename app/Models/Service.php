@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\HasStatus;
 use Database\Factories\ServiceFactory;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -77,6 +78,26 @@ class Service extends Model
         return [
             'is_billable' => 'boolean',
         ];
+    }
+
+    /**
+     * Active, billable consultation services — the shared option list for
+     * both a practitioner's own `consultation_service_id` override
+     * (PractitionerController) and a hospital's facility-wide
+     * `default_consultation_service_id` (HospitalController). See
+     * ChargeCaptureService::resolveConsultationService() for how the two
+     * are combined.
+     *
+     * @return Collection<int, Service>
+     */
+    public static function consultationOptions(): Collection
+    {
+        return static::query()
+            ->where('status', self::STATUS_ACTIVE)
+            ->where('is_billable', true)
+            ->where('category', 'consultation')
+            ->orderBy('name')
+            ->get(['id', 'code', 'name']);
     }
 
     /**

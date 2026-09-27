@@ -2,7 +2,9 @@ import { PatientForm } from '@/components/patients/patient-form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
+import { type InsuranceProviderSummary } from '@/types/insurance-provider';
 import { type PatientFormData, type PossibleDuplicatePatient } from '@/types/patient';
+import { type InsuranceSchemeSummary } from '@/types/patient-insurance';
 import { Head } from '@inertiajs/react';
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -14,9 +16,11 @@ interface PatientsCreateProps {
     possibleDuplicates: PossibleDuplicatePatient[];
     confirmedDuplicate: PossibleDuplicatePatient | null;
     old: Partial<PatientFormData>;
+    nhifProvider: InsuranceProviderSummary | null;
+    nhifSchemes: InsuranceSchemeSummary[];
 }
 
-export default function PatientsCreate({ possibleDuplicates, confirmedDuplicate, old }: PatientsCreateProps) {
+export default function PatientsCreate({ possibleDuplicates, confirmedDuplicate, old, nhifProvider, nhifSchemes }: PatientsCreateProps) {
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Register Patient" />
@@ -27,7 +31,13 @@ export default function PatientsCreate({ possibleDuplicates, confirmedDuplicate,
                         <CardTitle>Register Patient</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <PatientForm possibleDuplicates={possibleDuplicates} confirmedDuplicate={confirmedDuplicate} old={old} />
+                        <PatientForm
+                            possibleDuplicates={possibleDuplicates}
+                            confirmedDuplicate={confirmedDuplicate}
+                            old={old}
+                            nhifProvider={nhifProvider}
+                            nhifSchemes={nhifSchemes}
+                        />
                     </CardContent>
                 </Card>
             </div>

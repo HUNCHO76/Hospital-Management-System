@@ -25,6 +25,7 @@ class CreateServicePriceRequest extends FormRequest
         return [
             'service_id' => ['required', 'integer', 'exists:services,id'],
             'hospital_id' => ['required', 'integer', 'exists:hospitals,id'],
+            'practitioner_id' => ['nullable', 'integer', 'exists:practitioners,id'],
             'amount' => ['required', 'numeric', 'min:0', 'max:999999999.99'],
             'effective_from' => ['required', 'date'],
             'effective_to' => ['nullable', 'date', 'after_or_equal:effective_from'],

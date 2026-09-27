@@ -4,19 +4,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { type Hospital, type HospitalFormData } from '@/types/hospital';
+import { type Hospital, type HospitalConsultationServiceOption, type HospitalFormData } from '@/types/hospital';
 import { Link, useForm } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { type FormEventHandler } from 'react';
 
 interface HospitalFormProps {
     hospital?: Hospital;
+    consultationServices?: HospitalConsultationServiceOption[];
 }
 
-export function HospitalForm({ hospital }: HospitalFormProps) {
+export function HospitalForm({ hospital, consultationServices }: HospitalFormProps) {
     const isEditing = Boolean(hospital);
 
-    const { data, setData, post, put, processing, errors } = useForm<HospitalFormData>({
+    const { data, setData, post, put, processing, errors, transform } = useForm<HospitalFormData>({
         name: hospital?.name ?? '',
         code: hospital?.code ?? '',
         registration_number: hospital?.registration_number ?? '',
@@ -27,7 +28,13 @@ export function HospitalForm({ hospital }: HospitalFormProps) {
         district: hospital?.district ?? '',
         ward: hospital?.ward ?? '',
         status: hospital?.status ?? 'active',
+        default_consultation_service_id: hospital?.default_consultation_service_id ? String(hospital.default_consultation_service_id) : '',
     });
+
+    transform((data) => ({
+        ...data,
+        default_consultation_service_id: data.default_consultation_service_id === '' ? null : data.default_consultation_service_id,
+    }));
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -115,6 +122,31 @@ export function HospitalForm({ hospital }: HospitalFormProps) {
                     <Input id="ward" value={data.ward} onChange={(e) => setData('ward', e.target.value)} />
                     <InputError message={errors.ward} />
                 </div>
+            </div>
+
+            <div className="grid gap-2">
+                <Label htmlFor="default_consultation_service_id">Default Consultation Service</Label>
+                <Select
+                    value={data.default_consultation_service_id || 'none'}
+                    onValueChange={(value) => setData('default_consultation_service_id', value === 'none' ? '' : value)}
+                >
+                    <SelectTrigger id="default_consultation_service_id">
+                        <SelectValue placeholder="Not set" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="none">Not set</SelectItem>
+                        {consultationServices?.map((service) => (
+                            <SelectItem key={service.id} value={String(service.id)}>
+                                {service.code} — {service.name}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <p className="text-muted-foreground text-sm">
+                    Used for a practitioner's consultation charge when they have no consultation service of their own configured. Leaving this
+                    unset means a practitioner without their own override cannot be billed for a consultation.
+                </p>
+                <InputError message={errors.default_consultation_service_id} />
             </div>
 
             <div className="flex justify-end gap-2">

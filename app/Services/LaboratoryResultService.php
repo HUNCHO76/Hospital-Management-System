@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Models\LaboratoryOrder;
 use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryResult;
+use App\Models\LaboratoryResultValue;
 use App\Models\LaboratorySample;
+use App\Models\LaboratoryTestParameter;
 use App\Services\NHIF\NHIFClinicalUtilizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +28,8 @@ class LaboratoryResultService
     public function __construct(
         protected AuditLogService $auditLog,
         protected NHIFClinicalUtilizationService $nhifUtilization,
+        protected LaboratoryReferenceRangeService $referenceRangeService,
+        protected LaboratoryFlagCalculator $flagCalculator,
     ) {}
 
     /**
@@ -41,7 +45,7 @@ class LaboratoryResultService
     {
         $test = $item->laboratoryTest;
 
-        LaboratoryResult::firstOrCreate(
+        $result = LaboratoryResult::firstOrCreate(
             ['laboratory_order_item_id' => $item->id],
             [
                 'laboratory_sample_id' => $sample->id,
@@ -53,6 +57,21 @@ class LaboratoryResultService
                 'result_options' => $test?->result_options,
             ],
         );
+
+        // When the test has parameters configured, pre-create empty value
+        // rows for each active parameter so the result entry UI can render
+        // them immediately without requiring the technician to add them one
+        // by one.
+        if ($result->wasRecentlyCreated && $test !== null) {
+            $parameters = $test->parameters()->where('active', true)->orderBy('display_order')->get();
+
+            foreach ($parameters as $parameter) {
+                LaboratoryResultValue::firstOrCreate([
+                    'laboratory_result_id' => $result->id,
+                    'laboratory_test_parameter_id' => $parameter->id,
+                ], ['unit' => $parameter->unit]);
+            }
+        }
     }
 
     /**
@@ -90,16 +109,33 @@ class LaboratoryResultService
 
             $fromStatus = $result->status;
 
-            $values = $this->validateValue($result, $data, requirePresence: false);
+            $parameterValues = $data['parameter_values'] ?? null;
 
-            $result->update([
-                ...$values,
-                'abnormal_flag' => $this->validateFlag($data),
-                'result_comment' => $this->validateComment($data),
-                'status' => LaboratoryResult::STATUS_DRAFT,
-                'entered_by' => $result->entered_by ?? $request->user()->id,
-                'entered_at' => $result->entered_at ?? now(),
-            ]);
+            if (is_array($parameterValues) && count($parameterValues) > 0) {
+                // Multi-parameter path: sync per-parameter values and derive
+                // aggregate flag from them.
+                $aggregateFlag = $this->syncParameterValues($result, $parameterValues, $request);
+
+                $result->update([
+                    'abnormal_flag' => $aggregateFlag,
+                    'result_comment' => $this->validateComment($data),
+                    'status' => LaboratoryResult::STATUS_DRAFT,
+                    'entered_by' => $result->entered_by ?? $request->user()->id,
+                    'entered_at' => $result->entered_at ?? now(),
+                ]);
+            } else {
+                // Legacy single-value path — unchanged behavior.
+                $values = $this->validateValue($result, $data, requirePresence: false);
+
+                $result->update([
+                    ...$values,
+                    'abnormal_flag' => $this->validateFlag($data),
+                    'result_comment' => $this->validateComment($data),
+                    'status' => LaboratoryResult::STATUS_DRAFT,
+                    'entered_by' => $result->entered_by ?? $request->user()->id,
+                    'entered_at' => $result->entered_at ?? now(),
+                ]);
+            }
 
             return $result;
         });
@@ -149,9 +185,13 @@ class LaboratoryResultService
                 ]);
             }
 
-            // Re-validate the already-saved value against the "must be
+            // Re-validate the already-saved value(s) against the "must be
             // present" rule — a draft may have been saved blank.
-            $this->validateValue($result, $result->only(['value_numeric', 'value_text', 'value_code']), requirePresence: true);
+            if ($result->resultValues()->exists()) {
+                $this->validateParameterValuesPresent($result);
+            } else {
+                $this->validateValue($result, $result->only(['value_numeric', 'value_text', 'value_code']), requirePresence: true);
+            }
 
             $result->update([
                 'status' => LaboratoryResult::STATUS_PENDING_VERIFICATION,
@@ -254,7 +294,11 @@ class LaboratoryResultService
                 ]);
             }
 
-            $this->validateValue($result, $result->only(['value_numeric', 'value_text', 'value_code']), requirePresence: true);
+            if ($result->resultValues()->exists()) {
+                $this->validateParameterValuesPresent($result);
+            } else {
+                $this->validateValue($result, $result->only(['value_numeric', 'value_text', 'value_code']), requirePresence: true);
+            }
 
             $result->update([
                 'status' => LaboratoryResult::STATUS_VERIFIED,
@@ -584,6 +628,157 @@ class LaboratoryResultService
         }
 
         return $result;
+    }
+
+    /**
+     * Sync per-parameter result values for a multi-component test, snapshot the
+     * matching reference range for each parameter, calculate per-parameter flags,
+     * and return the aggregate worst flag across all parameters.
+     *
+     * @param  list<array{parameter_id: int, value_numeric?: string|null, value_text?: string|null, value_code?: string|null, result_comment?: string|null}>  $parameterValues
+     *
+     * @throws ValidationException
+     */
+    protected function syncParameterValues(LaboratoryResult $result, array $parameterValues, Request $request): ?string
+    {
+        $patient = $result->item?->laboratoryOrder?->clinicalEncounter?->patient;
+
+        foreach ($parameterValues as $index => $entry) {
+            $parameterId = $entry['parameter_id'] ?? null;
+
+            if (! $parameterId) {
+                continue;
+            }
+
+            $parameter = LaboratoryTestParameter::find($parameterId);
+
+            if (! $parameter || $parameter->laboratory_test_id !== $result->laboratory_test_id) {
+                throw ValidationException::withMessages([
+                    "parameter_values.{$index}.parameter_id" => 'The parameter does not belong to this test.',
+                ]);
+            }
+
+            $valueNumeric = null;
+            $valueText = null;
+            $valueCode = null;
+            $flag = null;
+
+            switch ($parameter->data_type) {
+                case LaboratoryTestParameter::DATA_TYPE_NUMERIC:
+                    $raw = $entry['value_numeric'] ?? null;
+
+                    if ($raw !== null && $raw !== '') {
+                        if (! is_numeric($raw)) {
+                            throw ValidationException::withMessages([
+                                "parameter_values.{$index}.value_numeric" => "The value for \"{$parameter->name}\" must be a valid number.",
+                            ]);
+                        }
+
+                        $valueNumeric = (string) $raw;
+                    }
+
+                    break;
+
+                case LaboratoryTestParameter::DATA_TYPE_TEXT:
+                    $raw = $entry['value_text'] ?? null;
+                    $valueText = ($raw !== null && trim((string) $raw) !== '') ? $raw : null;
+                    break;
+
+                case LaboratoryTestParameter::DATA_TYPE_OPTION:
+                    $raw = $entry['value_code'] ?? null;
+                    $valueCode = ($raw !== null && $raw !== '') ? $raw : null;
+
+                    if ($valueCode !== null) {
+                        $options = $parameter->options_json ?? [];
+
+                        if ($options !== [] && ! in_array($valueCode, $options, true)) {
+                            throw ValidationException::withMessages([
+                                "parameter_values.{$index}.value_code" => "The value for \"{$parameter->name}\" is not a valid option.",
+                            ]);
+                        }
+                    }
+
+                    break;
+            }
+
+            // Select the best matching reference range for this parameter + patient
+            // combination, then snapshot it for historical immutability.
+            $range = $patient ? $this->referenceRangeService->selectForPatient($parameter, $patient) : null;
+
+            $flag = $this->flagCalculator->flag($parameter, $valueNumeric, $valueCode, $range);
+
+            LaboratoryResultValue::updateOrCreate(
+                [
+                    'laboratory_result_id' => $result->id,
+                    'laboratory_test_parameter_id' => $parameter->id,
+                ],
+                [
+                    'value_numeric' => $valueNumeric,
+                    'value_text' => $valueText,
+                    'value_code' => $valueCode,
+                    'unit' => $parameter->unit,
+                    'reference_low' => $range?->low,
+                    'reference_high' => $range?->high,
+                    'reference_critical_low' => $range?->critical_low,
+                    'reference_critical_high' => $range?->critical_high,
+                    'abnormal_flag' => $flag,
+                    'result_comment' => $entry['result_comment'] ?? null,
+                ],
+            );
+        }
+
+        return $this->computeAggregateFlag($result);
+    }
+
+    /**
+     * Return the most severe abnormal flag across all parameter values for
+     * this result. Priority: critical > high > low > abnormal > normal.
+     */
+    protected function computeAggregateFlag(LaboratoryResult $result): ?string
+    {
+        $priority = [
+            LaboratoryFlagCalculator::FLAG_CRITICAL => 4,
+            LaboratoryFlagCalculator::FLAG_HIGH => 3,
+            LaboratoryFlagCalculator::FLAG_LOW => 2,
+            LaboratoryFlagCalculator::FLAG_ABNORMAL => 1,
+            LaboratoryFlagCalculator::FLAG_NORMAL => 0,
+        ];
+
+        $flags = LaboratoryResultValue::where('laboratory_result_id', $result->id)
+            ->whereNotNull('abnormal_flag')
+            ->pluck('abnormal_flag');
+
+        if ($flags->isEmpty()) {
+            return null;
+        }
+
+        return $flags->sortByDesc(fn ($f) => $priority[$f] ?? -1)->first();
+    }
+
+    /**
+     * Validate that every parameter value for a multi-component result has
+     * a value entered (called from submit() and verifyResult()).
+     *
+     * @throws ValidationException
+     */
+    protected function validateParameterValuesPresent(LaboratoryResult $result): void
+    {
+        $missing = LaboratoryResultValue::where('laboratory_result_id', $result->id)
+            ->whereNull('value_numeric')
+            ->where(fn ($q) => $q->whereNull('value_text')->orWhere('value_text', ''))
+            ->where(fn ($q) => $q->whereNull('value_code')->orWhere('value_code', ''))
+            ->with('parameter:id,name')
+            ->get();
+
+        if ($missing->isEmpty()) {
+            return;
+        }
+
+        $names = $missing->map(fn ($rv) => $rv->parameter?->name ?? 'Unknown')->implode(', ');
+
+        throw ValidationException::withMessages([
+            'parameter_values' => "The following parameters have no result entered: {$names}.",
+        ]);
     }
 
     /**

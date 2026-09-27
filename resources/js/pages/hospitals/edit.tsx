@@ -2,14 +2,15 @@ import { HospitalForm } from '@/components/hospitals/hospital-form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
-import { type Hospital } from '@/types/hospital';
+import { type Hospital, type HospitalConsultationServiceOption } from '@/types/hospital';
 import { Head } from '@inertiajs/react';
 
 interface HospitalsEditProps {
     hospital: Hospital;
+    consultationServices: HospitalConsultationServiceOption[];
 }
 
-export default function HospitalsEdit({ hospital }: HospitalsEditProps) {
+export default function HospitalsEdit({ hospital, consultationServices }: HospitalsEditProps) {
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Hospitals', href: '/hospitals' },
         { title: hospital.name, href: `/hospitals/${hospital.id}` },
@@ -26,7 +27,7 @@ export default function HospitalsEdit({ hospital }: HospitalsEditProps) {
                         <CardTitle>Edit Hospital</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <HospitalForm hospital={hospital} />
+                        <HospitalForm hospital={hospital} consultationServices={consultationServices} />
                     </CardContent>
                 </Card>
             </div>

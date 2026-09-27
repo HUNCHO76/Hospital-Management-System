@@ -1,8 +1,15 @@
+import type { EncounterDiagnosis } from './diagnosis';
+import type { CarePlan } from './care-plan';
+import type { ClinicalNote } from './clinical-note';
+import type { LaboratoryOrder } from './laboratory';
+import type { RadiologyOrder } from './radiology';
+import type { PrescriptionOrder } from './prescription';
+
 export type ClinicalEncounterStatus = 'open' | 'in_progress' | 'completed' | 'cancelled';
 
 export type ClinicalEncounterDisposition = 'completed' | 'follow_up' | 'referred' | 'admitted' | 'transferred';
 
-export type ClinicalEncounterType = 'opd' | 'walk_in' | 'scheduled' | 'follow_up';
+export type ClinicalEncounterType = 'opd' | 'walk_in' | 'scheduled' | 'follow_up' | 'inpatient';
 
 export interface ClinicalEncounterPatient {
     id: number;
@@ -95,4 +102,14 @@ export interface ClinicalEncounterFilters {
     date_from: string;
     date_to: string;
     workflow_stage: string;
+}
+
+/** Inpatient encounter with all nested clinical data for the ward round / clinical profile view. */
+export interface InpatientEncounter extends ClinicalEncounter {
+    diagnoses: EncounterDiagnosis[];
+    carePlan: CarePlan | null;
+    clinicalNotes: ClinicalNote[];
+    laboratoryOrders: LaboratoryOrder[];
+    radiologyOrders: RadiologyOrder[];
+    prescriptionOrders: PrescriptionOrder[];
 }

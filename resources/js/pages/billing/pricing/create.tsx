@@ -20,6 +20,7 @@ const breadcrumbs: BreadcrumbItem[] = [
 interface BillingPricingCreateProps {
     hospitals: { id: number; name: string }[];
     services: { id: number; code: string; name: string }[];
+    practitioners: { id: number; practitioner_number: string; staff?: { first_name: string; last_name: string } }[];
     initialServiceId: number | null;
 }
 
@@ -30,16 +31,25 @@ interface BillingPricingCreateProps {
  * facility, the backend automatically closes it out the day before this
  * one starts (ServicePricingService::create()'s own versioning logic).
  * Backend re-validates and re-checks for overlap regardless of what this
- * form allows.
+ * form allows. Leaving Practitioner blank creates a facility-wide price;
+ * selecting one creates a specialist/provider-specific override that
+ * ServicePriceResolver prefers over the facility-wide price for that
+ * practitioner (Step 62 follow-up).
  */
-export default function BillingPricingCreate({ hospitals, services, initialServiceId }: BillingPricingCreateProps) {
-    const { data, setData, post, processing, errors } = useForm<CreateServicePriceFormData>({
+export default function BillingPricingCreate({ hospitals, services, practitioners, initialServiceId }: BillingPricingCreateProps) {
+    const { data, setData, post, processing, errors, transform } = useForm<CreateServicePriceFormData>({
         service_id: initialServiceId ? String(initialServiceId) : '',
         hospital_id: hospitals.length === 1 ? String(hospitals[0].id) : '',
+        practitioner_id: '',
         amount: '',
         effective_from: new Date().toISOString().slice(0, 10),
         effective_to: '',
     });
+
+    transform((data) => ({
+        ...data,
+        practitioner_id: data.practitioner_id === '' ? null : data.practitioner_id,
+    }));
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -90,6 +100,29 @@ export default function BillingPricingCreate({ hospitals, services, initialServi
                                         </SelectContent>
                                     </Select>
                                     <InputError message={errors.hospital_id} />
+                                </div>
+
+                                <div className="grid gap-2 sm:col-span-2">
+                                    <Label>Practitioner</Label>
+                                    <Select
+                                        value={data.practitioner_id || 'none'}
+                                        onValueChange={(value) => setData('practitioner_id', value === 'none' ? '' : value)}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Facility-wide (all practitioners)" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">Facility-wide (all practitioners)</SelectItem>
+                                            {practitioners.map((practitioner) => (
+                                                <SelectItem key={practitioner.id} value={String(practitioner.id)}>
+                                                    {practitioner.staff
+                                                        ? `${practitioner.staff.first_name} ${practitioner.staff.last_name}`
+                                                        : practitioner.practitioner_number}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <InputError message={errors.practitioner_id} />
                                 </div>
 
                                 <div className="grid gap-2">

@@ -77,9 +77,14 @@ class DispensingService
             // Step 69: NHIF preauthorization gate
             $this->nhifPreauth->assertPreauthorizedForSources(PrescriptionOrderItem::class, $activeItemIds);
 
-            // Step 62: financial authorization gate — all prescription order items
-            // must have their charges paid before dispensing may begin.
-            $this->financialAuth->assertAuthorizedForSources(PrescriptionOrderItem::class, $activeItemIds);
+            // Step 62: financial authorization gate — items whose charge was
+            // captured must be paid. No-charge rule: items where capture was
+            // skipped (e.g. no medication price) are never a billing blocker.
+            $this->financialAuth->assertAuthorizedForSources(
+                PrescriptionOrderItem::class,
+                $activeItemIds,
+                FinancialAuthorizationService::STATUS_AUTHORIZED,
+            );
 
             if ($order->dispensings()->where('status', Dispensing::STATUS_IN_PROGRESS)->exists()) {
                 throw ValidationException::withMessages([

@@ -58,6 +58,9 @@ export default function BillingPaymentCreate({ initialPatient, eligibleInvoices,
 
     const referenceRequired = methodsRequiringReference.includes(data.payment_method as PaymentMethod);
 
+    const maxAmount = selectedInvoice ? Number(selectedInvoice.outstanding.patient_outstanding) : null;
+    const amountExceedsOutstanding = maxAmount !== null && data.amount !== '' && Number(data.amount) > maxAmount;
+
     const selectPatient = (patient: PatientSearchResult) => {
         setSelectedPatient(patient);
         setData('invoice_id', '');
@@ -161,11 +164,19 @@ export default function BillingPaymentCreate({ initialPatient, eligibleInvoices,
                                         id="amount"
                                         type="number"
                                         min={0}
+                                        max={maxAmount ?? undefined}
                                         step="0.01"
                                         value={data.amount}
                                         onChange={(e) => setData('amount', e.target.value)}
+                                        aria-invalid={amountExceedsOutstanding}
                                         required
                                     />
+                                    {amountExceedsOutstanding && selectedInvoice && (
+                                        <p className="text-destructive text-sm">
+                                            Amount cannot exceed the outstanding balance of{' '}
+                                            {formatMoney(selectedInvoice.outstanding.patient_outstanding, selectedInvoice.invoice.currency)}.
+                                        </p>
+                                    )}
                                     <InputError message={errors.amount} />
                                 </div>
 
@@ -224,7 +235,7 @@ export default function BillingPaymentCreate({ initialPatient, eligibleInvoices,
                                 <Button type="button" variant="outline" asChild>
                                     <Link href={route('billing.payments.index')}>Cancel</Link>
                                 </Button>
-                                <Button type="submit" disabled={processing || !data.invoice_id}>
+                                <Button type="submit" disabled={processing || !data.invoice_id || amountExceedsOutstanding}>
                                     {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
                                     Record Payment
                                 </Button>

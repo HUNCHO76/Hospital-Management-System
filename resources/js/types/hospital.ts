@@ -1,5 +1,11 @@
 export type HospitalStatus = 'active' | 'inactive';
 
+export interface HospitalConsultationServiceOption {
+    id: number;
+    code: string;
+    name: string;
+}
+
 export interface Hospital {
     id: number;
     name: string;
@@ -12,6 +18,8 @@ export interface Hospital {
     district: string | null;
     ward: string | null;
     status: HospitalStatus;
+    default_consultation_service_id: number | null;
+    default_consultation_service?: HospitalConsultationServiceOption | null;
     departments_count?: number;
     created_at: string;
     updated_at: string;
@@ -28,6 +36,7 @@ export interface HospitalFormData {
     district: string;
     ward: string;
     status: HospitalStatus;
+    default_consultation_service_id: string;
     [key: string]: string;
 }
 

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Charge;
 use App\Models\ReceptionVisit;
 
 function createVisit(array $overrides = []): ReceptionVisit
@@ -74,4 +75,38 @@ test('a checked-in visit cannot skip directly to ready for service', function ()
     $this->actingAs($user)->post(route('reception.visits.ready', $visit))->assertSessionHasErrors('status');
 
     expect($visit->fresh()->status)->toBe(ReceptionVisit::STATUS_CHECKED_IN);
+});
+
+test('send to service passes when no charge exists (no-charge rule — free consultation)', function () {
+    $user = userWithRole('receptionist');
+    $visit = createVisit(['status' => ReceptionVisit::STATUS_READY_FOR_SERVICE]);
+
+    // No charge captured (practitioner has no consultation_service_id) — gate must pass.
+    $this->actingAs($user)->post(route('reception.visits.send-to-service', $visit))->assertRedirect();
+
+    expect($visit->fresh()->status)->toBe(ReceptionVisit::STATUS_SENT_TO_SERVICE);
+});
+
+test('send to service is blocked when a consultation charge exists but has not been paid', function () {
+    $user = userWithRole('receptionist');
+    $ctx = appointmentBookingContext();
+    $visit = ReceptionVisit::factory()->create([
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'status' => ReceptionVisit::STATUS_READY_FOR_SERVICE,
+    ]);
+
+    // Attach a PENDING charge sourced to this visit — payment not yet collected.
+    Charge::factory()->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'source_type' => ReceptionVisit::class,
+        'source_id' => $visit->id,
+        'status' => Charge::STATUS_PENDING,
+    ]);
+
+    $this->actingAs($user)->post(route('reception.visits.send-to-service', $visit))
+        ->assertSessionHasErrors('financial_authorization');
+
+    expect($visit->fresh()->status)->toBe(ReceptionVisit::STATUS_READY_FOR_SERVICE);
 });

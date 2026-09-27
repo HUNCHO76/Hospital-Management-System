@@ -44,11 +44,12 @@ class RadiologySchedulingService
 
             $this->assertItemSchedulable($item);
 
-            // Step 62: financial authorization gate — the radiology charge must
-            // be paid before an appointment slot is allocated.
+            // Step 62: financial authorization gate — no-charge rule: procedures
+            // with no billing mapping (capture skipped) never block scheduling.
             $this->financialAuth->assertAuthorizedForSources(
                 RadiologyOrderItem::class,
                 [$item->id],
+                FinancialAuthorizationService::STATUS_AUTHORIZED,
             );
 
             $start = $data['scheduled_start'];

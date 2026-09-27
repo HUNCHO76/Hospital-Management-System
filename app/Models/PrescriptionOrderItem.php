@@ -109,6 +109,7 @@ class PrescriptionOrderItem extends Model
         'quantity',
         'quantity_unit',
         'instructions',
+        'safety_override_justification',
         'status',
         'cancelled_at',
         'cancelled_by',

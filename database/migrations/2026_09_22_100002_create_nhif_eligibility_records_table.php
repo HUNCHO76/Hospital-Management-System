@@ -35,7 +35,7 @@ return new class extends Migration
             $table->foreignId('checked_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 
-            $table->index(['patient_insurance_id', 'eligibility_status']);
+            $table->index(['patient_insurance_id', 'eligibility_status'], 'nhif_elig_insurance_status_idx');
             $table->index('eligibility_checked_at');
         });
     }

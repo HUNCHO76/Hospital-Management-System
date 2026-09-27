@@ -22,6 +22,7 @@ use App\Http\Controllers\EncounterLaboratoryOrderController;
 use App\Http\Controllers\EncounterPrescriptionOrderController;
 use App\Http\Controllers\EncounterRadiologyOrderController;
 use App\Http\Controllers\HospitalController;
+use App\Http\Controllers\InpatientController;
 use App\Http\Controllers\InsuranceCoverageRuleController;
 use App\Http\Controllers\InsuranceProviderController;
 use App\Http\Controllers\InsuranceSchemeController;
@@ -30,11 +31,15 @@ use App\Http\Controllers\InvoiceInsuranceController;
 use App\Http\Controllers\LaboratoryBenchController;
 use App\Http\Controllers\LaboratoryOrderController;
 use App\Http\Controllers\LaboratoryProcessingController;
+use App\Http\Controllers\LaboratoryReferenceRangeController;
 use App\Http\Controllers\LaboratoryReportController;
 use App\Http\Controllers\LaboratoryResultController;
+use App\Http\Controllers\LaboratoryResultDocumentController;
 use App\Http\Controllers\LaboratorySampleController;
 use App\Http\Controllers\LaboratoryTestCategoryController;
 use App\Http\Controllers\LaboratoryTestController;
+use App\Http\Controllers\LaboratoryTestParameterController;
+use App\Http\Controllers\MedicationAdministrationController;
 use App\Http\Controllers\MedicationController;
 use App\Http\Controllers\NhifAuthorizationContextController;
 use App\Http\Controllers\NhifClaimController;
@@ -43,6 +48,7 @@ use App\Http\Controllers\NhifDashboardController;
 use App\Http\Controllers\NhifEligibilityController;
 use App\Http\Controllers\NhifMemberVerificationController;
 use App\Http\Controllers\NhifPractitionerAttendanceController;
+use App\Http\Controllers\NhifPreApprovalSessionController;
 use App\Http\Controllers\NhifPreauthorizationController;
 use App\Http\Controllers\NhifPriceSyncController;
 use App\Http\Controllers\NhifServiceCatalogController;
@@ -91,12 +97,16 @@ Route::middleware(['auth'])->group(function () {
     Route::post('practitioners/{practitioner}/nhif-login', [NhifPractitionerAttendanceController::class, 'login'])->name('practitioners.nhif-login');
     Route::post('practitioners/{practitioner}/nhif-logout', [NhifPractitionerAttendanceController::class, 'logout'])->name('practitioners.nhif-logout');
 
-    // Phase 8, Step 70 — Admissions lifecycle
+    // Phase 8, Step 70 — Admissions lifecycle; Phase 9, Step 72 — review/approval workflow
     Route::prefix('admissions')->name('admissions.')->group(function () {
         Route::get('', [AdmissionController::class, 'index'])->name('index');
         Route::get('create', [AdmissionController::class, 'create'])->name('create');
         Route::post('', [AdmissionController::class, 'store'])->name('store');
         Route::get('{admission}', [AdmissionController::class, 'show'])->name('show');
+        Route::post('{admission}/review', [AdmissionController::class, 'startReview'])->name('review');
+        Route::post('{admission}/approve', [AdmissionController::class, 'approve'])->name('approve');
+        Route::post('{admission}/reject', [AdmissionController::class, 'reject'])->name('reject');
+        Route::post('{admission}/return', [AdmissionController::class, 'returnForCorrection'])->name('return');
         Route::post('{admission}/confirm', [AdmissionController::class, 'confirm'])->name('confirm');
         Route::post('{admission}/discharge', [AdmissionController::class, 'discharge'])->name('discharge');
         Route::post('{admission}/cancel', [AdmissionController::class, 'cancel'])->name('cancel');
@@ -104,6 +114,20 @@ Route::middleware(['auth'])->group(function () {
         Route::post('{admission}/transfers/{transfer}/complete', [AdmissionController::class, 'completeTransfer'])->name('transfers.complete');
         Route::post('{admission}/nhif-submit', [AdmissionController::class, 'submitNhif'])->name('nhif-submit');
         Route::post('{admission}/transfers/{transfer}/nhif-submit', [AdmissionController::class, 'submitTransferNhif'])->name('transfers.nhif-submit');
+    });
+
+    // Phase 9, Step 74 — inpatient ward dashboard and patient clinical profile
+    // Phase 9, Step 75 — medication administration record (MAR)
+    Route::prefix('inpatient')->name('inpatient.')->group(function () {
+        Route::get('', [InpatientController::class, 'dashboard'])->name('dashboard');
+        Route::get('{admission}/clinical-profile', [InpatientController::class, 'clinicalProfile'])->name('clinical-profile');
+        Route::post('{admission}/encounters', [InpatientController::class, 'openEncounter'])->name('open-encounter');
+        Route::post('{admission}/clinical-status', [InpatientController::class, 'updateClinicalStatus'])->name('update-clinical-status');
+        Route::post('{admission}/vitals', [InpatientController::class, 'storeVitals'])->name('store-vitals');
+        // MAR routes
+        Route::get('{admission}/medications', [MedicationAdministrationController::class, 'worklist'])->name('medications.worklist');
+        Route::post('{admission}/medications', [MedicationAdministrationController::class, 'store'])->name('medications.store');
+        Route::post('{admission}/medications/{medicationAdministration}/correct', [MedicationAdministrationController::class, 'correct'])->name('medications.correct');
     });
 
     // Phase 8, Step 68 — NHIF service/price mapping administration
@@ -130,6 +154,7 @@ Route::middleware(['auth'])->group(function () {
         // Individual preauth record actions (no patient context needed for these)
         Route::get('preauthorizations/{nhifPreauthorization}', [NhifPreauthorizationController::class, 'show'])->name('preauthorization.show');
         Route::post('preauthorizations/{nhifPreauthorization}/submit', [NhifPreauthorizationController::class, 'submit'])->name('preauthorization.submit');
+        Route::post('preauthorizations/{nhifPreauthorization}/sync', [NhifPreauthorizationController::class, 'sync'])->name('preauthorization.sync');
         Route::post('preauthorizations/{nhifPreauthorization}/cancel', [NhifPreauthorizationController::class, 'cancel'])->name('preauthorization.cancel');
 
         // Phase 8, Step 71 — NHIF clinical service utilization monitoring & recovery.
@@ -156,6 +181,14 @@ Route::middleware(['auth'])->group(function () {
         Route::get('claims/{nhifClaim}/documents/{nhifClaimDocument}', [NhifClaimController::class, 'downloadDocument'])->name('claims.documents.download');
         Route::delete('claims/{nhifClaim}/documents/{nhifClaimDocument}', [NhifClaimController::class, 'destroyDocument'])->name('claims.documents.destroy');
 
+        // OCS — sign, receipt, monthly submission, bill confirmation
+        Route::post('claims/{nhifClaim}/sign', [NhifClaimController::class, 'sign'])->name('claims.sign');
+        Route::get('claims/{nhifClaim}/receipt', [NhifClaimController::class, 'receipt'])->name('claims.receipt');
+        Route::get('claims/monthly', [NhifClaimController::class, 'monthly'])->name('claims.monthly');
+        Route::post('claims/monthly/submit', [NhifClaimController::class, 'submitMonthly'])->name('claims.monthly.submit');
+        Route::get('claims/bill-confirmation', [NhifClaimController::class, 'billConfirmation'])->name('claims.bill-confirmation.index');
+        Route::post('claims/bill-confirmation', [NhifClaimController::class, 'requestBillConfirmation'])->name('claims.bill-confirmation.store');
+
         // Phase 8, Step 74 — NHIF claim reconciliation & response handling.
         // Reuses Step 73's submission data; there is no way to hand-set a claim's
         // NHIF outcome — only to (re-)derive it from an actual NHIF response.
@@ -166,6 +199,11 @@ Route::middleware(['auth'])->group(function () {
         Route::post('claims/{nhifClaim}/reconciliation/discrepancies/{nhifClaimDiscrepancy}/resolve', [NhifClaimReconciliationController::class, 'resolveDiscrepancy'])->name('claims.reconciliation.discrepancies.resolve');
     });
     Route::get('patients/search-json', [PatientController::class, 'searchJson'])->name('patients.search-json');
+    // NHIF-first registration lookup (Phase 8): pre-registration internal HMS endpoints.
+    Route::post('patients/nhif-lookup', [NhifMemberVerificationController::class, 'lookup'])->name('patients.nhif-lookup');
+    Route::post('patients/nhif-verifiers', [NhifMemberVerificationController::class, 'getVerifiers'])->name('patients.nhif-verifiers');
+    Route::get('patients/nhif-visit-types', [NhifMemberVerificationController::class, 'getVisitTypes'])->name('patients.nhif-visit-types');
+    Route::get('patients/nhif-scheme-services', [NhifMemberVerificationController::class, 'getSchemeServices'])->name('patients.nhif-scheme-services');
     Route::resource('patients', PatientController::class);
     Route::get('patients/{patient}/history', [PatientController::class, 'history'])->name('patients.history');
     Route::get('patients/{patient}/clinical-history', [PatientController::class, 'clinicalHistory'])->name('patients.clinical-history');
@@ -194,6 +232,18 @@ Route::middleware(['auth'])->group(function () {
         // Preauthorization creation/listing (patient context required for IDOR protection)
         Route::get('{patientInsurance}/nhif-preauthorizations', [NhifPreauthorizationController::class, 'index'])->name('nhif-preauthorization.index');
         Route::post('{patientInsurance}/nhif-preauthorizations', [NhifPreauthorizationController::class, 'store'])->name('nhif-preauthorization.store');
+
+        // NHIF Pre-Approval Sessions (batch: create → submit → sync → issue)
+        Route::prefix('{patientInsurance}/nhif-pre-approval-sessions')->name('nhif.pre-approval-sessions.')->group(function () {
+            Route::get('/', [NhifPreApprovalSessionController::class, 'index'])->name('index');
+            Route::get('create', [NhifPreApprovalSessionController::class, 'create'])->name('create');
+            Route::post('/', [NhifPreApprovalSessionController::class, 'store'])->name('store');
+            Route::get('{nhifPreApprovalSession}', [NhifPreApprovalSessionController::class, 'show'])->name('show');
+            Route::post('{nhifPreApprovalSession}/submit', [NhifPreApprovalSessionController::class, 'submit'])->name('submit');
+            Route::post('{nhifPreApprovalSession}/sync', [NhifPreApprovalSessionController::class, 'sync'])->name('sync');
+            Route::post('{nhifPreApprovalSession}/issue', [NhifPreApprovalSessionController::class, 'issue'])->name('issue');
+            Route::post('{nhifPreApprovalSession}/cancel', [NhifPreApprovalSessionController::class, 'cancel'])->name('cancel');
+        });
     });
 
     // No destroy route: appointments are never hard-deleted, only cancelled
@@ -627,6 +677,13 @@ Route::middleware(['auth'])->group(function () {
         Route::post('results/{result}/authorize', [LaboratoryResultController::class, 'authorizeResult'])->name('results.authorize');
         Route::post('results/{result}/return', [LaboratoryResultController::class, 'returnForCorrection'])->name('results.return');
         Route::post('results/{result}/release', [LaboratoryResultController::class, 'release'])->name('results.release');
+
+        // Phase 4 Machine Document Upload — PDF/JPG/PNG documents from
+        // analyzers, attached to an editable result and streamed back through
+        // an authenticated route (path never sent to the browser).
+        Route::post('results/{result}/documents', [LaboratoryResultDocumentController::class, 'store'])->name('results.documents.store');
+        Route::get('results/{result}/documents/{document}', [LaboratoryResultDocumentController::class, 'show'])->name('results.documents.show');
+        Route::delete('results/{result}/documents/{document}', [LaboratoryResultDocumentController::class, 'destroy'])->name('results.documents.destroy');
     });
 
     // The laboratory report viewer (Phase 4, Step 35) — one printable/
@@ -659,6 +716,18 @@ Route::middleware(['auth'])->group(function () {
         ->except(['destroy']);
     Route::post('laboratory/tests/{laboratoryTest}/activate', [LaboratoryTestController::class, 'activate'])->name('laboratory-tests.activate');
     Route::post('laboratory/tests/{laboratoryTest}/deactivate', [LaboratoryTestController::class, 'deactivate'])->name('laboratory-tests.deactivate');
+
+    // Per-test parameter definitions (analyte catalog engine, Batch A).
+    // Parameters are created/updated/deleted via the parent test's show page —
+    // no dedicated show/index routes; all actions redirect back to tests.show.
+    Route::post('laboratory/tests/{laboratoryTest}/parameters', [LaboratoryTestParameterController::class, 'store'])->name('laboratory-test-parameters.store');
+    Route::put('laboratory/tests/{laboratoryTest}/parameters/{parameter}', [LaboratoryTestParameterController::class, 'update'])->name('laboratory-test-parameters.update');
+    Route::delete('laboratory/tests/{laboratoryTest}/parameters/{parameter}', [LaboratoryTestParameterController::class, 'destroy'])->name('laboratory-test-parameters.destroy');
+
+    // Reference ranges nested under a parameter — also redirect to tests.show.
+    Route::post('laboratory/parameters/{parameter}/ranges', [LaboratoryReferenceRangeController::class, 'store'])->name('laboratory-reference-ranges.store');
+    Route::put('laboratory/parameters/{parameter}/ranges/{range}', [LaboratoryReferenceRangeController::class, 'update'])->name('laboratory-reference-ranges.update');
+    Route::delete('laboratory/parameters/{parameter}/ranges/{range}', [LaboratoryReferenceRangeController::class, 'destroy'])->name('laboratory-reference-ranges.destroy');
 
     // Laboratory test categories — no show route (managed entirely from
     // the index page) and no destroy route (deactivated, never deleted).

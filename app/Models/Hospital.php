@@ -6,6 +6,7 @@ use App\Models\Concerns\HasStatus;
 use Database\Factories\HospitalFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -37,6 +38,7 @@ class Hospital extends Model
         'district',
         'ward',
         'status',
+        'default_consultation_service_id',
     ];
 
     /**
@@ -53,5 +55,15 @@ class Hospital extends Model
     public function staff(): HasMany
     {
         return $this->hasMany(Staff::class);
+    }
+
+    /**
+     * The facility-wide consultation service ChargeCaptureService falls
+     * back to when the assigned practitioner has no practitioner-specific
+     * consultation_service_id configured.
+     */
+    public function defaultConsultationService(): BelongsTo
+    {
+        return $this->belongsTo(Service::class, 'default_consultation_service_id');
     }
 }

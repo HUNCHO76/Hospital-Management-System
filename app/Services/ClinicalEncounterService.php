@@ -17,6 +17,8 @@ class ClinicalEncounterService
     public function __construct(
         protected AuditLogService $auditLog,
         protected ChargeCaptureService $chargeCapture,
+        protected ChargeService $charges,
+        protected InvoiceService $invoices,
         protected FinancialAuthorizationService $financialAuth,
     ) {}
 
@@ -41,15 +43,22 @@ class ClinicalEncounterService
             $this->assertNoActiveEncounter($data['patient_id']);
 
             // Step 62 fix: when the encounter is being created from a reception
-            // visit, enforce the financial gate that was checked at
-            // sendToService() — defense-in-depth for direct URL bypass.
-            // The gate uses the no-charge rule: if no charge was captured at
-            // reception (walk-in without practitioner), it passes automatically.
+            // visit, enforce the financial gate — defense-in-depth for direct
+            // URL bypass. Uses the same no-charge rule as sendToService(): if
+            // no charge was captured at reception (practitioner has no
+            // consultation service), the gate passes automatically.
             if (! empty($data['reception_visit_id'])) {
-                $this->financialAuth->assertAuthorizedForSources(
+                $paymentStatus = $this->financialAuth->statusForSource(
                     ReceptionVisit::class,
-                    [(int) $data['reception_visit_id']],
+                    (int) $data['reception_visit_id'],
+                    FinancialAuthorizationService::STATUS_AUTHORIZED,
                 );
+
+                if ($paymentStatus !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                    throw ValidationException::withMessages([
+                        'financial_authorization' => 'Payment is required before this patient can proceed to the clinical queue.',
+                    ]);
+                }
             }
 
             $data['status'] = ClinicalEncounter::STATUS_OPEN;
@@ -71,14 +80,17 @@ class ClinicalEncounterService
                 // was already captured at reception time.
             } else {
                 // Step 62: capture a consultation charge at encounter creation
-                // time when a billable practitioner is known and no reception
-                // visit is involved (direct encounter creation path).
+                // time when a practitioner is known and no reception visit is
+                // involved (direct encounter creation path). The practitioner's
+                // own consultation service wins, else the facility default —
+                // see ChargeCaptureService::resolveConsultationService().
                 if (! empty($data['practitioner_id'])) {
                     $practitioner = Practitioner::query()->find($data['practitioner_id']);
 
-                    if ($practitioner?->consultation_service_id) {
+                    if ($practitioner) {
                         $encounter->load('department');
-                        $this->chargeCapture->captureFromClinicalEncounter($encounter, $practitioner, $request);
+                        $charge = $this->chargeCapture->captureFromClinicalEncounter($encounter, $practitioner, $request);
+                        $this->postAndInvoiceEncounterCharge($charge, $request);
                     }
                 }
             }
@@ -259,11 +271,13 @@ class ClinicalEncounterService
 
             $encounter->update(['practitioner_id' => $practitionerId]);
 
-            // Capture new charge for the incoming practitioner if they have a billable service.
-            if ($newPractitioner->consultation_service_id) {
-                $encounter->load('department');
-                $this->chargeCapture->captureFromClinicalEncounter($encounter, $newPractitioner, $request);
-            }
+            // Capture new charge for the incoming practitioner — their own
+            // consultation service wins, else the facility default (see
+            // ChargeCaptureService::resolveConsultationService()); $newPractitioner
+            // is already guaranteed active/non-null by the check above.
+            $encounter->load('department');
+            $charge = $this->chargeCapture->captureFromClinicalEncounter($encounter, $newPractitioner, $request);
+            $this->postAndInvoiceEncounterCharge($charge, $request);
 
             $this->auditLog->record(
                 'clinical_encounter_practitioner_changed',
@@ -280,15 +294,38 @@ class ClinicalEncounterService
     }
 
     /**
-     * The patient's current active encounter, if any — used both to block a
-     * second concurrent encounter and to surface the existing one to
-     * authorized staff instead of a raw error.
+     * Post a freshly-captured encounter charge and raise a posted invoice so
+     * the financial gate in TriageService and ConsultationService can verify
+     * payment. No-op when $charge is null (the no-charge safety net: no
+     * consultation service configured for the practitioner or facility).
+     */
+    protected function postAndInvoiceEncounterCharge(?Charge $charge, Request $request): void
+    {
+        if ($charge === null) {
+            return;
+        }
+
+        $posted = $this->charges->post($charge, $request);
+        $account = $posted->patientAccount;
+        $invoice = $this->invoices->createDraft($account, [$posted->id], null, $request);
+        $this->invoices->post($invoice, $request);
+    }
+
+    /**
+     * The patient's current active non-inpatient encounter, if any — used
+     * both to block a second concurrent OPD encounter and to surface the
+     * existing one to authorized staff instead of a raw error. Inpatient
+     * encounters (encounter_type = 'inpatient') are excluded deliberately:
+     * a patient may have one active inpatient encounter and one active OPD
+     * encounter concurrently (e.g. an inpatient attending outpatient
+     * imaging) without blocking either creation.
      */
     public function findActiveEncounter(int $patientId): ?ClinicalEncounter
     {
         return ClinicalEncounter::query()
             ->where('patient_id', $patientId)
             ->whereIn('status', ClinicalEncounter::ACTIVE_STATUSES)
+            ->where('encounter_type', '!=', 'inpatient')
             ->first();
     }
 

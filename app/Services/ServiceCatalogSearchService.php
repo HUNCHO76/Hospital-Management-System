@@ -56,7 +56,13 @@ class ServiceCatalogSearchService
      */
     public function pricesQuery(array $filters): Builder
     {
-        $query = ServicePrice::query()->with(['service:id,code,name', 'hospital:id,name', 'createdBy:id,UserName']);
+        $query = ServicePrice::query()->with([
+            'service:id,code,name',
+            'hospital:id,name',
+            'createdBy:id,UserName',
+            'practitioner:id,staff_id,practitioner_number',
+            'practitioner.staff:id,first_name,last_name',
+        ]);
 
         $search = trim((string) ($filters['search'] ?? ''));
 

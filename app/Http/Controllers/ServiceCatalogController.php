@@ -6,7 +6,10 @@ use App\Http\Requests\Billing\CreateServiceRequest;
 use App\Http\Requests\Billing\UpdateServiceRequest;
 use App\Http\Resources\ServicePriceResource;
 use App\Http\Resources\ServiceResource;
+use App\Models\Hospital;
+use App\Models\Practitioner;
 use App\Models\Service;
+use App\Models\ServicePrice;
 use App\Services\ServiceCatalogSearchService;
 use App\Services\ServiceCatalogService;
 use Illuminate\Http\RedirectResponse;
@@ -63,22 +66,50 @@ class ServiceCatalogController extends Controller
         $service->load('createdBy:id,UserName');
         $service->loadCount('prices');
 
-        $prices = $service->prices()->with(['hospital:id,name', 'createdBy:id,UserName'])->orderByDesc('effective_from')->get();
+        $prices = $service->prices()
+            ->with([
+                'hospital:id,name',
+                'createdBy:id,UserName',
+                'practitioner:id,staff_id,practitioner_number',
+                'practitioner.staff:id,first_name,last_name',
+            ])
+            ->orderByDesc('effective_from')
+            ->paginate(20)
+            ->withQueryString()
+            ->through(fn (ServicePrice $price) => (new ServicePriceResource($price))->resolve($request));
 
         return Inertia::render('billing/services/show', [
             'service' => (new ServiceResource($service))->resolve($request),
-            'prices' => ServicePriceResource::collection($prices)->resolve($request),
+            'prices' => $prices,
             'canCreatePrice' => $request->user()->can('billing-pricing.create'),
         ]);
     }
 
-    public function edit(Service $service): Response
+    public function edit(Request $request, Service $service): Response
     {
         $service->loadCount('prices');
+        $service->load(['prices' => fn ($query) => $query
+            ->where('status', ServicePrice::STATUS_ACTIVE)
+            ->with(['hospital:id,name', 'practitioner:id,staff_id,practitioner_number', 'practitioner.staff:id,first_name,last_name'])
+            ->orderByDesc('effective_from'),
+        ]);
+
+        $hospitals = $request->user()->hasRole('hospital-admin')
+            ? Hospital::query()->whereKey($this->scopedHospitalId($request))->select('id', 'name')->get()
+            : Hospital::query()->where('status', Hospital::STATUS_ACTIVE)->select('id', 'name')->orderBy('name')->get();
+
+        $practitioners = Practitioner::query()->where('status', Practitioner::STATUS_ACTIVE)
+            ->with('staff:id,first_name,last_name')
+            ->orderBy('practitioner_number')
+            ->get(['id', 'practitioner_number', 'staff_id']);
 
         return Inertia::render('billing/services/edit', [
-            'service' => (new ServiceResource($service))->resolve(request()),
+            'service' => (new ServiceResource($service))->resolve($request),
             'categories' => Service::CATEGORIES,
+            'currentPrices' => ServicePriceResource::collection($service->prices)->resolve($request),
+            'hospitals' => $hospitals,
+            'practitioners' => $practitioners,
+            'canCreatePrice' => $request->user()->can('billing-pricing.create'),
         ]);
     }
 
@@ -105,5 +136,18 @@ class ServiceCatalogController extends Controller
         $catalog->deactivate($service, $request);
 
         return back()->with('success', 'Service deactivated.');
+    }
+
+    /**
+     * The hospital a hospital-admin is restricted to, or null when the user
+     * is unrestricted (super-admin and any other unscoped role).
+     */
+    protected function scopedHospitalId(Request $request): ?int
+    {
+        if (! $request->user()->hasRole('hospital-admin')) {
+            return null;
+        }
+
+        return $request->user()->staff?->hospital_id;
     }
 }

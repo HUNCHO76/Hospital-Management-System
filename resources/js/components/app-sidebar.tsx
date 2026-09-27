@@ -6,6 +6,7 @@ import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
 import {
     Activity,
+    BedDouble,
     Building2,
     CalendarClock,
     ClipboardCheck,
@@ -43,10 +44,24 @@ export function AppSidebar() {
         ...(can('appointments.view') ? [{ title: 'Appointments', url: '/appointments', icon: CalendarClock }] : []),
         ...(can('reception.dashboard') ? [{ title: 'Reception', url: '/reception', icon: ClipboardList }] : []),
         ...(can('clinical-encounters.view') ? [{ title: 'Clinical Encounters', url: '/clinical-encounters', icon: Activity }] : []),
+        ...(can('admission.view') ? [{ title: 'Admissions', url: '/admissions', icon: BedDouble }] : []),
+        ...(can('admission.view') ? [{ title: 'Inpatient Ward', url: '/inpatient', icon: BedDouble }] : []),
         ...(can('laboratory.view') ? [{ title: 'Laboratory', url: '/laboratory', icon: FlaskConical }] : []),
         ...(can('radiology.view') ? [{ title: 'Radiology', url: '/radiology', icon: Scan }] : []),
         ...(can('pharmacy.view') ? [{ title: 'Pharmacy', url: '/pharmacy', icon: Pill }] : []),
-        ...(can('billing.view') ? [{ title: 'Billing', url: '/billing', icon: Receipt }] : []),
+        ...(can('billing.view')
+            ? [
+                  {
+                      title: 'Billing',
+                      url: '/billing',
+                      icon: Receipt,
+                      items: [
+                          ...(can('billing-services.view') ? [{ title: 'Services', url: '/billing/services' }] : []),
+                          ...(can('billing-pricing.view') ? [{ title: 'Pricing', url: '/billing/pricing' }] : []),
+                      ],
+                  },
+              ]
+            : []),
         ...(can('insurance-providers.view') ? [{ title: 'Insurance Providers', url: '/insurance/providers', icon: ShieldCheck }] : []),
         ...(can('insurance-schemes.view') ? [{ title: 'Insurance Schemes', url: '/insurance/schemes', icon: ShieldCheck }] : []),
         ...(can('patient-insurance.view') ? [{ title: 'Patient Insurance', url: '/insurance/patient-insurance', icon: ShieldCheck }] : []),

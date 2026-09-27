@@ -34,6 +34,16 @@ class ServiceCatalogSeeder extends Seeder
     protected array $clinicalServices = [
         ['code' => 'CONSULT-GP', 'name' => 'General Consultation', 'category' => 'consultation', 'description' => 'A general outpatient consultation with a doctor.'],
         ['code' => 'CONSULT-SPECIALIST', 'name' => 'Specialist Consultation', 'category' => 'consultation', 'description' => 'An outpatient consultation with a specialist.'],
+        ['code' => 'CONSULT-DENTAL', 'name' => 'Dental Consultation', 'category' => 'consultation', 'description' => 'An outpatient consultation with a dental specialist.'],
+        ['code' => 'CONSULT-EYE', 'name' => 'Eye/Ophthalmology Consultation', 'category' => 'consultation', 'description' => 'An outpatient consultation with an ophthalmologist.'],
+        // Phase 9, Step 71: starter inpatient-tier services — same "hand-authored
+        // starter pair" precedent as CONSULT-GP/CONSULT-SPECIALIST above, since
+        // no existing "ward type" catalog exists anywhere in this app to map
+        // from. AdmissionService resolves an admission's daily rate from
+        // whichever of these the requester selects, via the same
+        // ServicePriceResolver every other module already uses.
+        ['code' => 'WARD-GENERAL', 'name' => 'General Ward Admission', 'category' => 'inpatient', 'description' => 'Daily bed charge for a general ward admission.'],
+        ['code' => 'WARD-ICU', 'name' => 'ICU Admission', 'category' => 'inpatient', 'description' => 'Daily bed charge for an intensive care unit admission.'],
     ];
 
     public function run(): void

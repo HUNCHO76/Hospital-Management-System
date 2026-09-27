@@ -7,7 +7,6 @@ use App\Models\PatientInsurance;
 use App\Models\User;
 use App\Services\NHIF\NhifHttpClient;
 use App\Services\NHIF\NhifMemberVerificationService;
-use Illuminate\Http\Client\ConnectionException;
 use Spatie\Permission\Models\Permission;
 
 // ---------------------------------------------------------------------------
@@ -145,13 +144,13 @@ test('insurance via NIN requires national_id field', function () {
         ->assertSessionHasErrors('national_id');
 });
 
-test('insurance via card_number requires nhif_card_number', function () {
+test('insurance via CardNo requires nhif_card_number', function () {
     $user = registrationUser();
     $provider = nhifProvider();
 
     $this->actingAs($user)
         ->post(route('patients.store'), validInsurancePayload($provider, [
-            'nhif_identifier_type' => 'card_number',
+            'nhif_identifier_type' => 'CardNo',
             'nhif_card_number' => '',
         ]))
         ->assertSessionHasErrors('nhif_card_number');
@@ -207,6 +206,9 @@ test('inactive membership number does not block new registration', function () {
             'correlation_id' => 'test-corr-123',
             'operation' => 'GetMemberDetailsByNIN',
         ]);
+        $mock->shouldReceive('getVisitTypes')->andReturn(['success' => true, 'data' => [], 'error' => null, 'http_status' => 200, 'correlation_id' => 'x', 'operation' => 'GetVisitTypes']);
+        $mock->shouldReceive('getCardVerifiers')->andReturn(['success' => true, 'data' => [['verifierID' => 'V1']], 'http_status' => 200, 'error' => null, 'correlation_id' => 'x', 'operation' => 'GetCardVerifiers']);
+        $mock->shouldReceive('verifyCard')->andReturn(['success' => true, 'data' => ['authorizationNo' => 'AUTH-INACTIVE-TEST', 'authorizationStatus' => 'ACCEPTED'], 'http_status' => 200, 'error' => null, 'correlation_id' => 'x', 'operation' => 'VerifyCard']);
         $mock->shouldReceive('checkEligibility')->andReturn([
             'success' => true,
             'data' => ['EligibilityStatus' => 'Eligible', 'CoveragePercent' => '80'],
@@ -246,6 +248,9 @@ test('insurance registration creates patient and insurance when nhif verifies', 
             'correlation_id' => 'test-corr-789',
             'operation' => 'GetMemberDetailsByNIN',
         ]);
+        $mock->shouldReceive('getVisitTypes')->andReturn(['success' => true, 'data' => [], 'error' => null, 'http_status' => 200, 'correlation_id' => 'x', 'operation' => 'GetVisitTypes']);
+        $mock->shouldReceive('getCardVerifiers')->andReturn(['success' => true, 'data' => [['verifierID' => 'V1']], 'http_status' => 200, 'error' => null, 'correlation_id' => 'x', 'operation' => 'GetCardVerifiers']);
+        $mock->shouldReceive('verifyCard')->andReturn(['success' => true, 'data' => ['authorizationNo' => 'AUTH-TEST', 'authorizationStatus' => 'ACCEPTED'], 'http_status' => 200, 'error' => null, 'correlation_id' => 'x', 'operation' => 'VerifyCard']);
         $mock->shouldReceive('checkEligibility')->once()->andReturn([
             'success' => true,
             'data' => ['EligibilityStatus' => 'Eligible', 'CoveragePercent' => '80'],
@@ -277,28 +282,23 @@ test('insurance registration creates patient and insurance when nhif verifies', 
         ->and($verification->identifier_type)->toBe('nin');
 });
 
-test('insurance registration succeeds with pending status when nhif api is unavailable', function () {
+test('insurance registration fails when nhif api is unavailable', function () {
     $user = registrationUser();
     $provider = nhifProvider();
 
     $this->mock(NhifHttpClient::class, function ($mock) {
-        $mock->shouldReceive('getMemberByNin')->andThrow(new ConnectionException('NHIF unreachable'));
+        $mock->shouldReceive('getMemberByNin')->andThrow(RuntimeException::class, 'NHIF unreachable');
     });
 
     $this->actingAs($user)
         ->post(route('patients.store'), validInsurancePayload($provider))
-        ->assertSessionHasNoErrors()
+        ->assertSessionHasErrors('nhif_verification')
         ->assertRedirect();
 
-    $patient = Patient::where('national_id', '20000101-99999-99999-1')->first();
-    expect($patient)->not->toBeNull();
-
-    $insurance = $patient->insurances()->first();
-    expect($insurance)->not->toBeNull()
-        ->and($insurance->verification_status)->toBe(PatientInsurance::VERIFICATION_PENDING);
+    expect(Patient::where('national_id', '20000101-99999-99999-1')->exists())->toBeFalse();
 });
 
-test('identity mismatch marks insurance as failed but still registers patient', function () {
+test('identity mismatch blocks patient registration', function () {
     $user = registrationUser();
     $provider = nhifProvider();
 
@@ -323,15 +323,10 @@ test('identity mismatch marks insurance as failed but still registers patient', 
             'first_name' => 'John',
             'last_name' => 'Doe',
         ]))
-        ->assertSessionHasNoErrors()
+        ->assertSessionHasErrors('nhif_verification')
         ->assertRedirect();
 
-    $patient = Patient::where('national_id', '20000101-99999-99999-1')->first();
-    expect($patient)->not->toBeNull();
-
-    $insurance = $patient->insurances()->first();
-    expect($insurance)->not->toBeNull()
-        ->and($insurance->verification_status)->toBe(PatientInsurance::VERIFICATION_FAILED);
+    expect(Patient::where('national_id', '20000101-99999-99999-1')->exists())->toBeFalse();
 });
 
 // ---------------------------------------------------------------------------
@@ -390,6 +385,9 @@ test('nhif verify endpoint triggers verification and redirects', function () {
             'correlation_id' => 'test-ctrl',
             'operation' => 'GetMemberDetailsByNIN',
         ]);
+        $mock->shouldReceive('getVisitTypes')->andReturn(['success' => true, 'data' => [], 'error' => null, 'http_status' => 200, 'correlation_id' => 'x', 'operation' => 'GetVisitTypes']);
+        $mock->shouldReceive('getCardVerifiers')->andReturn(['success' => true, 'data' => [['verifierID' => 'V1']], 'http_status' => 200, 'error' => null, 'correlation_id' => 'x', 'operation' => 'GetCardVerifiers']);
+        $mock->shouldReceive('verifyCard')->andReturn(['success' => true, 'data' => ['authorizationNo' => 'AUTH-TEST', 'authorizationStatus' => 'ACCEPTED'], 'http_status' => 200, 'error' => null, 'correlation_id' => 'x', 'operation' => 'VerifyCard']);
         $mock->shouldReceive('checkEligibility')->andReturn([
             'success' => false,
             'data' => [],
@@ -454,6 +452,9 @@ test('nhif verification marks as verified when nin and name match', function () 
             'correlation_id' => 'unit-001',
             'operation' => 'GetMemberDetailsByNIN',
         ]);
+        $mock->shouldReceive('getVisitTypes')->andReturn(['success' => true, 'data' => [], 'error' => null, 'http_status' => 200, 'correlation_id' => 'x', 'operation' => 'GetVisitTypes']);
+        $mock->shouldReceive('getCardVerifiers')->andReturn(['success' => true, 'data' => [['verifierID' => 'V1']], 'http_status' => 200, 'error' => null, 'correlation_id' => 'x', 'operation' => 'GetCardVerifiers']);
+        $mock->shouldReceive('verifyCard')->andReturn(['success' => true, 'data' => ['authorizationNo' => 'AUTH-TEST', 'authorizationStatus' => 'ACCEPTED'], 'http_status' => 200, 'error' => null, 'correlation_id' => 'x', 'operation' => 'VerifyCard']);
     });
 
     /** @var NhifMemberVerificationService $service */
@@ -495,4 +496,307 @@ test('nhif verification marks as invalid when name does not match', function () 
     $record = $service->verify($insurance, 'nin', 'NIN-BOB-002', request());
 
     expect($record->verification_status)->toBe(NhifMemberVerification::STATUS_INVALID);
+});
+
+// ---------------------------------------------------------------------------
+// NHIF-first registration lookup — POST /patients/nhif-lookup
+// ---------------------------------------------------------------------------
+
+test('nhif lookup by card number returns normalized member details', function () {
+    $user = registrationUser();
+    nhifProvider();
+
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByCard')->once()->with('00060000123456')->andReturn([
+            'success' => true,
+            'data' => [
+                'MemberName' => 'John Michael Doe',
+                'CardNo' => '00060000123456',
+                'MembershipNo' => 'MEM-001234',
+                'PlanName' => 'Standard',
+                'Status' => 'active',
+            ],
+            'http_status' => 200,
+            'error' => null,
+            'correlation_id' => 'lookup-card-1',
+            'operation' => 'GetMemberDetailsByCard',
+        ]);
+    });
+
+    $response = $this->actingAs($user)->postJson(route('patients.nhif-lookup'), [
+        'identifier_type' => 'CardNo',
+        'identifier_value' => '00060000123456',
+    ]);
+
+    $response->assertOk()->assertJson([
+        'success' => true,
+        'status' => 'found',
+        'member' => [
+            'first_name' => 'John',
+            'middle_name' => 'Michael',
+            'last_name' => 'Doe',
+            'membership_number' => 'MEM-001234',
+            'card_number' => '00060000123456',
+            'plan_name' => 'Standard',
+        ],
+        'existing_patient' => null,
+    ]);
+
+    expect(Patient::count())->toBe(0);
+});
+
+test('nhif lookup normalizes the real GetCardDetails response shape', function () {
+    $user = registrationUser();
+    nhifProvider();
+
+    // The actual NHIF Verification API response shape (not the older
+    // MemberName/NIN/Status guess this mapping used before) — discrete
+    // FirstName/MiddleName/LastName, Gender, DateOfBirth, CHNationalID for
+    // the NIN, and IsActive/IsValidCard/CardStatus for card status.
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByCard')->once()->andReturn([
+            'success' => true,
+            'data' => [
+                'CardExistence' => 'CARDS',
+                'PackageID' => 106,
+                'CardNo' => 'CARD-0001',
+                'MembershipNo' => 'MEM0001',
+                'SchemeID' => 1001,
+                'SchemeName' => 'Standard NHIF Benefit Scheme',
+                'FirstName' => 'Sophia',
+                'MiddleName' => null,
+                'LastName' => 'Wilson',
+                'FullName' => 'Sophia  Wilson',
+                'Gender' => 'Female',
+                'DateOfBirth' => '2008-03-12T00:00:00',
+                'CHNationalID' => '19890430111040000124',
+                'ExpiryDate' => '2028-01-17T00:00:00',
+                'CardStatusID' => 1,
+                'CardStatus' => 'Active',
+                'IsActive' => true,
+                'IsValidCard' => true,
+            ],
+            'http_status' => 200,
+            'error' => null,
+            'correlation_id' => 'lookup-real-shape',
+            'operation' => 'GetCardDetails',
+        ]);
+    });
+
+    $response = $this->actingAs($user)->postJson(route('patients.nhif-lookup'), [
+        'identifier_type' => 'CardNo',
+        'identifier_value' => 'CARD-0001',
+    ]);
+
+    $response->assertOk()->assertJson([
+        'success' => true,
+        'status' => 'found',
+        'member' => [
+            'first_name' => 'Sophia',
+            'middle_name' => null,
+            'last_name' => 'Wilson',
+            'gender' => 'female',
+            'date_of_birth' => '2008-03-12',
+            'membership_number' => 'MEM0001',
+            'card_number' => 'CARD-0001',
+            'nin' => '19890430111040000124',
+            'plan_name' => 'Standard NHIF Benefit Scheme',
+            'expiry_date' => '2028-01-17',
+        ],
+    ]);
+});
+
+test('nhif lookup by nin returns normalized member details', function () {
+    $user = registrationUser();
+    nhifProvider();
+
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByNin')->once()->with('20000101-99999-99999-1')->andReturn([
+            'success' => true,
+            'data' => [
+                'MemberName' => 'Jane Mary Mushi',
+                'NIN' => '20000101-99999-99999-1',
+                'MembershipNo' => 'MEM-005678',
+                'Status' => 'active',
+            ],
+            'http_status' => 200,
+            'error' => null,
+            'correlation_id' => 'lookup-nin-1',
+            'operation' => 'GetMemberDetailsByNIN',
+        ]);
+    });
+
+    $response = $this->actingAs($user)->postJson(route('patients.nhif-lookup'), [
+        'identifier_type' => 'nin',
+        'identifier_value' => '20000101-99999-99999-1',
+    ]);
+
+    $response->assertOk()->assertJson([
+        'success' => true,
+        'status' => 'found',
+        'member' => [
+            'first_name' => 'Jane',
+            'middle_name' => 'Mary',
+            'last_name' => 'Mushi',
+            'membership_number' => 'MEM-005678',
+        ],
+    ]);
+
+    expect(Patient::count())->toBe(0);
+});
+
+test('nhif lookup reports not found for an unknown card number and creates no patient', function () {
+    $user = registrationUser();
+    nhifProvider();
+
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByCard')->once()->andReturn([
+            'success' => false,
+            'data' => [],
+            'http_status' => 404,
+            'error' => 'Member not found',
+            'correlation_id' => 'lookup-card-404',
+            'operation' => 'GetMemberDetailsByCard',
+        ]);
+    });
+
+    $response = $this->actingAs($user)->postJson(route('patients.nhif-lookup'), [
+        'identifier_type' => 'CardNo',
+        'identifier_value' => '00060000000000',
+    ]);
+
+    $response->assertOk()->assertJson([
+        'success' => false,
+        'status' => 'not_found',
+        'member' => null,
+    ]);
+
+    expect(Patient::count())->toBe(0);
+});
+
+test('nhif lookup reports not found for an unknown nin and creates no patient', function () {
+    $user = registrationUser();
+    nhifProvider();
+
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByNin')->once()->andReturn([
+            'success' => false,
+            'data' => [],
+            'http_status' => 404,
+            'error' => 'Member not found',
+            'correlation_id' => 'lookup-nin-404',
+            'operation' => 'GetMemberDetailsByNIN',
+        ]);
+    });
+
+    $response = $this->actingAs($user)->postJson(route('patients.nhif-lookup'), [
+        'identifier_type' => 'nin',
+        'identifier_value' => '00000000-00000-00000-0',
+    ]);
+
+    $response->assertOk()->assertJson([
+        'success' => false,
+        'status' => 'not_found',
+        'member' => null,
+    ]);
+
+    expect(Patient::count())->toBe(0);
+});
+
+test('nhif lookup detects a member already linked to an existing patient', function () {
+    $user = registrationUser();
+    $provider = nhifProvider();
+
+    $existingPatient = Patient::factory()->create(['first_name' => 'Existing', 'last_name' => 'Member']);
+    PatientInsurance::factory()->create([
+        'patient_id' => $existingPatient->id,
+        'insurance_provider_id' => $provider->id,
+        'membership_number' => 'MEM-DUP-1',
+        'card_number' => '00060000999999',
+        'status' => 'active',
+    ]);
+
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByCard')->once()->andReturn([
+            'success' => true,
+            'data' => [
+                'MemberName' => 'Existing Member',
+                'CardNo' => '00060000999999',
+                'MembershipNo' => 'MEM-DUP-1',
+                'Status' => 'active',
+            ],
+            'http_status' => 200,
+            'error' => null,
+            'correlation_id' => 'lookup-dup-1',
+            'operation' => 'GetMemberDetailsByCard',
+        ]);
+    });
+
+    $response = $this->actingAs($user)->postJson(route('patients.nhif-lookup'), [
+        'identifier_type' => 'CardNo',
+        'identifier_value' => '00060000999999',
+    ]);
+
+    $response->assertOk()->assertJson([
+        'success' => true,
+        'status' => 'duplicate_patient',
+        'existing_patient' => [
+            'id' => $existingPatient->id,
+            'patient_number' => $existingPatient->patient_number,
+        ],
+    ]);
+
+    // No second patient was created for the same NHIF member.
+    expect(Patient::count())->toBe(1);
+});
+
+test('nhif lookup endpoint requires patients.create permission', function () {
+    $user = User::factory()->create();
+    nhifProvider();
+
+    $this->actingAs($user)->postJson(route('patients.nhif-lookup'), [
+        'identifier_type' => 'CardNo',
+        'identifier_value' => '00060000123456',
+    ])->assertForbidden();
+});
+
+// ---------------------------------------------------------------------------
+// Security — the browser cannot bypass server-side NHIF verification
+// ---------------------------------------------------------------------------
+
+test('store ignores a client-supplied verification flag and independently verifies with nhif', function () {
+    $user = registrationUser();
+    $provider = nhifProvider();
+
+    // NHIF itself reports a name mismatch — the request also tries to smuggle
+    // an unverified/forged "verified" flag, which must have zero effect: the
+    // server always derives verification status from its own NHIF call.
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByNin')->once()->andReturn([
+            'success' => true,
+            'data' => [
+                'MemberName' => 'Totally Different Person',
+                'Status' => 'active',
+            ],
+            'http_status' => 200,
+            'error' => null,
+            'correlation_id' => 'security-1',
+            'operation' => 'GetMemberDetailsByNIN',
+        ]);
+    });
+
+    $payload = validInsurancePayload($provider, [
+        'first_name' => 'John',
+        'last_name' => 'Doe',
+        'nhif_verified' => true,
+        'verification_status' => 'verified',
+    ]);
+
+    // The forged flags are ignored; identity mismatch blocks registration entirely.
+    $this->actingAs($user)
+        ->post(route('patients.store'), $payload)
+        ->assertSessionHasErrors('nhif_verification')
+        ->assertRedirect();
+
+    expect(Patient::where('national_id', '20000101-99999-99999-1')->exists())->toBeFalse();
 });

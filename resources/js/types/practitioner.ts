@@ -50,10 +50,17 @@ export interface Practitioner {
     license_expiry_date: string | null;
     status: PractitionerStatus;
     nhif_practitioner_no: string | null;
+    consultation_service_id: number | null;
     staff?: PractitionerStaff;
     latest_nhif_attendance?: NhifPractitionerAttendance | null;
     created_at: string;
     updated_at: string;
+}
+
+export interface ConsultationServiceOption {
+    id: number;
+    code: string;
+    name: string;
 }
 
 export interface PractitionerFormData {
@@ -65,6 +72,7 @@ export interface PractitionerFormData {
     license_expiry_date: string;
     status: PractitionerStatus;
     nhif_practitioner_no: string;
+    consultation_service_id: string;
     [key: string]: string;
 }
 

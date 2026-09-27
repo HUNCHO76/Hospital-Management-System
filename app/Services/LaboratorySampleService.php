@@ -71,10 +71,12 @@ class LaboratorySampleService
                 $itemIds,
             );
 
-            // Step 62: financial authorization gate
+            // Step 62: financial authorization gate — no-charge rule: tests
+            // with no billing mapping (capture skipped) never block sampling.
             $this->financialAuth->assertAuthorizedForSources(
                 LaboratoryOrderItem::class,
                 $itemIds,
+                FinancialAuthorizationService::STATUS_AUTHORIZED,
             );
 
             $containerType = $data['container_type'] ?? null;

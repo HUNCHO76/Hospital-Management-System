@@ -27,11 +27,20 @@ class DatabaseSeeder extends Seeder
             SystemSettingSeeder::class,
             DiagnosisCodeSeeder::class,
             MedicationSeeder::class,
+            PharmacyStockSeeder::class,
             LaboratoryTestSeeder::class,
+            LaboratoryTestParameterSeeder::class,
             LaboratoryBenchSeeder::class,
             RadiologyProcedureSeeder::class,
             ServiceCatalogSeeder::class,
+            ServicePriceSeeder::class,
             PharmacyDispensingSeeder::class,
+            NhifInsuranceProviderSeeder::class,
+            // Runs after ServicePriceSeeder deliberately — these 1,826
+            // standalone NHIF catalog items must NOT receive the flat
+            // placeholder price ServicePriceSeeder seeds for every active
+            // Service; only code/name/category/description are seeded here.
+            NhifSchemeServiceSeeder::class,
         ]);
 
         // The only distinct laboratory-supervisor account in dev/test data —

@@ -29,7 +29,7 @@ class ServicePricingService
     public function __construct(protected AuditLogService $auditLog) {}
 
     /**
-     * @param  array{service_id: int, hospital_id: int, amount: float|string, effective_from: string, effective_to?: string|null}  $data
+     * @param  array{service_id: int, hospital_id: int, practitioner_id?: int|null, amount: float|string, effective_from: string, effective_to?: string|null}  $data
      *
      * @throws ValidationException
      */
@@ -38,21 +38,27 @@ class ServicePricingService
         $amount = $this->validateMoney($data['amount'], 'amount', allowZero: true);
         $from = Carbon::parse($data['effective_from'])->startOfDay();
         $to = filled($data['effective_to'] ?? null) ? Carbon::parse($data['effective_to'])->startOfDay() : null;
+        $practitionerId = $data['practitioner_id'] ?? null;
 
         if ($to !== null && $to->lt($from)) {
             throw ValidationException::withMessages(['effective_to' => 'The end date cannot be before the start date.']);
         }
 
-        return DB::transaction(function () use ($data, $amount, $from, $to, $request) {
+        return DB::transaction(function () use ($data, $amount, $from, $to, $practitionerId, $request) {
             $service = Service::query()->whereKey($data['service_id'])->lockForUpdate()->firstOrFail();
 
-            // Lock every existing active price for this service+hospital so
+            // Lock every existing active price for this service+hospital
+            // (scoped to the same practitioner — NULL = facility-wide) so
             // two administrators can never both decide "no overlap" against
             // the same stale snapshot (spec §27/§52).
             $existing = ServicePrice::query()
                 ->where('service_id', $service->id)
                 ->where('hospital_id', $data['hospital_id'])
                 ->where('status', ServicePrice::STATUS_ACTIVE)
+                ->when($practitionerId !== null,
+                    fn ($q) => $q->where('practitioner_id', $practitionerId),
+                    fn ($q) => $q->whereNull('practitioner_id'),
+                )
                 ->lockForUpdate()
                 ->get();
 
@@ -88,6 +94,7 @@ class ServicePricingService
             $price = ServicePrice::create([
                 'service_id' => $service->id,
                 'hospital_id' => $data['hospital_id'],
+                'practitioner_id' => $practitionerId,
                 'amount' => $amount,
                 'currency' => config('billing.currency'),
                 'effective_from' => $from,
@@ -100,7 +107,7 @@ class ServicePricingService
                 'price_created',
                 $price,
                 null,
-                $price->only(['service_id', 'hospital_id', 'amount', 'currency', 'effective_from', 'effective_to']),
+                $price->only(['service_id', 'hospital_id', 'practitioner_id', 'amount', 'currency', 'effective_from', 'effective_to']),
                 $request,
             );
 

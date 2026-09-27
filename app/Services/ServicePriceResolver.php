@@ -9,19 +9,24 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * The single authoritative "what does this service cost, at this hospital,
- * on this date" lookup (Phase 7, Step 53, spec §30/§49) — Step 54's future
- * charge capture is meant to call this directly rather than querying
- * `ServicePrice` itself, so price-selection logic exists in exactly one
- * place. Never trusts a client-supplied price (spec §30's own "a browser-
- * supplied unit_price must not be trusted"); this is the only legitimate
- * source of a unit price for a billable service.
+ * on this date" lookup (Phase 7, Step 53, spec §30/§49) — Step 54's charge
+ * capture calls this directly so price-selection logic exists in exactly one
+ * place. Never trusts a client-supplied price (spec §30).
+ *
+ * Specialist/provider-specific pricing: when a $practitionerId is supplied,
+ * the resolver first looks for a price row where practitioner_id = that ID.
+ * If one exists it wins unconditionally over the facility-wide price
+ * (practitioner_id IS NULL). If no practitioner-specific row exists, the
+ * facility-wide price is returned as a fallback. This enables per-specialist
+ * consultation fees while preserving backward compatibility with all
+ * existing service prices that have no practitioner_id set.
  */
 class ServicePriceResolver
 {
     /**
      * @throws ValidationException
      */
-    public function resolvePrice(Service $service, int $hospitalId, ?Carbon $date = null): ServicePrice
+    public function resolvePrice(Service $service, int $hospitalId, ?Carbon $date = null, ?int $practitionerId = null): ServicePrice
     {
         $date ??= now();
 
@@ -35,21 +40,31 @@ class ServicePriceResolver
 
         $dateString = $date->toDateString();
 
-        // whereDate() (not where()), deliberately: a `date`-cast attribute
-        // is still persisted as a full "Y-m-d H:i:s" string (Eloquent's
-        // date cast only zeroes the time component, it does not shorten the
-        // stored format), so a plain string `<=`/`>=` comparison against a
-        // bare "Y-m-d" value silently misses today's own exact-match row on
-        // SQLite (no real DATE type to coerce it, unlike MySQL) — whereDate()
-        // extracts just the date part in the SQL itself, correct on every
-        // driver.
-        $prices = ServicePrice::query()
+        $baseQuery = fn () => ServicePrice::query()
             ->where('service_id', $service->id)
             ->where('hospital_id', $hospitalId)
             ->where('status', ServicePrice::STATUS_ACTIVE)
             ->whereDate('effective_from', '<=', $dateString)
-            ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $dateString))
-            ->get();
+            ->where(fn ($q) => $q->whereNull('effective_to')->orWhereDate('effective_to', '>=', $dateString));
+
+        // When a practitioner is known, prefer a practitioner-specific price.
+        if ($practitionerId !== null) {
+            $practitionerPrices = $baseQuery()->where('practitioner_id', $practitionerId)->get();
+
+            if ($practitionerPrices->count() === 1) {
+                return $practitionerPrices->first();
+            }
+
+            if ($practitionerPrices->count() > 1) {
+                throw ValidationException::withMessages([
+                    'price' => "Ambiguous pricing for \"{$service->name}\" for this practitioner at this facility on {$dateString} — multiple overlapping prices exist and require investigation.",
+                ]);
+            }
+            // Fall through to facility-wide lookup.
+        }
+
+        // Facility-wide price (practitioner_id IS NULL).
+        $prices = $baseQuery()->whereNull('practitioner_id')->get();
 
         if ($prices->isEmpty()) {
             throw ValidationException::withMessages([
@@ -58,11 +73,6 @@ class ServicePriceResolver
         }
 
         if ($prices->count() > 1) {
-            // Should be structurally impossible — ServicePricingService::
-            // create() prevents any overlapping active period from ever
-            // being created. Surfaced loudly rather than silently picking
-            // one, exactly the "flag for investigation, never silently
-            // correct" principle Step 49's own reconcile() already applies.
             throw ValidationException::withMessages([
                 'price' => "Ambiguous pricing for \"{$service->name}\" at this facility on {$dateString} — multiple overlapping prices exist and require investigation.",
             ]);

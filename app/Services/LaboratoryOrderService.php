@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Charge;
 use App\Models\ClinicalEncounter;
 use App\Models\Consultation;
 use App\Models\LaboratoryOrder;
@@ -82,7 +83,19 @@ class LaboratoryOrderService
             $request,
         );
 
-        return $order->fresh('items');
+        $order = $order->fresh('items');
+
+        $billedCount = Charge::query()
+            ->where('source_type', LaboratoryOrderItem::class)
+            ->whereIn('source_id', $order->items->pluck('id'))
+            ->whereNotIn('status', [Charge::STATUS_VOIDED, Charge::STATUS_CANCELLED])
+            ->count();
+
+        if ($billedCount < $order->items->count()) {
+            $order->billing_warning = 'One or more tests could not be billed — no price is configured for them. Ask billing/admin to add prices via Billing → Services.';
+        }
+
+        return $order;
     }
 
     /**

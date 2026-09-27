@@ -84,6 +84,7 @@ export default function ReceptionDashboard({ summary, todaysAppointments, todays
                                     <TableHead>Appointment Status</TableHead>
                                     <TableHead>Reception Status</TableHead>
                                     <TableHead>Coverage</TableHead>
+                                    <TableHead>Payment</TableHead>
                                     <TableHead>Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -129,6 +130,19 @@ export default function ReceptionDashboard({ summary, todaysAppointments, todays
                                             </Badge>
                                         </TableCell>
                                         <TableCell>
+                                            {appointment.financial_status === 'payment_required' ? (
+                                                <Badge variant="destructive" className="bg-amber-600 text-white dark:bg-amber-700">
+                                                    PAYMENT REQUIRED
+                                                </Badge>
+                                            ) : appointment.financial_status === 'authorized' ? (
+                                                <Badge variant="default" className="bg-green-600 text-white dark:bg-green-700">
+                                                    AUTHORIZED
+                                                </Badge>
+                                            ) : (
+                                                <span className="text-muted-foreground text-xs">—</span>
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
                                             {appointment.reception_visit ? (
                                                 <Button variant="ghost" size="sm" asChild>
                                                     <Link href={route('reception.visits.show', appointment.reception_visit.id)}>View</Link>
@@ -153,7 +167,7 @@ export default function ReceptionDashboard({ summary, todaysAppointments, todays
 
                                 {todaysAppointments.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={9} className="p-0">
+                                        <TableCell colSpan={10} className="p-0">
                                             <EmptyState icon={CalendarClock} title="No appointments today" />
                                         </TableCell>
                                     </TableRow>
@@ -176,6 +190,7 @@ export default function ReceptionDashboard({ summary, todaysAppointments, todays
                                     <TableHead>Department</TableHead>
                                     <TableHead>Arrival Time</TableHead>
                                     <TableHead>Status</TableHead>
+                                    <TableHead>Payment</TableHead>
                                     <TableHead>Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -198,6 +213,29 @@ export default function ReceptionDashboard({ summary, todaysAppointments, todays
                                             <Badge variant={receptionStatusVariant[visit.status]}>{receptionStatusLabel[visit.status]}</Badge>
                                         </TableCell>
                                         <TableCell>
+                                            {visit.financial_status === 'payment_required' ? (
+                                                <Badge variant="destructive" className="bg-amber-600 text-white dark:bg-amber-700">
+                                                    PAYMENT REQUIRED
+                                                </Badge>
+                                            ) : visit.financial_status === 'authorized' ? (
+                                                <Badge variant="default" className="bg-green-600 text-white dark:bg-green-700">
+                                                    AUTHORIZED
+                                                </Badge>
+                                            ) : (
+                                                <span className="text-muted-foreground text-xs">—</span>
+                                            )}
+                                        </TableCell>
+                                        <TableCell className="flex items-center gap-1">
+                                            {visit.financial_status === 'payment_required' && visit.patient_account_id ? (
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    asChild
+                                                    className="border-amber-500/50 text-amber-700 dark:text-amber-400"
+                                                >
+                                                    {/*<Link href={route('billing.accounts.show', visit.patient_account_id)}>Pay Bill</Link>*/}
+                                                </Button>
+                                            ) : null}
                                             <Button variant="ghost" size="sm" asChild>
                                                 <Link href={route('reception.visits.show', visit.id)}>View</Link>
                                             </Button>
@@ -207,7 +245,7 @@ export default function ReceptionDashboard({ summary, todaysAppointments, todays
 
                                 {todaysWalkIns.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="p-0">
+                                        <TableCell colSpan={7} className="p-0">
                                             <EmptyState icon={Users} title="No walk-ins today" />
                                         </TableCell>
                                     </TableRow>

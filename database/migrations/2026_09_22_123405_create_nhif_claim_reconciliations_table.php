@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('nhif_claim_reconciliations', function (Blueprint $table) {
             $table->id();
             $table->foreignId('nhif_claim_id')->constrained()->restrictOnDelete();
-            $table->foreignId('nhif_claim_submission_attempt_id')->nullable()->constrained()->nullOnDelete();
+            $table->unsignedBigInteger('nhif_claim_submission_attempt_id')->nullable();
             $table->foreignId('hospital_id')->constrained()->restrictOnDelete();
             $table->string('source', 30);                  // api_poll | manual | webhook
             $table->string('response_reference');
@@ -40,7 +40,7 @@ return new class extends Migration
             $table->text('notes')->nullable();
             $table->timestamps();
 
-            $table->index(['nhif_claim_id', 'reconciliation_status']);
+            $table->index(['nhif_claim_id', 'reconciliation_status'], 'nhif_claim_recon_claim_status_idx');
         });
     }
 

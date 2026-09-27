@@ -65,10 +65,12 @@ class RadiologyExaminationService
                 $itemIds,
             );
 
-            // Step 62: financial authorization gate
+            // Step 62: financial authorization gate — no-charge rule: procedures
+            // with no billing mapping (capture skipped) never block examination.
             $this->financialAuth->assertAuthorizedForSources(
                 RadiologyOrderItem::class,
                 $itemIds,
+                FinancialAuthorizationService::STATUS_AUTHORIZED,
             );
 
             $update = [

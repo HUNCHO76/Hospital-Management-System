@@ -173,6 +173,7 @@ export interface LaboratoryTest {
     nhif_code: string | null;
     price: string | null;
     status: LaboratoryTestStatus;
+    parameters: LaboratoryTestParameter[];
     created_by: LaboratoryOrderUser | null;
     updated_by: LaboratoryOrderUser | null;
     created_at: string;
@@ -423,6 +424,17 @@ export type LaboratoryResultStatus =
     | 'authorized'
     | 'released';
 
+export type LaboratoryResultSource = 'manual' | 'machine_document';
+
+export interface LaboratoryResultDocument {
+    id: number;
+    original_filename: string;
+    mime_type: string;
+    size_bytes: number;
+    uploaded_by: LaboratoryOrderUser | null;
+    uploaded_at: string;
+}
+
 export type LaboratoryAbnormalFlag = 'normal' | 'low' | 'high' | 'critical' | 'abnormal';
 
 export type LaboratoryReturnReason =
@@ -446,6 +458,40 @@ export interface LaboratoryActiveReportSummary {
     version: number;
 }
 
+export interface LaboratoryResultParameterSummary {
+    id: number;
+    code: string;
+    name: string;
+    data_type: LaboratoryParameterDataType;
+    unit: string | null;
+    decimal_places: number | null;
+    options_json: string[] | null;
+    display_order: number;
+}
+
+export interface LaboratoryResultValue {
+    id: number;
+    laboratory_test_parameter_id: number;
+    parameter: LaboratoryResultParameterSummary | null;
+    value_numeric: string | null;
+    value_text: string | null;
+    value_code: string | null;
+    unit: string | null;
+    reference_low: string | null;
+    reference_high: string | null;
+    reference_critical_low: string | null;
+    reference_critical_high: string | null;
+    abnormal_flag: LaboratoryAbnormalFlag | null;
+    result_comment: string | null;
+}
+
+export interface LaboratoryTestSummary {
+    id: number;
+    code: string;
+    name: string;
+    active_parameters: LaboratoryResultParameterSummary[];
+}
+
 export interface LaboratoryResultItemSummary {
     id: number;
     test_code: string;
@@ -466,6 +512,7 @@ export interface LaboratoryResult {
     laboratory_sample_id: number;
     laboratory_test_id: number;
     status: LaboratoryResultStatus;
+    result_source: LaboratoryResultSource | null;
     result_type: LaboratoryResultType | null;
     unit: string | null;
     reference_range: string | null;
@@ -502,8 +549,20 @@ export interface LaboratoryResult {
     is_ready_for_release: boolean;
     is_released: boolean;
     active_report: LaboratoryActiveReportSummary | null;
+    result_values: LaboratoryResultValue[];
+    laboratory_test: LaboratoryTestSummary | null;
+    documents: LaboratoryResultDocument[];
     history: LaboratoryResultHistoryEntry[];
     created_at: string;
+}
+
+export interface ParameterValueEntry {
+    parameter_id: number;
+    value_numeric: string;
+    value_text: string;
+    value_code: string;
+    result_comment: string;
+    [key: string]: string | number;
 }
 
 export interface SaveLaboratoryResultDraftFormData {
@@ -512,7 +571,8 @@ export interface SaveLaboratoryResultDraftFormData {
     value_code: string;
     abnormal_flag: string;
     result_comment: string;
-    [key: string]: string;
+    parameter_values: ParameterValueEntry[];
+    [key: string]: string | ParameterValueEntry[];
 }
 
 export interface AmendLaboratoryResultFormData {
@@ -629,4 +689,74 @@ export interface LaboratoryReportVersionSummary {
     version: number;
     status: 'active' | 'superseded';
     released_at: string | null;
+}
+
+// ── Batch A: Parameter engine ────────────────────────────────────────────────
+
+export type LaboratoryParameterDataType = 'numeric' | 'text' | 'option';
+
+export type LaboratoryReferenceSex = 'male' | 'female' | 'any';
+
+export interface LaboratoryReferenceRange {
+    id: number;
+    laboratory_test_parameter_id: number;
+    sex: LaboratoryReferenceSex;
+    age_min_days: number | null;
+    age_max_days: number | null;
+    low: string | null;
+    high: string | null;
+    critical_low: string | null;
+    critical_high: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface LaboratoryTestParameter {
+    id: number;
+    laboratory_test_id: number;
+    code: string;
+    name: string;
+    unit: string | null;
+    data_type: LaboratoryParameterDataType;
+    decimal_places: number;
+    options_json: string[] | null;
+    abnormal_options: string[] | null;
+    display_order: number;
+    is_calculated: boolean;
+    calculation_formula: string | null;
+    analyser_code: string | null;
+    loinc_code: string | null;
+    active: boolean;
+    reference_ranges: LaboratoryReferenceRange[];
+    created_at: string;
+    updated_at: string;
+}
+
+export interface StoreLaboratoryTestParameterForm {
+    code: string;
+    name: string;
+    unit: string;
+    data_type: LaboratoryParameterDataType | '';
+    decimal_places: string;
+    options_json: string;
+    abnormal_options: string;
+    display_order: string;
+    is_calculated: boolean;
+    calculation_formula: string;
+    analyser_code: string;
+    loinc_code: string;
+    [key: string]: string | boolean;
+}
+
+export interface StoreLaboratoryReferenceRangeForm {
+    sex: LaboratoryReferenceSex | '';
+    age_min_days: string;
+    age_max_days: string;
+    low: string;
+    high: string;
+    critical_low: string;
+    critical_high: string;
+    notes: string;
+    [key: string]: string;
 }

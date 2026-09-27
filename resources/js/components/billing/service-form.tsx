@@ -84,6 +84,7 @@ export function ServiceForm({ service, categories }: ServiceFormProps) {
                     <InputError message={errors.category} />
                 </div>
 
+
                 <div className="flex items-center gap-2 pt-7">
                     <Checkbox id="is_billable" checked={data.is_billable} onCheckedChange={(checked) => setData('is_billable', checked === true)} />
                     <Label htmlFor="is_billable" className="font-normal">

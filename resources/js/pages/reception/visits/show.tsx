@@ -7,15 +7,15 @@ import { usePermissions } from '@/hooks/use-permissions';
 import AppLayout from '@/layouts/app-layout';
 import { allowedReceptionActions, receptionStatusLabel, receptionStatusVariant } from '@/lib/reception-status';
 import { type BreadcrumbItem } from '@/types';
-import { type ConsultationCharge, type ConsultationFinancialStatus, type ReceptionVisit } from '@/types/reception';
+import { type ConsultationCharge, type ConsultationFinancialStatus, type NhifPreApprovalItem, type ReceptionVisit } from '@/types/reception';
 import { Head, Link, router } from '@inertiajs/react';
-import { AlertTriangle, CheckCircle2, ClipboardPlus, CreditCard, PlayCircle, Send, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardPlus, Clock, PlayCircle, Send, ShieldCheck, ShieldX, XCircle } from 'lucide-react';
 
 interface VisitShowProps {
     visit: ReceptionVisit;
     consultationFinancialStatus: ConsultationFinancialStatus;
     consultationCharge: ConsultationCharge | null;
-    patientAccountId: number | null;
+    nhifPreApprovalItem: NhifPreApprovalItem | null;
 }
 
 function formatDateTime(value: string): string {
@@ -29,12 +29,13 @@ const VISIT_TYPE_LABELS: Record<string, string> = {
     other: 'Other',
 };
 
-export default function VisitShow({ visit, consultationFinancialStatus, consultationCharge, patientAccountId }: VisitShowProps) {
+export default function VisitShow({ visit, consultationFinancialStatus, consultationCharge, nhifPreApprovalItem }: VisitShowProps) {
     const { can } = usePermissions();
     const patientName = visit.patient
         ? [visit.patient.first_name, visit.patient.middle_name, visit.patient.last_name].filter(Boolean).join(' ')
         : '—';
     const paymentRequired = consultationFinancialStatus === 'payment_required';
+    const nhifStatus = nhifPreApprovalItem?.approval_status ?? null;
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Reception', href: '/reception' },
@@ -113,43 +114,104 @@ export default function VisitShow({ visit, consultationFinancialStatus, consulta
                 </div>
 
                 {consultationCharge && (
-                    <Alert
-                        variant={paymentRequired ? 'destructive' : 'default'}
-                        className={paymentRequired ? 'border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'border-green-500 bg-green-500/10 text-green-800 dark:text-green-300'}
-                    >
-                        {paymentRequired ? <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" /> : <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />}
-                        <AlertDescription className="flex flex-wrap items-center justify-between gap-4">
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-2 font-semibold">
-                                    <span>Financial Status: {paymentRequired ? 'PAYMENT REQUIRED' : 'AUTHORIZED (PAID)'}</span>
-                                    {paymentRequired ? (
-                                        <Badge variant="destructive" className="bg-amber-600 dark:bg-amber-700 text-white">PAYMENT REQUIRED</Badge>
-                                    ) : (
-                                        <Badge variant="default" className="bg-green-600 dark:bg-green-700 text-white">READY FOR SPECIALIST</Badge>
-                                    )}
-                                </div>
-                                <p className="text-xs">
-                                    {paymentRequired
-                                        ? `Consultation charge ${consultationCharge.charge_number} (${consultationCharge.currency} ${Number(consultationCharge.net_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}) must be paid at the cashier before patient can enter clinical queue.`
-                                        : `Consultation charge ${consultationCharge.charge_number} is settled. Patient is authorized to see specialist.`}
-                                </p>
-                            </div>
-                            {paymentRequired && (
-                                <Button size="sm" variant="default" className="bg-amber-700 hover:bg-amber-800 text-white" asChild>
-                                    <Link
-                                        href={
-                                            patientAccountId
-                                                ? route('billing.accounts.show', patientAccountId)
-                                                : route('billing.accounts.index')
-                                        }
-                                    >
-                                        <CreditCard className="h-4 w-4 mr-1" />
-                                        Proceed to Payment
-                                    </Link>
-                                </Button>
-                            )}
-                        </AlertDescription>
-                    </Alert>
+                    <div className="flex flex-col gap-3">
+                        {/* NHIF: accepted — fully or partially covered */}
+                        {(nhifStatus === 'accepted' || nhifStatus === 'approved') && (
+                            <Alert className="border-green-500 bg-green-500/10 text-green-800 dark:text-green-300">
+                                <ShieldCheck className="h-5 w-5 text-green-600 dark:text-green-400" />
+                                <AlertDescription className="space-y-1">
+                                    <div className="flex items-center gap-2 font-semibold">
+                                        <span>NHIF SERVICE AUTHORIZED</span>
+                                        <Badge variant="default" className="bg-green-600 dark:bg-green-700 text-white">NHIF APPROVED</Badge>
+                                    </div>
+                                    <p className="text-xs">
+                                        Consultation charge {consultationCharge.charge_number} is covered by NHIF.
+                                        {nhifPreApprovalItem?.nhif_request_no && ` NHIF Request No: ${nhifPreApprovalItem.nhif_request_no}.`}
+                                        {nhifPreApprovalItem?.nhif_percent_covered !== null && nhifPreApprovalItem?.nhif_percent_covered !== undefined && nhifPreApprovalItem.nhif_percent_covered < 100
+                                            ? ` NHIF covers ${nhifPreApprovalItem.nhif_percent_covered}% — patient may owe the remainder.`
+                                            : ' Patient may proceed to the clinical queue.'}
+                                    </p>
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        {/* NHIF: pending approval */}
+                        {nhifStatus === 'pending_approval' && (
+                            <Alert className="border-blue-500/50 bg-blue-500/10 text-blue-800 dark:text-blue-300">
+                                <Clock className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                                <AlertDescription className="space-y-1">
+                                    <div className="flex items-center gap-2 font-semibold">
+                                        <span>NHIF AUTHORIZATION PENDING</span>
+                                        <Badge className="bg-blue-600 dark:bg-blue-700 text-white">PENDING APPROVAL</Badge>
+                                    </div>
+                                    <p className="text-xs">
+                                        Consultation is awaiting NHIF approval.
+                                        {nhifPreApprovalItem?.nhif_request_no && ` NHIF Request No: ${nhifPreApprovalItem.nhif_request_no}.`}
+                                        {' '}Patient cannot enter the clinical queue until NHIF approves the service.
+                                    </p>
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        {/* NHIF: rejected */}
+                        {nhifStatus === 'rejected' && (
+                            <Alert variant="destructive" className="border-red-500/50 bg-red-500/10 text-red-800 dark:text-red-300">
+                                <ShieldX className="h-5 w-5 text-red-600 dark:text-red-400" />
+                                <AlertDescription className="space-y-1">
+                                    <div className="flex items-center gap-2 font-semibold">
+                                        <span>NHIF SERVICE REJECTED</span>
+                                        <Badge variant="destructive">REJECTED</Badge>
+                                    </div>
+                                    <p className="text-xs">
+                                        Consultation was not authorized by NHIF.
+                                        {nhifPreApprovalItem?.rejection_reason && ` Reason: ${nhifPreApprovalItem.rejection_reason}.`}
+                                        {nhifPreApprovalItem?.nhif_request_no && ` NHIF Request No: ${nhifPreApprovalItem.nhif_request_no}.`}
+                                    </p>
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        {/* NHIF partial coverage — patient co-payment required */}
+                        {(nhifStatus === 'accepted' || nhifStatus === 'approved') && paymentRequired && (
+                            <Alert className="border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-300">
+                                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                                <AlertDescription className="space-y-1">
+                                    <div className="flex items-center gap-2 font-semibold">
+                                        <span>PATIENT PAYMENT REQUIRED</span>
+                                        <Badge variant="destructive" className="bg-amber-600 dark:bg-amber-700 text-white">COPAYMENT DUE</Badge>
+                                    </div>
+                                    <p className="text-xs">
+                                        NHIF has approved this service with patient co-payment. Please proceed to the cashier for the outstanding balance.
+                                    </p>
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        {/* Cash / no NHIF item — standard payment status */}
+                        {!nhifStatus && (
+                            <Alert
+                                variant={paymentRequired ? 'destructive' : 'default'}
+                                className={paymentRequired ? 'border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'border-green-500 bg-green-500/10 text-green-800 dark:text-green-300'}
+                            >
+                                {paymentRequired ? <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" /> : <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />}
+                                <AlertDescription className="space-y-1">
+                                    <div className="flex items-center gap-2 font-semibold">
+                                        <span>Financial Status: {paymentRequired ? 'PAYMENT REQUIRED' : 'AUTHORIZED'}</span>
+                                        {paymentRequired ? (
+                                            <Badge variant="destructive" className="bg-amber-600 dark:bg-amber-700 text-white">PAYMENT REQUIRED</Badge>
+                                        ) : (
+                                            <Badge variant="default" className="bg-green-600 dark:bg-green-700 text-white">READY FOR SPECIALIST</Badge>
+                                        )}
+                                    </div>
+                                    <p className="text-xs">
+                                        {paymentRequired
+                                            ? `Consultation charge ${consultationCharge.charge_number} (${consultationCharge.currency} ${Number(consultationCharge.net_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}) must be paid at the cashier before patient can enter clinical queue.`
+                                            : `Consultation charge ${consultationCharge.charge_number} is settled. Patient is authorized to see specialist.`}
+                                    </p>
+                                </AlertDescription>
+                            </Alert>
+                        )}
+                    </div>
                 )}
 
                 <div className="grid gap-4 md:grid-cols-2">

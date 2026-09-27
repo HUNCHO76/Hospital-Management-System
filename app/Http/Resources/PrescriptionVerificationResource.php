@@ -88,10 +88,12 @@ class PrescriptionVerificationResource extends JsonResource
 
     /**
      * Safety flags a verifier should notice (spec §12) — a workflow/data
-     * check, never a clinical decision. 'medication_inactive': the catalog
-     * entry has since been deactivated. 'duplicate_medication': the same
-     * medication is already active on another of this patient's
-     * prescriptions.
+     * check, never a clinical decision.
+     * 'medication_inactive': the catalog entry has since been deactivated.
+     * 'duplicate_medication': the same medication is already active on another
+     *   of this patient's prescriptions.
+     * 'safety_override': the prescriber acknowledged a diagnosis-medication
+     *   contraindication/caution rule and supplied a clinical justification.
      *
      * @return list<string>
      */
@@ -117,6 +119,10 @@ class PrescriptionVerificationResource extends JsonResource
             if ($duplicateExists) {
                 $flags[] = 'duplicate_medication';
             }
+        }
+
+        if (! empty($item->safety_override_justification)) {
+            $flags[] = 'safety_override';
         }
 
         return $flags;

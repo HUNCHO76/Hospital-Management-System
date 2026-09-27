@@ -152,6 +152,46 @@ class LaboratoryResultPolicy
     }
 
     /**
+     * Upload a machine/analyzer document to this result (Phase 4 Machine
+     * Document Upload). Requires the same permission as editing a draft —
+     * the document is part of the result-entry workflow.
+     */
+    public function uploadDocument(User $user, LaboratoryResult $result): bool
+    {
+        if (! $user->can('laboratory-results.update')) {
+            return false;
+        }
+
+        return $this->belongsToUsersHospital($user, $result);
+    }
+
+    /**
+     * Stream/view a result document. Verifiers and authorizers need read
+     * access so they can inspect the attached analyzer output.
+     */
+    public function viewDocument(User $user, LaboratoryResult $result): bool
+    {
+        if (! $user->can('laboratory-results.view')) {
+            return false;
+        }
+
+        return $this->belongsToUsersHospital($user, $result);
+    }
+
+    /**
+     * Delete a document from an editable result. Restricted to the same
+     * users who may edit the draft — verifiers may view but never delete.
+     */
+    public function deleteDocument(User $user, LaboratoryResult $result): bool
+    {
+        if (! $user->can('laboratory-results.update')) {
+            return false;
+        }
+
+        return $this->belongsToUsersHospital($user, $result);
+    }
+
+    /**
      * A hospital-admin is restricted to encounters booked under their own
      * hospital's departments; every other role holding the permission
      * (currently only super-admin, which bypasses policies via Gate::before)

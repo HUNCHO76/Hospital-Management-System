@@ -172,6 +172,22 @@ class LaboratoryTest extends Model
     }
 
     /**
+     * The analyte parameters defined for this test (Batch A).
+     * Ordered by display_order so result entry renders them in the configured sequence.
+     */
+    public function parameters(): HasMany
+    {
+        return $this->hasMany(LaboratoryTestParameter::class)->orderBy('display_order');
+    }
+
+    public function activeParameters(): HasMany
+    {
+        return $this->hasMany(LaboratoryTestParameter::class)
+            ->where('active', true)
+            ->orderBy('display_order');
+    }
+
+    /**
      * The order items placed for this test (Phase 4, Step 30 — an order
      * holds many tests, so this test's own orders are reached through its
      * items, not a direct LaboratoryOrder relation).

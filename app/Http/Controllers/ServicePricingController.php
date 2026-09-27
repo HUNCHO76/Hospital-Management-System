@@ -6,6 +6,7 @@ use App\Http\Requests\Billing\CancelServicePriceRequest;
 use App\Http\Requests\Billing\CreateServicePriceRequest;
 use App\Http\Resources\ServicePriceResource;
 use App\Models\Hospital;
+use App\Models\Practitioner;
 use App\Models\Service;
 use App\Models\ServicePrice;
 use App\Services\ServiceCatalogSearchService;
@@ -51,9 +52,15 @@ class ServicePricingController extends Controller
         $services = Service::query()->where('status', Service::STATUS_ACTIVE)->where('is_billable', true)
             ->orderBy('name')->get(['id', 'code', 'name']);
 
+        $practitioners = Practitioner::query()->where('status', Practitioner::STATUS_ACTIVE)
+            ->with('staff:id,first_name,last_name')
+            ->orderBy('practitioner_number')
+            ->get(['id', 'practitioner_number', 'staff_id']);
+
         return Inertia::render('billing/pricing/create', [
             'hospitals' => $hospitals,
             'services' => $services,
+            'practitioners' => $practitioners,
             'initialServiceId' => $request->integer('service_id') ?: null,
         ]);
     }

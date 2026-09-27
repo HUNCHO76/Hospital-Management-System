@@ -71,4 +71,5 @@ export const prescriptionVerificationStatusVariant: Record<PrescriptionVerificat
 export const prescriptionVerificationFlagLabel: Record<PrescriptionVerificationFlag, string> = {
     medication_inactive: 'Medication is now inactive in the catalog',
     duplicate_medication: 'Already active on another prescription for this patient',
+    safety_override: 'Prescriber overrode a safety rule — see justification below',
 };

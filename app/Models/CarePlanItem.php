@@ -110,6 +110,10 @@ class CarePlanItem extends Model
         'referred_to_department_id',
         'referred_to_practitioner_id',
         'created_by',
+        'activated_by',
+        'activated_at',
+        'completed_by',
+        'completed_at',
         'cancelled_at',
         'cancellation_reason',
         'corrected_at',
@@ -127,6 +131,8 @@ class CarePlanItem extends Model
         return [
             'start_date' => 'date',
             'end_date' => 'date',
+            'activated_at' => 'datetime',
+            'completed_at' => 'datetime',
             'cancelled_at' => 'datetime',
             'corrected_at' => 'datetime',
         ];
@@ -180,6 +186,22 @@ class CarePlanItem extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * The user who activated (started) this item, if any.
+     */
+    public function activatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'activated_by');
+    }
+
+    /**
+     * The user who completed this item, if any.
+     */
+    public function completedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'completed_by');
     }
 
     /**

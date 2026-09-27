@@ -6,6 +6,7 @@ use App\Http\Requests\Practitioner\StorePractitionerRequest;
 use App\Http\Requests\Practitioner\UpdatePractitionerRequest;
 use App\Models\Hospital;
 use App\Models\Practitioner;
+use App\Models\Service;
 use App\Models\Staff;
 use App\Services\PractitionerService;
 use Illuminate\Database\Eloquent\Collection;
@@ -68,6 +69,7 @@ class PractitionerController extends Controller
         return Inertia::render('practitioners/create', [
             'eligibleStaff' => $this->eligibleStaff($request),
             'practitionerTypes' => Practitioner::TYPES,
+            'services' => $this->consultationServices(),
         ]);
     }
 
@@ -108,6 +110,7 @@ class PractitionerController extends Controller
         return Inertia::render('practitioners/edit', [
             'practitioner' => $practitioner,
             'practitionerTypes' => Practitioner::TYPES,
+            'services' => $this->consultationServices(),
         ]);
     }
 
@@ -162,5 +165,15 @@ class PractitionerController extends Controller
             ->orderBy('last_name')
             ->orderBy('first_name')
             ->get();
+    }
+
+    /**
+     * Active, billable consultation services a practitioner's
+     * consultation_service_id may be set to — an override on top of the
+     * facility-wide default (see ChargeCaptureService::resolveConsultationService()).
+     */
+    protected function consultationServices(): Collection
+    {
+        return Service::consultationOptions();
     }
 }

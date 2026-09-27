@@ -38,6 +38,7 @@ class StoreHospitalRequest extends FormRequest
             'district' => ['nullable', 'string', 'max:255'],
             'ward' => ['nullable', 'string', 'max:255'],
             'status' => ['required', Rule::in([Hospital::STATUS_ACTIVE, Hospital::STATUS_INACTIVE])],
+            'default_consultation_service_id' => ['nullable', 'integer', 'exists:services,id'],
         ];
     }
 }

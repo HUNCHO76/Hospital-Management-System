@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { usePermissions } from '@/hooks/use-permissions';
 import AppLayout from '@/layouts/app-layout';
+import { calculateAge, formatDate } from '@/lib/date';
 import { effectiveInsuranceStatus, insuranceStatusLabel } from '@/lib/insurance-status';
 import { type BreadcrumbItem } from '@/types';
 import { type Patient } from '@/types/patient';
@@ -108,7 +109,12 @@ export default function PatientsShow({ patient }: PatientsShowProps) {
                                 </div>
                                 <div className="flex justify-between gap-4">
                                     <dt className="text-muted-foreground">Date of Birth</dt>
-                                    <dd>{patient.date_of_birth ?? '—'}</dd>
+                                    <dd>
+                                        {formatDate(patient.date_of_birth)}
+                                        {patient.date_of_birth && (
+                                            <span className="text-muted-foreground ml-1">({calculateAge(patient.date_of_birth)})</span>
+                                        )}
+                                    </dd>
                                 </div>
                                 <div className="flex justify-between gap-4">
                                     <dt className="text-muted-foreground">Marital Status</dt>

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,6 +12,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class NhifClaim extends Model
 {
+    use HasFactory;
+
     public const STATUS_DRAFT = 'draft';
 
     public const STATUS_VALIDATED = 'validated';
@@ -49,9 +52,13 @@ class NhifClaim extends Model
         'status',
         'scope_key',
         'folio_no',
+        'bill_no',
         'folio_year',
         'folio_month',
         'nhif_claim_reference',
+        'nhif_submission_no',
+        'nhif_hash_code',
+        'nhif_submission_remarks',
         'nhif_status',
         'reconciliation_status',
         'last_reconciled_at',
@@ -60,11 +67,17 @@ class NhifClaim extends Model
         'attendance_date',
         'admitted_at',
         'discharged_at',
+        'visit_type_id',
+        'patient_type_code',
+        'clinical_notes',
+        'late_submission_reason',
         'primary_diagnosis_code',
         'primary_diagnosis_description',
         'practitioner_id',
         'nhif_practitioner_no',
+        'attending_practitioners',
         'authorization_no',
+        'confirmation_code',
         'currency',
         'hms_total',
         'nhif_allowable_total',
@@ -84,6 +97,13 @@ class NhifClaim extends Model
         'ready_by',
         'snapshot',
         'snapshot_hash',
+        'signed_at',
+        'signed_by',
+        'signature_method',
+        'signature_payload',
+        'signature_response',
+        'submitted_at',
+        'submitted_by',
         'cancelled_at',
         'cancelled_by',
         'cancellation_reason',
@@ -109,10 +129,15 @@ class NhifClaim extends Model
             'validated_at' => 'datetime',
             'generated_at' => 'datetime',
             'ready_at' => 'datetime',
+            'signed_at' => 'datetime',
+            'submitted_at' => 'datetime',
             'cancelled_at' => 'datetime',
             'last_reconciled_at' => 'datetime',
             'validation_summary' => 'array',
             'snapshot' => 'array',
+            'attending_practitioners' => 'array',
+            'signature_payload' => 'array',
+            'signature_response' => 'array',
         ];
     }
 
@@ -176,6 +201,11 @@ class NhifClaim extends Model
         return $this->hasMany(NhifClaimDiscrepancy::class);
     }
 
+    public function diseases(): HasMany
+    {
+        return $this->hasMany(NhifFolioDisease::class);
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -184,6 +214,11 @@ class NhifClaim extends Model
     public function isSubmittable(): bool
     {
         return $this->status === self::STATUS_READY;
+    }
+
+    public function isSignable(): bool
+    {
+        return in_array($this->status, [self::STATUS_READY], true) && $this->signed_at === null;
     }
 
     public function isCancelled(): bool

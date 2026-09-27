@@ -24,7 +24,7 @@ return new class extends Migration
             $table->longText('raw_data')->nullable();
             $table->timestamps();
 
-            $table->index(['hospital_id', 'nhif_item_code', 'is_active']);
+            $table->index(['hospital_id', 'nhif_item_code', 'is_active'], 'nhif_excl_svc_hosp_code_active_idx');
         });
     }
 

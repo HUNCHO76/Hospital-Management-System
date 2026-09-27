@@ -54,7 +54,7 @@ class ClinicalEncounter extends Model
     /**
      * The controlled set of encounter types recognized by the system.
      */
-    public const TYPES = ['opd', 'walk_in', 'scheduled', 'follow_up'];
+    public const TYPES = ['opd', 'walk_in', 'scheduled', 'follow_up', 'inpatient'];
 
     /**
      * The clinical outcome recorded when an encounter is completed (spec
@@ -110,6 +110,7 @@ class ClinicalEncounter extends Model
         'patient_id',
         'reception_visit_id',
         'appointment_id',
+        'admission_id',
         'department_id',
         'practitioner_id',
         'encounter_type',
@@ -176,6 +177,15 @@ class ClinicalEncounter extends Model
     public function appointment(): BelongsTo
     {
         return $this->belongsTo(Appointment::class);
+    }
+
+    /**
+     * The inpatient admission this encounter belongs to, if it is an
+     * inpatient encounter (encounter_type = 'inpatient').
+     */
+    public function admission(): BelongsTo
+    {
+        return $this->belongsTo(Admission::class);
     }
 
     /**

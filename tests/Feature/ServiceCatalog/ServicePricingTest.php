@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Hospital;
+use App\Models\Practitioner;
 use App\Models\ServicePrice;
 use App\Services\ServicePricingService;
 use Illuminate\Validation\ValidationException;
@@ -20,6 +21,26 @@ test('creating a price for a service+facility that has none yet succeeds', funct
     expect($price->status)->toBe(ServicePrice::STATUS_ACTIVE);
     expect($price->currency)->toBe(config('billing.currency'));
     $this->assertDatabaseHas('audit_logs', ['action' => 'price_created']);
+});
+
+test('submitting a practitioner_id via the pricing form creates a practitioner-specific price', function () {
+    $hospital = Hospital::factory()->create();
+    $service = serviceFor();
+    $practitioner = Practitioner::factory()->create();
+    $accountant = userWithRole('accountant');
+
+    $this->actingAs($accountant)->post(route('billing-pricing.store'), [
+        'service_id' => $service->id,
+        'hospital_id' => $hospital->id,
+        'practitioner_id' => $practitioner->id,
+        'amount' => 18000,
+        'effective_from' => now()->toDateString(),
+    ])->assertRedirect();
+
+    $price = ServicePrice::query()->where('service_id', $service->id)->sole();
+
+    expect($price->practitioner_id)->toBe($practitioner->id);
+    expect((float) $price->amount)->toBe(18000.0);
 });
 
 test('a new open-ended price automatically closes out the previous open-ended price the day before it starts', function () {
@@ -115,4 +136,30 @@ test('a price cannot be cancelled twice', function () {
 
     expect(fn () => app(ServicePricingService::class)->cancel($price->fresh(), 'reason again', requestAs($actor)))
         ->toThrow(ValidationException::class);
+});
+
+test('the pricing index eager-loads and serializes the practitioner on a practitioner-specific price', function () {
+    $hospital = Hospital::factory()->create();
+    $service = serviceFor();
+    $practitioner = Practitioner::factory()->create();
+    priceFor($service, $hospital, ['practitioner_id' => $practitioner->id]);
+    $accountant = userWithRole('accountant');
+
+    $this->actingAs($accountant)->get(route('billing-pricing.index'))
+        ->assertInertia(fn ($page) => $page
+            ->where('prices.data.0.practitioner.id', $practitioner->id)
+            ->where('prices.data.0.practitioner.practitioner_number', $practitioner->practitioner_number));
+});
+
+test('a facility-wide price serializes a null practitioner on both the pricing index and the service show page', function () {
+    $hospital = Hospital::factory()->create();
+    $service = serviceFor();
+    priceFor($service, $hospital);
+    $accountant = userWithRole('accountant');
+
+    $this->actingAs($accountant)->get(route('billing-pricing.index'))
+        ->assertInertia(fn ($page) => $page->where('prices.data.0.practitioner', null));
+
+    $this->actingAs($accountant)->get(route('billing-services.show', $service))
+        ->assertInertia(fn ($page) => $page->where('prices.data.0.practitioner', null));
 });

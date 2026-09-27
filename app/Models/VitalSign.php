@@ -53,6 +53,7 @@ class VitalSign extends Model
     protected $fillable = [
         'clinical_encounter_id',
         'triage_assessment_id',
+        'admission_id',
         'recorded_by',
         'recorded_at',
         'temperature_c',
@@ -86,10 +87,20 @@ class VitalSign extends Model
 
     /**
      * The triage assessment this observation was recorded under.
+     * Nullable for inpatient vitals (no triage assessment exists).
      */
     public function triageAssessment(): BelongsTo
     {
         return $this->belongsTo(TriageAssessment::class);
+    }
+
+    /**
+     * The admission this observation was recorded during, if it is an
+     * inpatient vital sign (triage_assessment_id = NULL).
+     */
+    public function admission(): BelongsTo
+    {
+        return $this->belongsTo(Admission::class);
     }
 
     /**

@@ -10,7 +10,9 @@ use App\Models\ClinicalEncounter;
 use App\Models\LaboratoryOrder;
 use App\Models\LaboratoryOrderItem;
 use App\Services\LaboratoryOrderService;
+use App\Services\NHIF\NhifLabAuthorizationService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Laboratory orders are presented as part of the clinical encounter screen,
@@ -22,13 +24,30 @@ use Illuminate\Http\RedirectResponse;
  */
 class EncounterLaboratoryOrderController extends Controller
 {
-    public function store(StoreLaboratoryOrderRequest $request, ClinicalEncounter $clinicalEncounter, LaboratoryOrderService $service): RedirectResponse
+    public function store(StoreLaboratoryOrderRequest $request, ClinicalEncounter $clinicalEncounter, LaboratoryOrderService $service, NhifLabAuthorizationService $nhifLab): RedirectResponse
     {
         $this->authorize('create', [LaboratoryOrder::class, $clinicalEncounter]);
 
-        $service->create($clinicalEncounter, $request->validated(), $request);
+        $order = $service->create($clinicalEncounter, $request->validated(), $request);
 
-        return back()->with('success', 'Laboratory order placed.');
+        // Best-effort NHIF pre-approval for NHIF patients. Cash patients have no
+        // active verified NHIF insurance, so authorizeOrder() returns [] silently.
+        try {
+            $nhifLab->authorizeOrder($order, $clinicalEncounter, $request);
+        } catch (\Throwable $e) {
+            Log::warning('NHIF lab authorization failed (non-blocking)', [
+                'laboratory_order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $redirect = back()->with('success', 'Laboratory order placed.');
+
+        if ($order->billing_warning ?? null) {
+            $redirect->with('warning', $order->billing_warning);
+        }
+
+        return $redirect;
     }
 
     public function update(UpdateLaboratoryOrderRequest $request, ClinicalEncounter $clinicalEncounter, LaboratoryOrder $laboratoryOrder, LaboratoryOrderService $service): RedirectResponse

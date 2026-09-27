@@ -1,4 +1,5 @@
 import { Can } from '@/components/authorization/can';
+import { LaboratoryTestParameterSection } from '@/components/laboratory/laboratory-test-parameter-section';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +13,7 @@ import {
 } from '@/lib/laboratory-status';
 import { type BreadcrumbItem } from '@/types';
 import { type LaboratoryTest } from '@/types/laboratory';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Head, Link, router } from '@inertiajs/react';
 import { CheckCircle2, Pencil, XCircle } from 'lucide-react';
 
@@ -25,6 +27,9 @@ function formatDateTime(value: string): string {
 }
 
 export default function LaboratoryTestShow({ test, isReferenced }: LaboratoryTestShowProps) {
+    const { can } = usePermissions();
+    const canManageParameters = can('laboratory-test-parameters.manage');
+
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Laboratory', href: '/laboratory' },
         { title: 'Test Catalog', href: '/laboratory/tests' },
@@ -151,6 +156,8 @@ export default function LaboratoryTestShow({ test, isReferenced }: LaboratoryTes
                         </CardContent>
                     </Card>
                 </div>
+
+                <LaboratoryTestParameterSection test={test} canManage={canManageParameters} />
             </div>
         </AppLayout>
     );

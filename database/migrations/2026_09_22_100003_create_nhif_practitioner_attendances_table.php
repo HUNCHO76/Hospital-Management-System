@@ -23,7 +23,7 @@ return new class extends Migration
             $table->foreignId('recorded_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 
-            $table->index(['practitioner_id', 'operation', 'status']);
+            $table->index(['practitioner_id', 'operation', 'status'], 'nhif_pract_attend_op_status_idx');
             $table->index('recorded_at');
         });
     }

@@ -26,6 +26,7 @@ class PrescriptionOrderService
         protected AuditLogService $auditLog,
         protected PrescriptionVerificationService $verification,
         protected ChargeCaptureService $chargeCapture,
+        protected MedicationSafetyService $safety,
     ) {}
 
     /**
@@ -47,6 +48,16 @@ class PrescriptionOrderService
             $this->assertConsultationEligible($encounter);
 
             $medications = $this->resolveActiveMedications($this->assertNoDuplicateMedications($data['items']));
+
+            // Safety check: if any item's medication has a diagnosis-based
+            // contraindication/caution rule and no override justification was
+            // supplied, return per-item validation errors so the prescriber
+            // can review the flag and provide a clinical reason.
+            $activeDiagnosisCodes = $this->safety->activeDiagnosisCodeIds($encounter->id);
+            $safetyErrors = $this->safety->checkItems($activeDiagnosisCodes, $data['items']);
+            if (! empty($safetyErrors)) {
+                throw ValidationException::withMessages($safetyErrors);
+            }
 
             $order = PrescriptionOrder::create([
                 'clinical_encounter_id' => $encounter->id,
@@ -227,6 +238,9 @@ class PrescriptionOrderService
             'quantity' => $itemData['quantity'],
             'quantity_unit' => $itemData['quantity_unit'] ?? null,
             'instructions' => $itemData['instructions'] ?? null,
+            'safety_override_justification' => isset($itemData['safety_override_justification'])
+                ? (trim($itemData['safety_override_justification']) ?: null)
+                : null,
             'status' => PrescriptionOrderItem::STATUS_ACTIVE,
         ]);
 
@@ -335,10 +349,19 @@ class PrescriptionOrderService
      * prescription must not be blocked on a final diagnosis not yet being
      * entered.
      *
+     * Inpatient encounters (Step 74) have no consultation context — the
+     * clinician opens the encounter directly against the admission during a
+     * ward round and is not required to complete a triage/consultation flow
+     * before prescribing.
+     *
      * @throws ValidationException
      */
-    protected function assertConsultationEligible(ClinicalEncounter $encounter): Consultation
+    protected function assertConsultationEligible(ClinicalEncounter $encounter): ?Consultation
     {
+        if ($encounter->encounter_type === 'inpatient') {
+            return null;
+        }
+
         $consultation = $encounter->consultation;
 
         if (! $consultation || ! in_array($consultation->status, [Consultation::STATUS_IN_PROGRESS, Consultation::STATUS_COMPLETED], true)) {

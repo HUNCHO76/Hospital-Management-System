@@ -10,7 +10,10 @@ use Illuminate\Validation\ValidationException;
 
 class TriageService
 {
-    public function __construct(protected AuditLogService $auditLog) {}
+    public function __construct(
+        protected AuditLogService $auditLog,
+        protected FinancialAuthorizationService $financialAuth,
+    ) {}
 
     /**
      * Start a new triage assessment for an encounter — the first step of
@@ -31,6 +34,22 @@ class TriageService
 
             $this->assertEncounterEligible($encounter);
             $this->assertNoExistingTriage($encounter);
+
+            // Financial gate: the consultation charge (if any) must be paid
+            // before triage begins. No-charge rule applies: when no charge was
+            // captured (practitioner has no consultation service), the gate
+            // passes automatically — free consultations never block triage.
+            $paymentStatus = $this->financialAuth->statusForSource(
+                ClinicalEncounter::class,
+                $encounter->id,
+                FinancialAuthorizationService::STATUS_AUTHORIZED,
+            );
+
+            if ($paymentStatus !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                throw ValidationException::withMessages([
+                    'financial_authorization' => 'Payment is required before triage can begin.',
+                ]);
+            }
 
             return TriageAssessment::create([
                 'clinical_encounter_id' => $encounter->id,

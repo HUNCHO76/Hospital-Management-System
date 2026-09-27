@@ -41,13 +41,21 @@ class ConsultationService
             $practitioner = $this->assertPractitionerEligible($request);
 
             // Step 62: financial authorization gate — the consultation charge
-            // (captured at encounter creation when a practitioner was already
-            // known) must be paid before the doctor can open the consultation.
-            // No-charge rule: if no charge exists the gate passes automatically.
-            $this->financialAuth->assertAuthorizedForSources(
+            // (captured at reception visit creation when a billable practitioner
+            // was assigned) must be paid before the doctor opens the consultation.
+            // No-charge rule: if no charge was captured (practitioner has no
+            // consultation service configured), the gate passes automatically.
+            $paymentStatus = $this->financialAuth->statusForSource(
                 ClinicalEncounter::class,
-                [$encounter->id],
+                $encounter->id,
+                FinancialAuthorizationService::STATUS_AUTHORIZED,
             );
+
+            if ($paymentStatus !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                throw ValidationException::withMessages([
+                    'financial_authorization' => 'Payment is required before this consultation can begin.',
+                ]);
+            }
 
             return Consultation::create([
                 'clinical_encounter_id' => $encounter->id,

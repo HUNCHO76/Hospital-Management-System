@@ -1,5 +1,47 @@
 # Service Catalog & Pricing (Phase 7, Step 53)
 
+## Re-Audit & Gap Closure — 2026-09-24
+
+A full re-audit was run against a 36-section external spec covering this
+exact step, with an explicit instruction not to duplicate or redesign
+anything already built. Two independent research passes (full file reads)
+plus a design pass confirmed the original build below remains accurate and
+undrifted — every structure this document describes was found exactly as
+documented. Five narrow, real gaps were found and closed; one spec item
+(a database-backed categories table) was re-evaluated and deliberately
+**not** implemented, reaffirming this document's own original B section
+reasoning. Details are folded into the relevant lettered sections below;
+summary:
+
+1. **Closed** — `Hospital.default_consultation_service_id` had no admin UI
+   (column/relation/consumer all existed, but no form exposed it). Added
+   `Service::consultationOptions()` (shared with the practitioner's own
+   equivalent field), a form field on `hospitals/create`/`edit`, and
+   request validation.
+2. **Closed** — price history views never disclosed which practitioner a
+   price belonged to. Added `ServicePrice::practitioner()`, a
+   `practitioner` key on `ServicePriceResource`, and a Practitioner column
+   on both the pricing index and a service's own price-history table.
+3. **Closed** — a single service's price history (`billing/services/show`)
+   was unpaginated, unlike the global pricing index. Paginated it
+   (20/page) to match.
+4. **Closed** — the resolver's practitioner-price-wins-over-facility-wide
+   precedence was implemented and used correctly, but only proven by
+   *creation*-path tests, not a resolution-path test. Added three direct
+   `ServicePriceResolver` tests.
+5. **Closed** — no receptionist-specific 403 test existed for service/
+   pricing management (doctor/pharmacist were covered). Added one.
+6. **Not implemented, by design** — categories remain the existing
+   `Service::CATEGORIES` const, not a database table. Re-confirmed correct
+   per this document's own original B section rationale below.
+
+**ServiceCatalog suite after gap closure: 57/57 pass** (49 original + 8
+new). `HospitalManagementTest`: 20/20 pass (3 new). A targeted
+cross-cutting regression run of every practitioner-related test across
+Billing/ChargeCapture/Consultation/Reception/Radiology/Staff/
+ServiceCatalog: 63/63 pass — no drift from the `Service::
+consultationOptions()` extraction.
+
 ## Audit findings
 
 Before writing any code, the entire repository was searched for
@@ -50,6 +92,16 @@ purely a DRY refactor. No other existing file was modified.
   `RadiologyProcedure::MODALITIES`'s own "standard vocabulary, not
   admin-reconfigurable" precedent (spec §8's "do not create duplicate
   category systems" is satisfied by not building a second table at all).
+  **Re-confirmed 2026-09-24**: a later, independent spec explicitly asked
+  for Create/Edit/Activate/Deactivate category management. Re-evaluated
+  and upheld the original decision — categories are correctly *not*
+  hardcoded in React (served as a backend-supplied prop to both
+  `billing/services/create.tsx` and `edit.tsx`, the one real concern that
+  spec's own wording raised), and a full CRUD surface (table + policy +
+  permissions + audit trail) for a fixed ~10-value, non-facility-specific
+  classification vocabulary would be the "duplicate structure without a
+  demonstrated architectural reason" that same spec explicitly warned
+  against creating.
 - **Mappings**: `ServiceCatalogSeeder` maps every active `LaboratoryTest`
   and `RadiologyProcedure` to its own `Service` row (reusing each source's
   own real `code`/`name` — never inventing spec's illustrative codes
@@ -92,6 +144,21 @@ purely a DRY refactor. No other existing file was modified.
 - **Historical pricing**: verified by direct test — a transaction dated in
   June resolves to the price that was actually in effect in June, even
   after a July price change has since become "current."
+- **Provider/specialist pricing** (`practitioner_id`, nullable = facility-
+  wide): a practitioner-specific price always wins over the facility-wide
+  one for the same service/hospital/date — now proven directly at the
+  resolution layer (2026-09-24 addition), not just the creation layer.
+  Price history views (`billing/pricing/index`, `billing/services/show`)
+  now disclose which practitioner a price applies to, or "Facility-wide"
+  when none.
+- **Consultation fallback chain**: `ChargeCaptureService::
+  resolveConsultationService()` — a practitioner's own
+  `consultation_service_id` first, else the hospital's
+  `default_consultation_service_id`, else `null` (never silently free —
+  charge capture throws and the gap is audited). Both ends of this chain
+  now have admin UI: the practitioner form already had it; the hospital
+  form gained it 2026-09-24 (`Service::consultationOptions()`, shared
+  between both forms).
 - **A real, subtle, driver-dependent bug was found and fixed** while
   building the resolver: Eloquent's `date` cast still persists a full
   `"Y-m-d H:i:s"` string (only the time is zeroed, the format is not
@@ -123,6 +190,17 @@ purely a DRY refactor. No other existing file was modified.
   deactivate}`, `billing-pricing.{view,create,deactivate}` — granted to
   `hospital-admin` and `accountant`; clinical/pharmacy roles hold neither
 
+**2026-09-24 additions**: `Service::consultationOptions()` (shared option
+query, extracted from `PractitionerController`); `ServicePrice::
+practitioner()` relation; `default_consultation_service_id` validation
+added to `StoreHospitalRequest`/`UpdateHospitalRequest`;
+`ServicePriceResource` gained a `practitioner` key; `HospitalController`
+now passes `consultationServices` to create/edit and eager-loads
+`defaultConsultationService` on show; `ServiceCatalogController::show()`
+now paginates its price-history query (was `->get()`) and eager-loads the
+practitioner relation, matching `ServiceCatalogSearchService::
+pricesQuery()`'s existing eager-loads.
+
 ## E. Frontend Changes
 
 - **Pages**: `billing/services/{index,create,edit,show}`,
@@ -132,6 +210,15 @@ purely a DRY refactor. No other existing file was modified.
 - **Types**: `types/service.ts`; **Utils**: `lib/service-status.ts`
 - **Navigation**: "Services"/"Pricing" buttons added to the Billing
   dashboard (`billing/index`), permission-gated
+
+**2026-09-24 additions**: `hospital-form.tsx` gained a "Default
+Consultation Service" field (mirrors `practitioner-form.tsx`'s own field
+exactly); `hospitals/create.tsx`/`edit.tsx` pass through the new
+`consultationServices` prop, `hospitals/show.tsx` displays the current
+setting read-only; `billing/pricing/index.tsx` and
+`billing/services/show.tsx` both gained a Practitioner column; the latter
+also gained pagination (`<Pagination links={prices.links} />`); `types/
+hospital.ts` and `types/service.ts` updated accordingly.
 
 ## F. Security Results
 
@@ -143,6 +230,9 @@ IDOR: PASS
 Mass Assignment: PASS
 Price Manipulation: PASS
 ```
+**2026-09-24**: reaffirmed. Receptionist role (spec-named alongside
+doctor/pharmacist as roles that must never manage pricing) is now also
+directly tested, closing the one previously-untested named role.
 
 ## G. Testing Results
 
@@ -162,6 +252,14 @@ Laravel Validation: PASS
 ```
 **ServiceCatalog suite: 49/49 pass.**
 
+**2026-09-24 re-audit**: `tests/Feature/Hospitals/HospitalManagementTest`
+20/20 pass (3 new); `tests/Feature/ServiceCatalog` full suite 57/57 pass
+(8 new — Gap 2/4/5's tests); a targeted cross-cutting run of every
+"Practitioner"-matching test across Billing, ChargeCapture, Consultation,
+Reception, Radiology, Staff, and ServiceCatalog — 63/63 pass, confirming
+the `Service::consultationOptions()` extraction is behavior-preserving.
+`npx tsc --noEmit` and `npm run build`: both clean.
+
 ## H. Known Issues
 
 - **Medium** — the exact `where('date_column', op, $bareDateString)`
@@ -177,6 +275,13 @@ Laravel Validation: PASS
   Service Catalog section above); if a future step needs to mark a service
   "temporarily unavailable" at a facility *without* removing its price,
   this boundary will need revisiting.
+- **Low** — categories remain a fixed `Service::CATEGORIES` const rather
+  than a database-backed, admin-manageable table (re-confirmed 2026-09-24
+  against an external spec that explicitly asked for category CRUD — see
+  Service Catalog section above for the full reasoning). If a future
+  requirement genuinely needs per-hospital or admin-invented categories
+  beyond the fixed ~10-value vocabulary, this will need revisiting; today
+  no such need exists.
 
 ## I. Final Status
 
@@ -184,4 +289,13 @@ Laravel Validation: PASS
 PHASE 7 — STEP 53 STATUS: PASS
 
 READY FOR STEP 54 — PATIENT CHARGES & CHARGE CAPTURE: YES
+```
+
+## Re-Audit Final Status (2026-09-24)
+
+```
+PHASE 7 — STEP 53 RE-AUDIT STATUS: PASS
+
+All 5 identified gaps closed. No new gaps introduced. No duplicate
+service catalog or pricing architecture created. Step 53 remains closed.
 ```

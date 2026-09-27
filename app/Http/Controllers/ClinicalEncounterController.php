@@ -12,12 +12,14 @@ use App\Http\Resources\ClinicalNoteResource;
 use App\Http\Resources\ConsultationResource;
 use App\Http\Resources\EncounterDiagnosisResource;
 use App\Http\Resources\LaboratoryOrderResource;
+use App\Http\Resources\LaboratoryReportResource;
 use App\Http\Resources\PrescriptionOrderResource;
 use App\Http\Resources\RadiologyOrderResource;
 use App\Http\Resources\RadiologyResultResource;
 use App\Http\Resources\TriageAssessmentResource;
 use App\Models\ClinicalEncounter;
 use App\Models\Department;
+use App\Models\LaboratoryReport;
 use App\Models\Practitioner;
 use App\Models\RadiologyAppointment;
 use App\Models\RadiologyReport;
@@ -25,6 +27,7 @@ use App\Models\ReceptionVisit;
 use App\Services\ClinicalEncounterSearchService;
 use App\Services\ClinicalEncounterService;
 use App\Services\FinancialAuthorizationService;
+use App\Services\MedicationSafetyService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -157,6 +160,25 @@ class ClinicalEncounterController extends Controller
             'verification.verifiedBy:id,UserName',
         ])->get();
 
+        // Only the currently-active (non-superseded) released laboratory report
+        // per order is shown here — superseded versions never appear on the
+        // encounter page (a doctor must not see a retracted result as the
+        // current one). Loaded separately from $laboratoryOrders above, which
+        // continues showing plain order/item status tracking for every status.
+        $laboratoryResults = LaboratoryReport::query()
+            ->where('status', LaboratoryReport::STATUS_ACTIVE)
+            ->whereHas('laboratoryOrder', fn ($q) => $q->where('clinical_encounter_id', $clinicalEncounter->id))
+            ->with([
+                'laboratoryOrder',
+                'laboratoryOrder.clinicalEncounter.patient:id,patient_number,first_name,middle_name,last_name,date_of_birth,gender',
+                'laboratoryOrder.clinicalEncounter.department:id,name,hospital_id',
+                'laboratoryOrder.clinicalEncounter.department.hospital:id,name,phone,email,address',
+                'laboratoryOrder.orderedBy:id,UserName',
+                'releasedBy:id,UserName',
+            ])
+            ->orderBy('created_at', 'asc')
+            ->get();
+
         // Only RELEASED radiology reports are ever presented as official
         // clinical results on the encounter page (Phase 5, Step 44, Part
         // 15/18) — a draft, submitted, or verified-but-not-yet-released
@@ -189,6 +211,7 @@ class ClinicalEncounterController extends Controller
             'diagnoses' => EncounterDiagnosisResource::collection($diagnoses)->resolve($request),
             'carePlan' => $carePlan ? (new CarePlanResource($carePlan))->resolve($request) : null,
             'laboratoryOrders' => LaboratoryOrderResource::collection($laboratoryOrders)->resolve($request),
+            'laboratoryResults' => LaboratoryReportResource::collection($laboratoryResults)->resolve($request),
             'radiologyOrders' => RadiologyOrderResource::collection($radiologyOrders)->resolve($request),
             'radiologyResults' => $radiologyResults,
             'prescriptionOrders' => PrescriptionOrderResource::collection($prescriptionOrders)->resolve($request),
@@ -204,6 +227,13 @@ class ClinicalEncounterController extends Controller
             // immediately after payment is posted.
             'consultationFinancialStatus' => app(FinancialAuthorizationService::class)
                 ->statusForSource(ClinicalEncounter::class, $clinicalEncounter->id),
+            // Medication safety rules pre-filtered to the patient's active
+            // diagnoses, so the prescription form can warn the prescriber
+            // before submission (spec §12). Keyed by medication_id.
+            'medicationSafetyRules' => app(MedicationSafetyService::class)
+                ->warningsForDiagnoses(
+                    app(MedicationSafetyService::class)->activeDiagnosisCodeIds($clinicalEncounter->id),
+                ),
         ]);
     }
 

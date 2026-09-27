@@ -22,6 +22,12 @@ class StaffSeeder extends Seeder
         ['first_name' => 'Baraka', 'last_name' => 'Mushi', 'gender' => 'male', 'department' => 'INPATIENT', 'job_title' => 'Nurse', 'employment_type' => 'full_time', 'role' => 'nurse'],
         ['first_name' => 'Catherine', 'last_name' => 'Mwakalinga', 'gender' => 'female', 'department' => 'PHARMACY', 'job_title' => 'Pharmacist', 'employment_type' => 'full_time', 'role' => 'pharmacist'],
         ['first_name' => 'David', 'last_name' => 'Kessy', 'gender' => 'male', 'department' => 'LAB', 'job_title' => 'Laboratory Technician', 'employment_type' => 'full_time', 'role' => 'laboratory-technician'],
+        // The lab's independent verification role (review/verify/authorize/release a
+        // result someone else entered — self-review is blocked by policy). Until now
+        // the only account holding 'laboratory-supervisor' was the generic dev/test
+        // user (see DatabaseSeeder's own comment); this gives it a real named staff
+        // member, mirroring the radiology-technician/radiology-supervisor split.
+        ['first_name' => 'Halima', 'last_name' => 'Mrisho', 'gender' => 'female', 'department' => 'LAB', 'job_title' => 'Laboratory Supervisor', 'employment_type' => 'full_time', 'role' => 'laboratory-supervisor'],
         ['first_name' => 'Edith', 'last_name' => 'Massawe', 'gender' => 'female', 'department' => 'OPD', 'job_title' => 'Receptionist', 'employment_type' => 'full_time', 'role' => 'receptionist'],
         ['first_name' => 'Frank', 'last_name' => 'Ngowi', 'gender' => 'male', 'department' => null, 'job_title' => 'Accountant', 'employment_type' => 'full_time', 'role' => 'accountant'],
         ['first_name' => 'Grace', 'last_name' => 'Temba', 'gender' => 'female', 'department' => null, 'job_title' => 'IT Officer', 'employment_type' => 'full_time', 'role' => null],
@@ -35,7 +41,8 @@ class StaffSeeder extends Seeder
         $hospital = Hospital::query()->where('code', 'MAIN')->firstOrFail();
 
         foreach ($this->staff as $entry) {
-            $email = strtolower($entry['first_name'].'.'.$entry['last_name']).'@mainhospital.test';
+            $domain = $entry['role'] ?? 'staff';
+            $email = strtolower($entry['first_name'].'.'.$entry['last_name'])."@{$domain}.test";
 
             $user = User::query()->firstOrCreate(
                 ['email' => $email],

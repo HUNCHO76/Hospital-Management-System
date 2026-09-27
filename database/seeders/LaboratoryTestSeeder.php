@@ -133,6 +133,12 @@ class LaboratoryTestSeeder extends Seeder
         // "Stool Microscopy" into one report for the same reason as above.
         ['code' => 'STOOL_EXAM', 'name' => 'Stool Routine Examination', 'category' => 'STOOL', 'specimen_type' => 'stool', 'specimen_container' => 'sterile_container', 'result_type' => 'text', 'turnaround_time_minutes' => 60, 'description' => 'Macroscopic and microscopic stool examination (ova, cysts, parasites).'],
         ['code' => 'STOOL_OB', 'name' => 'Occult Blood in Stool', 'category' => 'STOOL', 'specimen_type' => 'stool', 'specimen_container' => 'sterile_container', 'result_type' => 'positive_negative', 'result_options' => ['positive', 'negative'], 'turnaround_time_minutes' => 45, 'description' => 'Screening test for hidden (occult) blood in stool.'],
+
+        // Multi-parameter panel tests — each produces a single ordered result
+        // with per-analyte parameter rows rather than a flat scalar value.
+        ['code' => 'FBC', 'name' => 'Full Blood Count', 'category' => 'HEMATOLOGY', 'specimen_type' => 'whole_blood', 'specimen_container' => 'edta_tube', 'result_type' => 'numeric', 'turnaround_time_minutes' => 60, 'description' => 'Complete blood count including WBC, RBC, HGB, HCT, MCV, MCH, MCHC, RDW-CV, and PLT.'],
+        ['code' => 'LFT', 'name' => 'Liver Function Tests', 'category' => 'CHEMISTRY', 'specimen_type' => 'serum', 'specimen_container' => 'plain_tube', 'result_type' => 'numeric', 'turnaround_time_minutes' => 90, 'description' => 'Panel: ALT, AST, ALP, Total Bilirubin, Direct Bilirubin, Total Protein, Albumin, GGT.'],
+        ['code' => 'RFT', 'name' => 'Renal Function Tests', 'category' => 'CHEMISTRY', 'specimen_type' => 'serum', 'specimen_container' => 'plain_tube', 'result_type' => 'numeric', 'turnaround_time_minutes' => 90, 'description' => 'Panel: Urea, Creatinine, Sodium, Potassium, Chloride.'],
     ];
 
     /**

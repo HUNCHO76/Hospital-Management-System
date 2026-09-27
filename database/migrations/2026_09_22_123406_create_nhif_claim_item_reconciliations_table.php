@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('nhif_claim_item_reconciliations', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('nhif_claim_reconciliation_id')->constrained()->restrictOnDelete();
+            $table->foreignId('nhif_claim_reconciliation_id')->constrained('nhif_claim_reconciliations', 'id', 'nhif_item_recon_recon_fk')->restrictOnDelete();
             $table->foreignId('nhif_claim_item_id')->constrained()->restrictOnDelete();
             $table->foreignId('nhif_utilization_id')->nullable()->constrained()->nullOnDelete();
             $table->string('module', 20);
@@ -32,7 +32,7 @@ return new class extends Migration
             $table->string('variance_category', 30)->nullable();
             $table->timestamps();
 
-            $table->index(['nhif_claim_reconciliation_id']);
+            $table->index(['nhif_claim_reconciliation_id'], 'nhif_claim_item_recon_recon_id_idx');
         });
     }
 

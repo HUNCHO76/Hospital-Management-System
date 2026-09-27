@@ -1,0 +1,117 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+/**
+ * The Medication Administration Record (MAR) — the clinical execution layer
+ * that sits after pharmacy dispensing (Phase 6, Step 48). Stock is already
+ * deducted at dispensing; this row records the bedside moment when nursing
+ * staff actually administered (or held/refused/missed) the medication.
+ *
+ * Amendment chain: when a record needs correcting, a new row is written with
+ * corrects_id pointing to the superseded row. The original row is never
+ * deleted or updated — immutable audit trail, identical to ClinicalNote.
+ */
+class MedicationAdministration extends Model
+{
+    public const STATUS_ADMINISTERED = 'administered';
+
+    public const STATUS_HELD = 'held';
+
+    public const STATUS_REFUSED = 'refused';
+
+    public const STATUS_MISSED = 'missed';
+
+    /** @var list<string> */
+    public const STATUSES = [
+        self::STATUS_ADMINISTERED,
+        self::STATUS_HELD,
+        self::STATUS_REFUSED,
+        self::STATUS_MISSED,
+    ];
+
+    /**
+     * Allowed reasons when a dose is held rather than administered.
+     *
+     * @var list<string>
+     */
+    public const HOLD_REASONS = [
+        'patient_refused',
+        'patient_npo',
+        'patient_unavailable',
+        'clinical_hold',
+        'medication_unavailable',
+        'adverse_reaction_risk',
+        'prescriber_instruction',
+        'other',
+    ];
+
+    /** @var list<string> */
+    protected $fillable = [
+        'admission_id',
+        'clinical_encounter_id',
+        'prescription_order_id',
+        'prescription_order_item_id',
+        'dispensing_item_id',
+        'status',
+        'scheduled_at',
+        'administered_at',
+        'dose',
+        'dose_unit',
+        'route',
+        'is_prn',
+        'administered_by',
+        'reason',
+        'notes',
+        'corrects_id',
+        'correction_reason',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'scheduled_at' => 'datetime',
+            'administered_at' => 'datetime',
+            'is_prn' => 'boolean',
+        ];
+    }
+
+    public function admission(): BelongsTo
+    {
+        return $this->belongsTo(Admission::class);
+    }
+
+    public function clinicalEncounter(): BelongsTo
+    {
+        return $this->belongsTo(ClinicalEncounter::class);
+    }
+
+    public function prescriptionOrder(): BelongsTo
+    {
+        return $this->belongsTo(PrescriptionOrder::class);
+    }
+
+    public function prescriptionOrderItem(): BelongsTo
+    {
+        return $this->belongsTo(PrescriptionOrderItem::class);
+    }
+
+    public function dispensingItem(): BelongsTo
+    {
+        return $this->belongsTo(DispensingItem::class);
+    }
+
+    public function administeredBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'administered_by');
+    }
+
+    /** The record this row supersedes (amendment chain). */
+    public function corrects(): BelongsTo
+    {
+        return $this->belongsTo(MedicationAdministration::class, 'corrects_id');
+    }
+}

@@ -45,6 +45,7 @@ class Practitioner extends Model
         'radiologist',
         'clinical-officer',
         'dentist',
+        'ophthalmologist',
     ];
 
     /**
@@ -64,6 +65,7 @@ class Practitioner extends Model
         'Radiologist' => 'radiologist',
         'Clinical Officer' => 'clinical-officer',
         'Dentist' => 'dentist',
+        'Ophthalmologist' => 'ophthalmologist',
     ];
 
     /**

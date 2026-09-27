@@ -25,6 +25,12 @@ const VISIT_TYPE_LABELS: Record<string, string> = {
     other: 'Other',
 };
 
+const SPECIALTY_LABELS: Record<string, string> = {
+    '': 'All / General',
+    dental: 'Dental',
+    eye: 'Eye / Ophthalmology',
+};
+
 interface WalkInCreateProps {
     departments: AppointmentDepartment[];
     visitTypes: string[];
@@ -43,6 +49,7 @@ interface WalkInCreateProps {
 export default function WalkInCreate({ departments, visitTypes, practitioners }: WalkInCreateProps) {
     const [selectedPatient, setSelectedPatient] = useState<PatientSearchResult | null>(null);
     const [consultationPrice, setConsultationPrice] = useState<{ price: number | null; currency: string } | null>(null);
+    const [specialtyFilter, setSpecialtyFilter] = useState<'' | 'dental' | 'eye'>('');
     const abortRef = useRef<AbortController | null>(null);
 
     const { data, setData, post, processing, errors } = useForm<WalkInFormData>({
@@ -52,13 +59,38 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
         practitioner_id: '',
     });
 
+    const filteredPractitioners = practitioners.filter((p) => {
+        if (specialtyFilter === 'dental') return p.practitioner_type === 'dentist';
+        if (specialtyFilter === 'eye') return p.practitioner_type === 'ophthalmologist';
+        return true;
+    });
+
+    const handleSpecialtyChange = (value: string) => {
+        const next = (value === 'all' ? '' : value) as '' | 'dental' | 'eye';
+        setSpecialtyFilter(next);
+        // Clear practitioner if it no longer fits the new specialty filter.
+        if (data.practitioner_id) {
+            const current = practitioners.find((p) => String(p.id) === data.practitioner_id);
+            const stillVisible =
+                next === '' ||
+                (next === 'dental' && current?.practitioner_type === 'dentist') ||
+                (next === 'eye' && current?.practitioner_type === 'ophthalmologist');
+            if (!stillVisible) {
+                setData('practitioner_id', '');
+            }
+        }
+    };
+
     useEffect(() => {
         if (abortRef.current) {
             abortRef.current.abort();
         }
 
         const practitioner = practitioners.find((p) => String(p.id) === data.practitioner_id);
-        if (!data.department_id || !data.practitioner_id || !practitioner?.consultation_service_id) {
+        const hasPractitionerPrice = data.practitioner_id && practitioner?.consultation_service_id;
+        const shouldFetch = data.department_id && (hasPractitionerPrice || specialtyFilter);
+
+        if (!shouldFetch) {
             setConsultationPrice(null);
             return;
         }
@@ -66,7 +98,11 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
         const ctrl = new AbortController();
         abortRef.current = ctrl;
 
-        fetch(route('reception.consultation-price') + `?department_id=${data.department_id}&practitioner_id=${data.practitioner_id}`, {
+        const params = new URLSearchParams({ department_id: data.department_id });
+        if (data.practitioner_id) params.set('practitioner_id', data.practitioner_id);
+        if (specialtyFilter) params.set('specialty_type', specialtyFilter);
+
+        fetch(route('reception.consultation-price') + '?' + params.toString(), {
             signal: ctrl.signal,
             headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         })
@@ -81,7 +117,7 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
                     setConsultationPrice(null);
                 }
             });
-    }, [data.department_id, data.practitioner_id]);
+    }, [data.department_id, data.practitioner_id, specialtyFilter]);
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -164,6 +200,27 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
                                 </div>
                             </div>
 
+                            <div className="grid gap-4 sm:grid-cols-2">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="specialty_filter">
+                                        Consultation Specialty{' '}
+                                        <span className="text-muted-foreground font-normal">(optional — filters providers)</span>
+                                    </Label>
+                                    <Select value={specialtyFilter === '' ? 'all' : specialtyFilter} onValueChange={handleSpecialtyChange}>
+                                        <SelectTrigger id="specialty_filter">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {Object.entries(SPECIALTY_LABELS).map(([value, label]) => (
+                                                <SelectItem key={value} value={value === '' ? 'all' : value}>
+                                                    {label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+
                             <div className="grid gap-2">
                                 <Label htmlFor="practitioner_id">
                                     Assigned Provider{' '}
@@ -178,7 +235,7 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="none">No provider selected</SelectItem>
-                                        {practitioners.map((p) => (
+                                        {filteredPractitioners.map((p) => (
                                             <SelectItem key={p.id} value={String(p.id)}>
                                                 {p.staff ? `${p.staff.first_name} ${p.staff.last_name}` : p.practitioner_number}
                                                 {p.consultation_service_id ? ' ✓' : ''}
@@ -187,29 +244,53 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
                                     </SelectContent>
                                 </Select>
                                 <InputError message={errors.practitioner_id} />
-                                {consultationPrice?.price != null ? (
-                                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400 space-y-1">
-                                        <div className="flex justify-between items-center">
-                                            <span className="font-semibold">Consultation Fee:</span>
-                                            <span className="text-sm font-bold">
+                                <p className="text-muted-foreground text-xs">
+                                    If selected, a consultation charge will be captured immediately. The charge must be cleared before the patient is sent to the clinical queue.
+                                </p>
+                            </div>
+
+                            {consultationPrice?.price != null && data.practitioner_id && (
+                                <div className="rounded-md border-2 border-primary/20 bg-primary/5 p-4 space-y-3">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-primary">Registration / Consultation Charges</p>
+                                    <dl className="space-y-1.5 text-sm">
+                                        {(() => {
+                                            const p = practitioners.find((x) => String(x.id) === data.practitioner_id);
+                                            return p ? (
+                                                <div className="flex justify-between gap-4">
+                                                    <dt className="text-muted-foreground">Practitioner</dt>
+                                                    <dd className="font-medium">{p.staff ? `${p.staff.first_name} ${p.staff.last_name}` : p.practitioner_number}</dd>
+                                                </div>
+                                            ) : null;
+                                        })()}
+                                        <div className="flex justify-between gap-4">
+                                            <dt className="text-muted-foreground">Service</dt>
+                                            <dd className="font-medium">Consultation</dd>
+                                        </div>
+                                        <div className="flex justify-between gap-4">
+                                            <dt className="text-muted-foreground">Charge</dt>
+                                            <dd className="font-bold">
                                                 {consultationPrice.currency}{' '}
                                                 {consultationPrice.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                            </span>
+                                            </dd>
                                         </div>
-                                        <div className="flex justify-between items-center text-muted-foreground">
-                                            <span>Financial Requirement:</span>
-                                            <span className="font-semibold text-amber-700 dark:text-amber-400">PAYMENT REQUIRED</span>
+                                        <div className="flex justify-between gap-4">
+                                            <dt className="text-muted-foreground">Payment Type</dt>
+                                            <dd>
+                                                {selectedPatient?.has_active_nhif ? (
+                                                    <span className="font-semibold text-green-700 dark:text-green-400">NHIF</span>
+                                                ) : (
+                                                    <span className="font-semibold text-amber-700 dark:text-amber-400">CASH</span>
+                                                )}
+                                            </dd>
                                         </div>
-                                        <p className="pt-1 text-[11px] text-muted-foreground">
-                                            Submitting creates a billable consultation charge. Patient must settle payment at the cashier before entering the clinical queue.
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <p className="text-muted-foreground text-xs">
-                                        If selected, a consultation charge will be captured immediately. Payment must be cleared before the patient is sent to the clinical queue.
+                                    </dl>
+                                    <p className="text-[11px] text-muted-foreground border-t pt-2">
+                                        {selectedPatient?.has_active_nhif
+                                            ? 'NHIF will be billed for this consultation. If NHIF authorizes the service, the patient proceeds directly to the clinical queue.'
+                                            : 'Patient must settle this charge at the cashier before entering the clinical queue.'}
                                     </p>
-                                )}
-                            </div>
+                                </div>
+                            )}
 
                             {selectedPatient && data.department_id && (
                                 <div className="bg-muted/50 rounded-md border p-4 text-sm space-y-2">

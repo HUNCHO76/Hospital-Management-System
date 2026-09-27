@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Models\NhifClaim;
 use App\Models\User;
+use App\Policies\NhifFolioPolicy;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -27,6 +29,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::before(function (User $user, string $ability) {
             return $user->hasRole('super-admin') ? true : null;
         });
+
+        Gate::policy(NhifClaim::class, NhifFolioPolicy::class);
 
         $this->configureRateLimiters();
     }

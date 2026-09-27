@@ -45,9 +45,10 @@ class NhifEligibilityService
             $status = $this->resolveEligibilityStatus($body);
             $coveragePct = $this->extractCoverage($body);
             $patientPct = $this->extractPatientResponsibility($body);
+            // GetCardDetails uses ExpiryDate; a dedicated eligibility endpoint would use ValidFrom/ValidTo.
             $validFrom = $body['ValidFrom'] ?? $body['CoverFrom'] ?? null;
-            $validTo = $body['ValidTo'] ?? $body['CoverTo'] ?? null;
-            $remarks = $body['Remarks'] ?? $body['StatusRemarks'] ?? null;
+            $validTo = $body['ValidTo'] ?? $body['CoverTo'] ?? $body['ExpiryDate'] ?? $body['CardExpiryDate'] ?? null;
+            $remarks = $body['Remarks'] ?? $body['StatusRemarks'] ?? $body['SchemeName'] ?? null;
         } else {
             $status = NhifEligibilityRecord::STATUS_ERROR;
             $coveragePct = null;
@@ -96,13 +97,32 @@ class NhifEligibilityService
 
     protected function resolveEligibilityStatus(array $body): string
     {
-        $raw = strtolower($body['EligibilityStatus'] ?? $body['Status'] ?? $body['status'] ?? '');
+        // GetCardDetails uses IsActive/IsValidCard booleans; a dedicated eligibility
+        // endpoint would use EligibilityStatus/Status string fields.
+        if (array_key_exists('IsActive', $body) || array_key_exists('IsValidCard', $body)) {
+            $isActive = (bool) ($body['IsActive'] ?? true);
+            $isValid = (bool) ($body['IsValidCard'] ?? true);
+
+            if (! $isActive || ! $isValid) {
+                return NhifEligibilityRecord::STATUS_INELIGIBLE;
+            }
+
+            return NhifEligibilityRecord::STATUS_ELIGIBLE;
+        }
+
+        $raw = strtolower(
+            $body['EligibilityStatus']
+            ?? $body['Status']
+            ?? $body['status']
+            ?? $body['CardStatus']
+            ?? '',
+        );
 
         return match ($raw) {
-            'eligible', 'active' => NhifEligibilityRecord::STATUS_ELIGIBLE,
-            'ineligible', 'not eligible' => NhifEligibilityRecord::STATUS_INELIGIBLE,
+            'eligible', 'active', 'valid' => NhifEligibilityRecord::STATUS_ELIGIBLE,
+            'ineligible', 'not eligible', 'inactive' => NhifEligibilityRecord::STATUS_INELIGIBLE,
             'expired' => NhifEligibilityRecord::STATUS_EXPIRED,
-            'suspended' => NhifEligibilityRecord::STATUS_SUSPENDED,
+            'suspended', 'cancelled' => NhifEligibilityRecord::STATUS_SUSPENDED,
             default => NhifEligibilityRecord::STATUS_UNKNOWN,
         };
     }

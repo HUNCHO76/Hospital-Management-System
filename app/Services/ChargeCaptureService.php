@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\Admission;
 use App\Models\Charge;
 use App\Models\ClinicalEncounter;
 use App\Models\DispensingItem;
+use App\Models\Hospital;
 use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryTest;
 use App\Models\Medication;
@@ -75,6 +77,48 @@ class ChargeCaptureService
      * throws) when no billing service is mapped to this test yet, or no
      * price is configured — the order itself still succeeds.
      */
+    /**
+     * Capture the initial charge for a hospital admission, at request time
+     * (Phase 9, Step 71) — resolves `Admission.service_id` (the priced
+     * inpatient-tier Service the requester selected, e.g. "General Ward" vs
+     * "ICU") the same way every other module prices itself, never from a
+     * hand-typed rate. Only ONE charge is captured here, representing the
+     * admission itself — a recurring daily re-billing job is not part of
+     * this step. Returns null (never throws) when no inpatient service was
+     * selected or no price is configured for it — the admission request
+     * itself still succeeds; AdmissionService::confirm() is what actually
+     * gates on payment, not this capture step.
+     */
+    public function captureFromAdmission(Admission $admission, Request $request): ?Charge
+    {
+        try {
+            if ($admission->service_id === null) {
+                throw ValidationException::withMessages([
+                    'service' => 'No billing service is configured for this admission.',
+                ]);
+            }
+
+            $service = Service::query()->findOrFail($admission->service_id);
+
+            return $this->createFromCatalogService(
+                $service,
+                $admission->hospital_id,
+                $admission->patient_id,
+                $admission->clinical_encounter_id,
+                Admission::class,
+                $admission->id,
+                1,
+                $request,
+                null,
+                $admission->practitioner_id,
+            );
+        } catch (ValidationException $e) {
+            $this->recordCaptureSkipped(Admission::class, $admission->id, $e, $request);
+
+            return null;
+        }
+    }
+
     public function captureFromLaboratoryOrderItem(LaboratoryOrderItem $item, ClinicalEncounter $encounter, Request $request): ?Charge
     {
         try {
@@ -125,27 +169,25 @@ class ChargeCaptureService
     }
 
     /**
-     * Capture a consultation charge for a clinical encounter, using the
-     * assigned practitioner's configured consultation service (Step 62,
-     * spec §2/§4). Source = ClinicalEncounter so the financial gate in
-     * ConsultationService::create() can query by encounter ID. Returns null
-     * (never throws) when no consultation service is mapped to the
-     * practitioner — the no-charge rule applies and the gate passes.
+     * Capture a consultation charge for a clinical encounter (Step 62, spec
+     * §2/§4, payment-gating audit follow-up). The consultation service is
+     * resolved via resolveConsultationService() — the practitioner's own
+     * consultation_service_id if configured, else the hospital's
+     * default_consultation_service_id. Source = ClinicalEncounter so the
+     * financial gate in ConsultationService::create() can query by
+     * encounter ID. Returns null (never throws) only when NEITHER the
+     * practitioner nor the hospital has a resolvable service, or no price
+     * is configured for it — the no-charge rule is then the safety net,
+     * not the default outcome.
      */
     public function captureFromClinicalEncounter(ClinicalEncounter $encounter, Practitioner $practitioner, Request $request): ?Charge
     {
         try {
-            if (! $practitioner->consultation_service_id) {
-                throw ValidationException::withMessages([
-                    'service' => 'No consultation service is configured for this practitioner.',
-                ]);
-            }
-
-            $service = Service::query()->find($practitioner->consultation_service_id);
+            $service = $this->resolveConsultationService($practitioner, $encounter->department->hospital_id);
 
             if (! $service) {
                 throw ValidationException::withMessages([
-                    'service' => 'The consultation service configured for this practitioner no longer exists.',
+                    'service' => 'No consultation service is configured for this practitioner or facility.',
                 ]);
             }
 
@@ -158,6 +200,8 @@ class ChargeCaptureService
                 $encounter->id,
                 1,
                 $request,
+                null,
+                $practitioner->id,
             );
         } catch (ValidationException $e) {
             $this->recordCaptureSkipped(ClinicalEncounter::class, $encounter->id, $e, $request);
@@ -172,27 +216,22 @@ class ChargeCaptureService
      * ReceptionVisitService::sendToService() can check payment status before
      * the patient is admitted to the clinical queue. Source =
      * ReceptionVisit::class + visit->id; encounter_id is null until
-     * releaseReceptionVisitChargeToEncounter() later transfers it. Returns
-     * null (never throws) — same no-charge rule as captureFromClinicalEncounter.
+     * releaseReceptionVisitChargeToEncounter() later transfers it. Same
+     * resolution hierarchy and no-charge-as-safety-net rule as
+     * captureFromClinicalEncounter() — see resolveConsultationService().
      */
     public function captureFromReceptionVisit(ReceptionVisit $visit, Practitioner $practitioner, Request $request): ?Charge
     {
         try {
-            if (! $practitioner->consultation_service_id) {
-                throw ValidationException::withMessages([
-                    'service' => 'No consultation service is configured for this practitioner.',
-                ]);
-            }
+            $visit->loadMissing('department');
 
-            $service = Service::query()->find($practitioner->consultation_service_id);
+            $service = $this->resolveConsultationService($practitioner, $visit->department->hospital_id);
 
             if (! $service) {
                 throw ValidationException::withMessages([
-                    'service' => 'The consultation service configured for this practitioner no longer exists.',
+                    'service' => 'No consultation service is configured for this practitioner or facility.',
                 ]);
             }
-
-            $visit->loadMissing('department');
 
             return $this->createFromCatalogService(
                 $service,
@@ -203,6 +242,8 @@ class ChargeCaptureService
                 $visit->id,
                 1,
                 $request,
+                null,
+                $practitioner->id,
             );
         } catch (ValidationException $e) {
             $this->recordCaptureSkipped(ReceptionVisit::class, $visit->id, $e, $request);
@@ -389,6 +430,35 @@ class ChargeCaptureService
     }
 
     /**
+     * Resolve which catalog service to charge for a practitioner's
+     * consultation (payment-gating audit follow-up): the practitioner's own
+     * consultation_service_id wins when it still resolves to a real
+     * Service; otherwise the assigned hospital's facility-wide
+     * default_consultation_service_id is used. A missing
+     * consultation_service_id must never by itself mean the consultation is
+     * free — null is only returned when neither resolves, at which point
+     * the caller's existing no-charge safety net applies.
+     */
+    protected function resolveConsultationService(Practitioner $practitioner, int $hospitalId): ?Service
+    {
+        if ($practitioner->consultation_service_id) {
+            $service = Service::query()->find($practitioner->consultation_service_id);
+
+            if ($service) {
+                return $service;
+            }
+        }
+
+        $hospital = Hospital::query()->find($hospitalId);
+
+        if ($hospital?->default_consultation_service_id) {
+            return Service::query()->find($hospital->default_consultation_service_id);
+        }
+
+        return null;
+    }
+
+    /**
      * Resolve the catalog service mapped to a source module row via
      * `serviceable_type`/`serviceable_id` (Step 53).
      *
@@ -426,8 +496,9 @@ class ChargeCaptureService
         int $quantity,
         Request $request,
         ?string $notes = null,
+        ?int $practitionerId = null,
     ): Charge {
-        $price = $this->prices->resolvePrice($service, $hospitalId);
+        $price = $this->prices->resolvePrice($service, $hospitalId, null, $practitionerId);
 
         return $this->createFromResolvedPrice(
             hospitalId: $hospitalId,

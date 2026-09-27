@@ -9,8 +9,10 @@ use App\Http\Requests\PrescriptionOrder\UpdatePrescriptionOrderRequest;
 use App\Models\ClinicalEncounter;
 use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
+use App\Services\NHIF\NhifMedicationAuthorizationService;
 use App\Services\PrescriptionOrderService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Prescription orders are presented as part of the clinical encounter
@@ -21,11 +23,22 @@ use Illuminate\Http\RedirectResponse;
  */
 class EncounterPrescriptionOrderController extends Controller
 {
-    public function store(StorePrescriptionOrderRequest $request, ClinicalEncounter $clinicalEncounter, PrescriptionOrderService $service): RedirectResponse
+    public function store(StorePrescriptionOrderRequest $request, ClinicalEncounter $clinicalEncounter, PrescriptionOrderService $service, NhifMedicationAuthorizationService $nhifMed): RedirectResponse
     {
         $this->authorize('create', [PrescriptionOrder::class, $clinicalEncounter]);
 
-        $service->create($clinicalEncounter, $request->validated(), $request);
+        $order = $service->create($clinicalEncounter, $request->validated(), $request);
+
+        // Best-effort NHIF pre-approval for NHIF patients. Cash patients have no
+        // active verified NHIF insurance, so authorizeOrder() returns [] silently.
+        try {
+            $nhifMed->authorizeOrder($order, $clinicalEncounter, $request);
+        } catch (\Throwable $e) {
+            Log::warning('NHIF medication authorization failed (non-blocking)', [
+                'prescription_order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         return back()->with('success', 'Prescription written.');
     }

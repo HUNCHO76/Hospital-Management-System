@@ -194,7 +194,7 @@ class InsuranceBillingService
             }
 
             if ($nhifContext['allowable_amount'] !== null) {
-                $eligibleAmount = min($eligibleAmount, (float) $nhifContext['allowable_amount']);
+                $eligibleAmount = round(min($eligibleAmount, (float) $nhifContext['allowable_amount']), 2);
             }
         }
 

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class NhifClaimItem extends Model
 {
+    use HasFactory;
+
     /** @var list<string> */
     protected $fillable = [
         'nhif_claim_id',
@@ -26,8 +29,11 @@ class NhifClaimItem extends Model
         'description',
         'nhif_item_code',
         'nhif_item_name',
+        'item_type_id',
         'nhif_package_code',
         'nhif_authorization_no',
+        'approval_ref_no',
+        'other_details',
         'service_date',
         'quantity',
         'hms_unit_price',

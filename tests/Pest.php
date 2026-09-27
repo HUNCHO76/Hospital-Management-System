@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Admission;
 use App\Models\BillingAdjustment;
 use App\Models\CarePlanItem;
 use App\Models\CashierSession;
@@ -41,6 +42,7 @@ use App\Models\Staff;
 use App\Models\StockBatch;
 use App\Models\TriageAssessment;
 use App\Models\User;
+use App\Services\AdmissionService;
 use App\Services\BillingAdjustmentService;
 use App\Services\CarePlanService;
 use App\Services\CashierSessionService;
@@ -675,6 +677,22 @@ function billableConsultationService(Hospital $hospital, array $priceOverrides =
     ]);
 
     priceFor($service, $hospital, $priceOverrides);
+
+    return $service;
+}
+
+/**
+ * Create a billable consultation service, price it, and set it as the
+ * hospital's facility-wide default_consultation_service_id — the fallback
+ * ChargeCaptureService::resolveConsultationService() uses when the assigned
+ * practitioner has no practitioner-specific consultation_service_id
+ * configured (payment-gating audit follow-up).
+ */
+function hospitalWithDefaultConsultationService(Hospital $hospital, array $priceOverrides = []): Service
+{
+    $service = billableConsultationService($hospital, $priceOverrides);
+
+    $hospital->update(['default_consultation_service_id' => $service->id]);
 
     return $service;
 }
@@ -1336,6 +1354,44 @@ function adjustmentFor(Invoice $invoice, array $overrides = []): BillingAdjustme
         'reason' => 'Test adjustment',
         'notes' => null,
     ], $overrides), requestAs($actor));
+}
+
+/**
+ * Build a confirmed (ACTIVE) admission with no service/charge, suitable for
+ * inpatient clinical tests (Phase 9, Steps 74-75). The returned array includes
+ * hospital, department, patient, practitioner, user (nurse), and admin.
+ *
+ * @return array{hospital: Hospital, department: Department, patient: Patient, practitioner: Practitioner, user: User, admin: User, admission: Admission}
+ */
+function activeAdmission(): array
+{
+    $hospital = Hospital::factory()->create();
+    $department = Department::factory()->create(['hospital_id' => $hospital->id]);
+    $staff = Staff::factory()->create(['hospital_id' => $hospital->id]);
+    $practitioner = Practitioner::factory()->create(['staff_id' => $staff->id]);
+    $patient = Patient::factory()->create();
+
+    $user = userWithRole('nurse');
+
+    // No service_id so no charge is captured → no billing/payment gate at confirm.
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $hospital->id,
+        'patient_id' => $patient->id,
+        'department_id' => $department->id,
+        'practitioner_id' => $practitioner->id,
+        'admission_type' => 'emergency',
+        'ward_type' => 'General',
+        'room_type' => 'Shared',
+        'diagnosis_at_admission' => 'Fever',
+        'notes' => null,
+    ], requestAs($user));
+
+    $admin = userWithRole('hospital-admin');
+    $admission = app(AdmissionService::class)->startReview($admission, requestAs($admin));
+    $admission = app(AdmissionService::class)->approve($admission, null, requestAs($admin));
+    $admission = app(AdmissionService::class)->confirm($admission, requestAs($admin));
+
+    return compact('hospital', 'department', 'patient', 'practitioner', 'user', 'admin', 'admission');
 }
 
 /**

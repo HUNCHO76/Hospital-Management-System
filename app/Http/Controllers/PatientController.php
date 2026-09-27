@@ -7,11 +7,17 @@ use App\Http\Requests\Patient\UpdatePatientRequest;
 use App\Http\Resources\ClinicalHistoryEncounterResource;
 use App\Models\ClinicalEncounter;
 use App\Models\Department;
+use App\Models\InsuranceProvider;
+use App\Models\InsuranceScheme;
+use App\Models\NhifMemberVerification;
 use App\Models\Patient;
+use App\Models\PatientInsurance;
 use App\Models\Practitioner;
 use App\Services\AuditLogService;
 use App\Services\ClinicalHistoryService;
 use App\Services\DispensingService;
+use App\Services\NHIF\NhifEligibilityService;
+use App\Services\NHIF\NhifMemberVerificationService;
 use App\Services\PatientHistoryService;
 use App\Services\PatientSearchService;
 use App\Services\PatientService;
@@ -19,7 +25,9 @@ use App\Support\Patients\PhoneMasker;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -99,10 +107,16 @@ class PatientController extends Controller
 
         $patients = $this->search->query(['search' => $search])
             ->limit(10)
+            ->withExists(['insurances as has_active_nhif' => function ($query): void {
+                $query->where('status', PatientInsurance::STATUS_ACTIVE)
+                    ->where('verification_status', PatientInsurance::VERIFICATION_VERIFIED)
+                    ->whereNotNull('nhif_authorization_no');
+            }])
             ->get(['id', 'patient_number', 'first_name', 'middle_name', 'last_name', 'phone'])
             ->map(fn (Patient $patient) => [
                 ...$patient->only(['id', 'patient_number', 'first_name', 'middle_name', 'last_name']),
                 'phone' => PhoneMasker::mask($patient->phone),
+                'has_active_nhif' => (bool) $patient->has_active_nhif,
             ]);
 
         return response()->json(['data' => $patients]);
@@ -114,22 +128,51 @@ class PatientController extends Controller
      * When redirected back here after a possible-duplicate warning, the
      * previously submitted input and the matched patients are surfaced so
      * the form can be repopulated and the warning re-displayed.
+     *
+     * nhifProvider is the api_enabled InsuranceProvider record for NHIF; it
+     * is null when no NHIF provider has been configured (e.g. during tests
+     * or fresh installs), so the form hides the Insurance option gracefully.
      */
     public function create(Request $request): Response
     {
+        $nhifProvider = InsuranceProvider::query()
+            ->where('api_enabled', true)
+            ->orderBy('id')
+            ->first(['id', 'name', 'code']);
+
+        $nhifSchemes = $nhifProvider
+            ? InsuranceScheme::where('insurance_provider_id', $nhifProvider->id)
+                ->active()
+                ->orderBy('name')
+                ->get(['id', 'insurance_provider_id', 'name', 'code'])
+            : [];
+
         return Inertia::render('patients/create', [
             'possibleDuplicates' => $request->session()->get('possibleDuplicates', []),
             'confirmedDuplicate' => $request->session()->get('confirmedDuplicate'),
             'old' => $request->old(),
+            'nhifProvider' => $nhifProvider,
+            'nhifSchemes' => $nhifSchemes,
         ]);
     }
 
     /**
      * Store a newly registered patient, warning about possible duplicates
      * before creating one unless the registration officer has confirmed.
+     *
+     * When payment_type is 'insurance', a PatientInsurance record is created
+     * atomically with the patient and NHIF verification is triggered
+     * immediately after the transaction commits. NHIF API credentials are
+     * resolved server-side by NhifMemberVerificationService — they are never
+     * passed to React or returned in any response.
      */
-    public function store(StorePatientRequest $request, PatientService $patients): RedirectResponse
-    {
+    public function store(
+        StorePatientRequest $request,
+        PatientService $patients,
+        NhifMemberVerificationService $verifier,
+        NhifEligibilityService $eligibility,
+        AuditLogService $auditLog,
+    ): RedirectResponse {
         $validated = $request->validated();
 
         // A confirmed duplicate (same national ID or passport) always blocks
@@ -155,11 +198,158 @@ class PatientController extends Controller
             }
         }
 
-        unset($validated['confirm_duplicate']);
+        // Extract and remove form-level fields that don't map to Patient columns.
+        $paymentType = $validated['payment_type'];
+        $nhifInsuranceData = null;
+        $nhifIdentifierType = null;
+        $nhifIdentifierValue = null;
+        $nhifVisitTypeId = 1;
+        $nhifVerifierId = null;
+        $nhifCardTypeId = null;
+        $nhifRemarks = null;
+        $nhifReferralNo = null;
 
-        $patient = $patients->create($validated, $request);
+        unset($validated['confirm_duplicate'], $validated['payment_type']);
 
-        return to_route('patients.show', $patient)->with('success', "Patient registered successfully. Patient Number: {$patient->patient_number}");
+        if ($paymentType === 'insurance') {
+            $providerId = $validated['nhif_provider_id'];
+            $membershipNumber = $validated['nhif_membership_number'];
+            $nhifIdentifierType = $validated['nhif_identifier_type'];
+            $nhifIdentifierValue = $nhifIdentifierType === NhifMemberVerification::TYPE_NIN
+                ? $validated['national_id']
+                : $validated['nhif_card_number'];
+
+            $nhifVisitTypeId = (int) ($validated['nhif_visit_type_id'] ?? 1);
+            $nhifVerifierId = $validated['nhif_verifier_id'] ?? null;
+            $nhifCardTypeId = $validated['nhif_card_type_id'] ?? null;
+            $nhifRemarks = $validated['nhif_remarks'] ?? null;
+            $nhifReferralNo = $validated['nhif_referral_no'] ?? null;
+
+            // Hard duplicate-membership check: two active patients cannot share
+            // the same NHIF membership number.
+            $this->assertNoActiveDuplicateMembership((int) $providerId, (string) $membershipNumber);
+
+            $nhifInsuranceData = [
+                'insurance_provider_id' => $providerId,
+                'insurance_scheme_id' => $validated['nhif_scheme_id'] ?? null,
+                'membership_number' => $membershipNumber,
+                'card_number' => $validated['nhif_card_number'] ?? null,
+                'verification_status' => PatientInsurance::VERIFICATION_PENDING,
+                'status' => PatientInsurance::STATUS_ACTIVE,
+            ];
+        }
+
+        unset(
+            $validated['nhif_provider_id'],
+            $validated['nhif_membership_number'],
+            $validated['nhif_card_number'],
+            $validated['nhif_identifier_type'],
+            $validated['nhif_scheme_id'],
+            $validated['nhif_visit_type_id'],
+            $validated['nhif_verifier_id'],
+            $validated['nhif_card_type_id'],
+            $validated['nhif_remarks'],
+            $validated['nhif_referral_no'],
+        );
+
+        // For insurance patients: create patient + insurance + NHIF VerifyCard inside a
+        // single transaction. If VerifyCard fails the patient and insurance records are
+        // rolled back — registration is only committed after a successful STATUS_VERIFIED.
+        if ($nhifInsuranceData !== null && $nhifIdentifierType !== null && $nhifIdentifierValue !== null) {
+            $patient = null;
+            $insurance = null;
+            $verificationRecord = null;
+
+            try {
+                DB::transaction(function () use (
+                    &$patient, &$insurance, &$verificationRecord,
+                    $patients, $validated, $request, $nhifInsuranceData,
+                    $nhifIdentifierType, $nhifIdentifierValue,
+                    $nhifVisitTypeId, $nhifVerifierId, $nhifCardTypeId,
+                    $nhifRemarks, $nhifReferralNo, $verifier,
+                ) {
+                    $patient = $patients->create($validated, $request, $nhifInsuranceData);
+
+                    /** @var PatientInsurance $insurance */
+                    $insurance = $patient->insurances()->latest('id')->first();
+
+                    $verificationRecord = $verifier->verify(
+                        $insurance,
+                        $nhifIdentifierType,
+                        $nhifIdentifierValue,
+                        $request,
+                        $nhifVisitTypeId,
+                        $nhifVerifierId,
+                        $nhifCardTypeId,
+                        $nhifRemarks,
+                        $nhifReferralNo,
+                    );
+
+                    if (! $verificationRecord->isSuccessful()) {
+                        $nhifDetail = filled($verificationRecord->error_message)
+                            ? ' ('.$verificationRecord->error_message.')'
+                            : '';
+
+                        $statusMessage = match ($verificationRecord->verification_status) {
+                            NhifMemberVerification::STATUS_NOT_FOUND => 'NHIF member not found.',
+                            NhifMemberVerification::STATUS_INVALID => 'NHIF identity mismatch: name or NIN does not match.',
+                            NhifMemberVerification::STATUS_INACTIVE => 'NHIF membership is inactive, expired, or suspended.',
+                            NhifMemberVerification::STATUS_VERIFICATION_FAILED => 'NHIF card verification (VerifyCard) failed'.$nhifDetail.'.',
+                            default => 'NHIF verification failed.',
+                        };
+
+                        throw ValidationException::withMessages([
+                            'nhif_verification' => $statusMessage.' Registration cancelled. Resolve the NHIF issue before registering.',
+                        ]);
+                    }
+                });
+            } catch (ValidationException $e) {
+                throw $e;
+            } catch (\Throwable $e) {
+                report($e);
+
+                return redirect()->route('patients.create')
+                    ->withInput()
+                    ->withErrors(['nhif_verification' => 'NHIF service unavailable. Please try again.']);
+            }
+
+            $insurance->refresh();
+            $eligibility->check($insurance, $request);
+            $auditLog->record('nhif_member_linked_to_patient', $insurance, null, [
+                'patient_id' => $patient->id,
+                'membership_number' => $insurance->membership_number,
+            ], $request);
+
+            return to_route('patients.show', $patient)
+                ->with('success', "Patient registered successfully. Patient Number: {$patient->patient_number}. NHIF membership verified.");
+        }
+
+        // Cash / self-pay patient — no NHIF verification.
+        $patient = $patients->create($validated, $request, null);
+
+        return to_route('patients.show', $patient)
+            ->with('success', "Patient registered successfully. Patient Number: {$patient->patient_number}.");
+    }
+
+    /**
+     * Block registration when another active patient already holds the same
+     * NHIF membership number under the same provider. Two people cannot
+     * share one membership.
+     *
+     * @throws ValidationException
+     */
+    protected function assertNoActiveDuplicateMembership(int $providerId, string $membershipNumber): void
+    {
+        $existing = PatientInsurance::where('insurance_provider_id', $providerId)
+            ->where('membership_number', $membershipNumber)
+            ->where('status', '!=', PatientInsurance::STATUS_INACTIVE)
+            ->first(['id', 'patient_id']);
+
+        if ($existing) {
+            throw ValidationException::withMessages([
+                'nhif_membership_number' => 'This NHIF membership number is already registered to another patient. Please verify the number or search for the existing patient.',
+            ]);
+        }
     }
 
     /**

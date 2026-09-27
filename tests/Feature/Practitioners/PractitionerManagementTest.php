@@ -59,6 +59,66 @@ test('an authorized user can update a practitioner', function () {
     expect($practitioner->fresh()->specialization)->toBe('New');
 });
 
+test('an authorized user can set a practitioner-specific consultation service when creating a practitioner', function () {
+    $user = userWithRole('super-admin');
+    $staff = Staff::factory()->create(['job_title' => 'Doctor']);
+    $service = serviceFor(['category' => 'consultation']);
+
+    $response = $this->actingAs($user)->post(route('practitioners.store'), [
+        'staff_id' => $staff->id,
+        'practitioner_type' => 'doctor',
+        'license_expiry_date' => now()->addYear()->toDateString(),
+        'status' => 'active',
+        'consultation_service_id' => $service->id,
+    ]);
+
+    $response->assertRedirect(route('practitioners.index'));
+
+    $practitioner = Practitioner::query()->where('staff_id', $staff->id)->first();
+    expect($practitioner->consultation_service_id)->toBe($service->id);
+});
+
+test('a practitioner-specific consultation service can be updated to and cleared from a practitioner', function () {
+    $user = userWithRole('super-admin');
+    $service = serviceFor(['category' => 'consultation']);
+    $practitioner = Practitioner::factory()->create();
+
+    $this->actingAs($user)->put(route('practitioners.update', $practitioner), [
+        'practitioner_type' => $practitioner->practitioner_type,
+        'license_number' => $practitioner->license_number,
+        'license_expiry_date' => $practitioner->license_expiry_date,
+        'status' => 'active',
+        'consultation_service_id' => $service->id,
+    ]);
+
+    expect($practitioner->fresh()->consultation_service_id)->toBe($service->id);
+
+    $this->actingAs($user)->put(route('practitioners.update', $practitioner), [
+        'practitioner_type' => $practitioner->practitioner_type,
+        'license_number' => $practitioner->license_number,
+        'license_expiry_date' => $practitioner->license_expiry_date,
+        'status' => 'active',
+        'consultation_service_id' => null,
+    ]);
+
+    expect($practitioner->fresh()->consultation_service_id)->toBeNull();
+});
+
+test('an invalid consultation service id is rejected', function () {
+    $user = userWithRole('super-admin');
+    $practitioner = Practitioner::factory()->create();
+
+    $response = $this->actingAs($user)->put(route('practitioners.update', $practitioner), [
+        'practitioner_type' => $practitioner->practitioner_type,
+        'license_number' => $practitioner->license_number,
+        'license_expiry_date' => $practitioner->license_expiry_date,
+        'status' => 'active',
+        'consultation_service_id' => 999999,
+    ]);
+
+    $response->assertSessionHasErrors('consultation_service_id');
+});
+
 test('an authorized user can view a single practitioner', function () {
     $user = userWithRole('super-admin');
     $practitioner = Practitioner::factory()->create();

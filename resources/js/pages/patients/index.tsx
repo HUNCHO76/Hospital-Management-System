@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { usePermissions } from '@/hooks/use-permissions';
 import AppLayout from '@/layouts/app-layout';
+import { calculateAge } from '@/lib/date';
 import { type BreadcrumbItem, type Paginated } from '@/types';
 import { type PatientFilters, type PatientListItem } from '@/types/patient';
 import { Head, Link, router } from '@inertiajs/react';
@@ -35,23 +36,6 @@ const sortableColumns: { key: string; label: string }[] = [
     { key: 'last_name', label: 'Name' },
     { key: 'date_of_birth', label: 'Date of Birth' },
 ];
-
-function calculateAge(dateOfBirth: string | null): string {
-    if (!dateOfBirth) {
-        return '—';
-    }
-
-    const dob = new Date(dateOfBirth);
-
-    if (Number.isNaN(dob.getTime())) {
-        return '—';
-    }
-
-    const diff = Date.now() - dob.getTime();
-    const age = Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
-
-    return `${age}y`;
-}
 
 export default function PatientsIndex({ patients, filters }: PatientsIndexProps) {
     const { can } = usePermissions();

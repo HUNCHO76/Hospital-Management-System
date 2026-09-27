@@ -24,6 +24,12 @@ export interface ServiceHospital {
     name: string;
 }
 
+export interface ServicePricePractitioner {
+    id: number;
+    practitioner_number: string;
+    name: string;
+}
+
 export interface Service {
     id: number;
     code: string;
@@ -49,6 +55,7 @@ export interface ServicePrice {
     is_current: boolean;
     service: { id: number; code: string; name: string } | null;
     hospital: ServiceHospital | null;
+    practitioner: ServicePricePractitioner | null;
     created_by: ServiceUser | null;
     cancellation_reason: string | null;
     created_at: string;
@@ -89,6 +96,7 @@ export type UpdateServiceFormData = {
 export type CreateServicePriceFormData = {
     service_id: string;
     hospital_id: string;
+    practitioner_id: string;
     amount: string;
     effective_from: string;
     effective_to: string;

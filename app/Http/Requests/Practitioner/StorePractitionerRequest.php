@@ -45,6 +45,7 @@ class StorePractitionerRequest extends FormRequest
             'license_number' => ['nullable', 'string', 'max:255'],
             'license_expiry_date' => ['nullable', 'date'],
             'status' => ['required', Rule::in([Practitioner::STATUS_ACTIVE, Practitioner::STATUS_INACTIVE, Practitioner::STATUS_SUSPENDED])],
+            'consultation_service_id' => ['nullable', 'integer', 'exists:services,id'],
         ];
     }
 }

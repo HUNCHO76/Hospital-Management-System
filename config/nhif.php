@@ -21,6 +21,17 @@ return [
 
     'client_secret' => env('NHIF_CLIENT_SECRET'),
 
+    /*
+     * OAuth2 scope — NHIF requires 'OnlineServices' for ServiceHub API access.
+     */
+    'scope' => env('NHIF_SCOPE', 'OnlineServices'),
+
+    /*
+     * Extra username parameter required by the NHIF token endpoint.
+     * Use 'test' for the sandbox environment.
+     */
+    'username' => env('NHIF_USERNAME', 'test'),
+
     'timeout' => (int) env('NHIF_TIMEOUT', 30),
 
     'connect_timeout' => (int) env('NHIF_CONNECT_TIMEOUT', 10),

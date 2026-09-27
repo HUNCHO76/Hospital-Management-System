@@ -51,6 +51,7 @@ class RoleSeeder extends Seeder
             'laboratory-reports.view', 'laboratory-reports.print', 'laboratory-reports.download',
             'laboratory-tests.view', 'laboratory-tests.create', 'laboratory-tests.update', 'laboratory-tests.activate', 'laboratory-tests.deactivate',
             'laboratory-categories.view', 'laboratory-categories.manage',
+            'laboratory-test-parameters.manage',
             'radiology.view', 'radiology-orders.view', 'radiology-orders.create', 'radiology-orders.update', 'radiology-orders.cancel',
             'radiology-procedures.view', 'radiology-procedures.create', 'radiology-procedures.update', 'radiology-procedures.activate', 'radiology-procedures.deactivate',
             'radiology-scheduling.view', 'radiology-scheduling.create', 'radiology-scheduling.reschedule',
@@ -81,11 +82,17 @@ class RoleSeeder extends Seeder
             'nhif-price-sync.view', 'nhif-price-sync.run',
             'nhif-preauthorization.view', 'nhif-preauthorization.request', 'nhif-preauthorization.cancel',
             'nhif-authorization-context.lookup',
-            'admission.view', 'admission.create', 'admission.confirm', 'admission.discharge', 'admission.transfer', 'admission.nhif-submit',
+            'nhif-preapproval.view', 'nhif-preapproval.create',
+            'admission.view', 'admission.create', 'admission.review', 'admission.approve', 'admission.reject', 'admission.confirm', 'admission.discharge', 'admission.cancel', 'admission.transfer', 'admission.nhif-submit',
+            'inpatient.encounter.create', 'inpatient.clinical-status.update',
+            'inpatient.medications.view', 'inpatient.medications.administer', 'inpatient.medications.hold',
+            'inpatient.medications.record-refusal', 'inpatient.medications.record-missed', 'inpatient.medications.correct',
             'nhif-utilization.view', 'nhif-utilization.submit', 'nhif-utilization.reconcile',
             'nhif-claims.view', 'nhif-claims.create', 'nhif-claims.update', 'nhif-claims.validate', 'nhif-claims.finalize', 'nhif-claims.cancel',
             'nhif-claims.submit', 'nhif-claims.view-submission', 'nhif-claims.retry-submission',
             'nhif-claims.view-reconciliation', 'nhif-claims.reconcile', 'nhif-claims.refresh-status', 'nhif-claims.resolve-discrepancy',
+            // OCS: sign folio, retrieve receipt, monthly claim, bill confirmation
+            'nhif-claims.sign', 'nhif-claims.receipt', 'nhif-claims.monthly-submit', 'nhif-claims.bill-confirmation',
             'nhif-dashboard.view',
         ],
 
@@ -108,6 +115,13 @@ class RoleSeeder extends Seeder
             'laboratory-orders.create', 'laboratory-orders.update', 'laboratory-orders.cancel', 'laboratory-tests.view',
             'laboratory-samples.view',
             'laboratory-processing.view',
+            // Phase 9, Step 71: a doctor may request an admission from clinical
+            // judgment (matching how they already create lab/radiology/
+            // prescription orders) but not confirm/discharge/cancel/submit it —
+            // those stay administrative/nursing functions.
+            'admission.view', 'admission.create',
+            'inpatient.encounter.create',
+            'inpatient.medications.view',
             'laboratory-results.view',
             'laboratory-reports.view', 'laboratory-reports.print', 'laboratory-reports.download',
             'radiology-orders.create', 'radiology-orders.update', 'radiology-orders.cancel', 'radiology-procedures.view',
@@ -124,7 +138,10 @@ class RoleSeeder extends Seeder
             'clinical-notes.view', 'clinical-notes.create', 'clinical-notes.update', 'clinical-notes.sign', 'clinical-notes.amend', 'clinical-notes.cancel',
             'clinical-history.view',
             'laboratory-samples.view', 'laboratory-samples.collect', 'laboratory-samples.label', 'laboratory-samples.recollect', 'laboratory-samples.cancel',
-            'admission.view', 'admission.create', 'admission.confirm', 'admission.discharge', 'admission.transfer',
+            'admission.view', 'admission.create', 'admission.review', 'admission.approve', 'admission.reject', 'admission.confirm', 'admission.discharge', 'admission.cancel', 'admission.transfer',
+            'inpatient.encounter.create', 'inpatient.clinical-status.update',
+            'inpatient.medications.view', 'inpatient.medications.administer', 'inpatient.medications.hold',
+            'inpatient.medications.record-refusal', 'inpatient.medications.record-missed', 'inpatient.medications.correct',
         ],
 
         // Phase 6, Step 44: the pharmacy-facing role that receives and views
@@ -231,6 +248,7 @@ class RoleSeeder extends Seeder
             'laboratory-results.view', 'laboratory-results.update', 'laboratory-results.submit', 'laboratory-results.amend',
             'laboratory-results.review', 'laboratory-results.verify', 'laboratory-results.authorize', 'laboratory-results.return', 'laboratory-results.amend_verified', 'laboratory-results.release',
             'laboratory-reports.view', 'laboratory-reports.print', 'laboratory-reports.download',
+            'laboratory-test-parameters.manage',
         ],
 
         'receptionist' => [

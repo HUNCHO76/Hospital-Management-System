@@ -1,5 +1,7 @@
 import { AmendResultDialog } from '@/components/laboratory/amend-result-dialog';
+import { LaboratoryResultDocumentSection } from '@/components/laboratory/laboratory-result-document-section';
 import { AuthorizeResultDialog } from '@/components/laboratory/authorize-result-dialog';
+import { LaboratoryParameterResultTable } from '@/components/laboratory/laboratory-parameter-result-table';
 import { LaboratoryResultValueInput } from '@/components/laboratory/laboratory-result-value-input';
 import { ReleaseResultDialog } from '@/components/laboratory/release-result-dialog';
 import { ResultHistory } from '@/components/laboratory/result-history';
@@ -34,7 +36,12 @@ import {
 } from '@/lib/laboratory-status';
 import { NhifUtilizationStatus } from '@/components/nhif/nhif-utilization-status';
 import { type BreadcrumbItem } from '@/types';
-import { type LaboratoryAbnormalFlag, type LaboratoryResult, type SaveLaboratoryResultDraftFormData } from '@/types/laboratory';
+import {
+    type LaboratoryAbnormalFlag,
+    type LaboratoryResult,
+    type ParameterValueEntry,
+    type SaveLaboratoryResultDraftFormData,
+} from '@/types/laboratory';
 import { type NhifUtilization } from '@/types/nhif';
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import { CheckCircle2, LoaderCircle } from 'lucide-react';
@@ -82,13 +89,35 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
         { title: result.item?.test_name ?? `Result #${result.id}`, href: `/laboratory/results/${result.id}` },
     ];
 
+    const isParameterized = result.result_values && result.result_values.length > 0;
+
     const { data, setData, put, processing, errors } = useForm<SaveLaboratoryResultDraftFormData>({
         value_numeric: result.value_numeric ?? '',
         value_text: result.value_text ?? '',
         value_code: result.value_code ?? '',
         abnormal_flag: result.abnormal_flag ?? '',
         result_comment: result.result_comment ?? '',
+        parameter_values: isParameterized
+            ? result.result_values.map((rv) => ({
+                  parameter_id: rv.laboratory_test_parameter_id,
+                  value_numeric: rv.value_numeric ?? '',
+                  value_text: rv.value_text ?? '',
+                  value_code: rv.value_code ?? '',
+                  result_comment: rv.result_comment ?? '',
+              }))
+            : [],
     });
+
+    const handleParameterValueChange = (
+        parameterId: number,
+        field: keyof Omit<ParameterValueEntry, 'parameter_id'>,
+        value: string,
+    ) => {
+        const updated = data.parameter_values.map((entry) =>
+            entry.parameter_id === parameterId ? { ...entry, [field]: value } : entry,
+        );
+        setData('parameter_values', updated);
+    };
 
     const editable = canSaveResultDraft(result.status);
     const canEdit = editable && can('laboratory-results.update');
@@ -112,6 +141,9 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
     const canAmend =
         (canAmendResult(result.status) && can('laboratory-results.amend')) ||
         (canAmendVerifiedResult(result.status) && can('laboratory-results.amend_verified'));
+
+    const canUploadDocument = can('laboratory-results.update');
+    const canDeleteDocument = can('laboratory-results.update');
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -274,40 +306,52 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
                     <CardContent className="space-y-4">
                         {editable ? (
                             <form onSubmit={saveDraft} className="space-y-4">
-                                <LaboratoryResultValueInput
-                                    resultType={result.result_type}
-                                    unit={result.unit}
-                                    resultOptions={result.result_options}
-                                    valueNumeric={data.value_numeric}
-                                    valueText={data.value_text}
-                                    valueCode={data.value_code}
-                                    onChangeNumeric={(value) => setData('value_numeric', value)}
-                                    onChangeText={(value) => setData('value_text', value)}
-                                    onChangeCode={(value) => setData('value_code', value)}
-                                    errors={errors}
-                                    disabled={!canEdit}
-                                />
-
-                                <div className="grid gap-2">
-                                    <Label>Abnormal Flag</Label>
-                                    <Select
-                                        value={data.abnormal_flag || 'none'}
-                                        onValueChange={(value) => setData('abnormal_flag', value === 'none' ? '' : value)}
+                                {isParameterized ? (
+                                    <LaboratoryParameterResultTable
+                                        resultValues={result.result_values}
+                                        parameterValues={data.parameter_values}
+                                        onChangeParameterValue={handleParameterValueChange}
                                         disabled={!canEdit}
-                                    >
-                                        <SelectTrigger className="max-w-xs">
-                                            <SelectValue placeholder="Not flagged" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="none">Not flagged</SelectItem>
-                                            {FLAGS.map((flag) => (
-                                                <SelectItem key={flag} value={flag}>
-                                                    {laboratoryAbnormalFlagLabel[flag]}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
+                                        errors={errors as Record<string, string>}
+                                    />
+                                ) : (
+                                    <LaboratoryResultValueInput
+                                        resultType={result.result_type}
+                                        unit={result.unit}
+                                        resultOptions={result.result_options}
+                                        valueNumeric={data.value_numeric}
+                                        valueText={data.value_text}
+                                        valueCode={data.value_code}
+                                        onChangeNumeric={(value) => setData('value_numeric', value)}
+                                        onChangeText={(value) => setData('value_text', value)}
+                                        onChangeCode={(value) => setData('value_code', value)}
+                                        errors={errors}
+                                        disabled={!canEdit}
+                                    />
+                                )}
+
+                                {!isParameterized && (
+                                    <div className="grid gap-2">
+                                        <Label>Abnormal Flag</Label>
+                                        <Select
+                                            value={data.abnormal_flag || 'none'}
+                                            onValueChange={(value) => setData('abnormal_flag', value === 'none' ? '' : value)}
+                                            disabled={!canEdit}
+                                        >
+                                            <SelectTrigger className="max-w-xs">
+                                                <SelectValue placeholder="Not flagged" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="none">Not flagged</SelectItem>
+                                                {FLAGS.map((flag) => (
+                                                    <SelectItem key={flag} value={flag}>
+                                                        {laboratoryAbnormalFlagLabel[flag]}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
 
                                 <div className="grid gap-2">
                                     <Label htmlFor="result_comment">Comment</Label>
@@ -336,25 +380,34 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
                             </form>
                         ) : (
                             <div className="space-y-4">
-                                <dl className="grid gap-3 text-sm sm:grid-cols-2">
-                                    <div>
-                                        <dt className="text-muted-foreground">Value</dt>
-                                        <dd className="font-medium">
-                                            {result.value_numeric ?? result.value_text ?? result.value_code ?? '—'}
-                                            {result.value_numeric && result.unit ? ` ${result.unit}` : ''}
-                                        </dd>
-                                    </div>
-                                    {result.abnormal_flag && (
+                                {isParameterized ? (
+                                    <LaboratoryParameterResultTable
+                                        resultValues={result.result_values}
+                                        parameterValues={[]}
+                                        onChangeParameterValue={() => undefined}
+                                        disabled={true}
+                                    />
+                                ) : (
+                                    <dl className="grid gap-3 text-sm sm:grid-cols-2">
                                         <div>
-                                            <dt className="text-muted-foreground">Flag</dt>
-                                            <dd>
-                                                <Badge variant={result.abnormal_flag === 'critical' ? 'destructive' : 'default'}>
-                                                    {laboratoryAbnormalFlagLabel[result.abnormal_flag]}
-                                                </Badge>
+                                            <dt className="text-muted-foreground">Value</dt>
+                                            <dd className="font-medium">
+                                                {result.value_numeric ?? result.value_text ?? result.value_code ?? '—'}
+                                                {result.value_numeric && result.unit ? ` ${result.unit}` : ''}
                                             </dd>
                                         </div>
-                                    )}
-                                </dl>
+                                        {result.abnormal_flag && (
+                                            <div>
+                                                <dt className="text-muted-foreground">Flag</dt>
+                                                <dd>
+                                                    <Badge variant={result.abnormal_flag === 'critical' ? 'destructive' : 'default'}>
+                                                        {laboratoryAbnormalFlagLabel[result.abnormal_flag]}
+                                                    </Badge>
+                                                </dd>
+                                            </div>
+                                        )}
+                                    </dl>
+                                )}
                                 {result.result_comment && (
                                     <p className="text-muted-foreground text-sm">
                                         <span className="font-medium">Comment:</span> {result.result_comment}
@@ -396,6 +449,12 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
                         )}
                     </CardContent>
                 </Card>
+
+                <LaboratoryResultDocumentSection
+                    result={result}
+                    canUpload={canUploadDocument}
+                    canDelete={canDeleteDocument}
+                />
 
                 <Card>
                     <CardHeader>

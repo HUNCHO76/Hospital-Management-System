@@ -276,7 +276,17 @@ class CarePlanService
         }
 
         $oldStatus = $item->status;
-        $item->update(['status' => $newStatus]);
+
+        $updates = ['status' => $newStatus];
+        if ($newStatus === CarePlanItem::STATUS_ACTIVE) {
+            $updates['activated_at'] = now();
+            $updates['activated_by'] = $request->user()->id;
+        } elseif ($newStatus === CarePlanItem::STATUS_COMPLETED) {
+            $updates['completed_at'] = now();
+            $updates['completed_by'] = $request->user()->id;
+        }
+
+        $item->update($updates);
 
         $this->auditLog->record('treatment_item_status_changed', $item, ['status' => $oldStatus], ['status' => $newStatus], $request);
 

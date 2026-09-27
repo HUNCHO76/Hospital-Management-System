@@ -26,11 +26,11 @@ return new class extends Migration
             $table->decimal('charges_per_day', 12, 2)->nullable();
             $table->text('notes')->nullable();
             $table->string('status', 30);
-            $table->timestamp('admitted_at');
+            $table->timestamp('admitted_at')->nullable();
             $table->timestamp('discharged_at')->nullable();
             $table->string('discharge_type')->nullable();
             $table->text('discharge_reason')->nullable();
-            $table->foreignId('admitted_by')->constrained('users')->restrictOnDelete();
+            $table->foreignId('admitted_by')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('discharged_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 

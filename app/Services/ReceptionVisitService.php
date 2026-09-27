@@ -3,10 +3,13 @@
 namespace App\Services;
 
 use App\Models\Appointment;
+use App\Models\Charge;
 use App\Models\Patient;
+use App\Models\PatientAccount;
 use App\Models\PatientInsurance;
 use App\Models\Practitioner;
 use App\Models\ReceptionVisit;
+use App\Services\NHIF\NhifConsultationAuthorizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +21,10 @@ class ReceptionVisitService
         protected AuditLogService $auditLog,
         protected AppointmentService $appointments,
         protected ChargeCaptureService $chargeCapture,
+        protected ChargeService $charges,
+        protected InvoiceService $invoices,
         protected FinancialAuthorizationService $financialAuth,
+        protected NhifConsultationAuthorizationService $nhifConsultationAuth,
     ) {}
 
     /**
@@ -57,13 +63,22 @@ class ReceptionVisitService
                 'status' => ReceptionVisit::STATUS_CHECKED_IN,
             ]);
 
-            if ($practitioner?->consultation_service_id) {
+            if ($practitioner) {
                 $visit->load('department');
-                $this->chargeCapture->captureFromReceptionVisit($visit, $practitioner, $request);
+                $charge = $this->chargeCapture->captureFromReceptionVisit($visit, $practitioner, $request);
+                $this->postAndInvoiceReceptionCharge($charge, $request);
+
+                if ($charge === null) {
+                    $visit->billing_warning = 'No consultation price is configured for this practitioner or facility — the visit was created without a billing charge. Notify billing/admin to configure pricing.';
+                }
             }
 
             return $visit;
         });
+
+        if ($visit->practitioner_id) {
+            $this->tryNhifConsultationAuth($visit, $request);
+        }
 
         $this->auditLog->record('reception_visit_checked_in', $visit, null, $visit->only(['patient_id', 'appointment_id', 'department_id', 'practitioner_id', 'status']), $request);
 
@@ -72,10 +87,11 @@ class ReceptionVisitService
 
     /**
      * Register a walk-in patient's visit at the front desk. If a practitioner
-     * is provided and has a configured consultation service, the consultation
-     * charge is captured immediately so the financial gate at sendToService()
-     * can verify payment before the patient reaches the clinical queue
-     * (Step 62 fix).
+     * is provided, the consultation charge is captured immediately (against
+     * the practitioner's own consultation service, or the facility default —
+     * see ChargeCaptureService::resolveConsultationService()) so the
+     * financial gate at sendToService() can verify payment before the
+     * patient reaches the clinical queue (Step 62 fix).
      *
      * @param  array{patient_id: int, department_id: int, visit_type: string, practitioner_id?: int|null}  $data
      *
@@ -100,14 +116,23 @@ class ReceptionVisitService
             if (! empty($data['practitioner_id'])) {
                 $practitioner = Practitioner::query()->find($data['practitioner_id']);
 
-                if ($practitioner?->consultation_service_id) {
+                if ($practitioner) {
                     $visit->load('department');
-                    $this->chargeCapture->captureFromReceptionVisit($visit, $practitioner, $request);
+                    $charge = $this->chargeCapture->captureFromReceptionVisit($visit, $practitioner, $request);
+                    $this->postAndInvoiceReceptionCharge($charge, $request);
+
+                    if ($charge === null) {
+                        $visit->billing_warning = 'No consultation price is configured for this practitioner or facility — the visit was created without a billing charge. Notify billing/admin to configure pricing.';
+                    }
                 }
             }
 
             return $visit;
         });
+
+        if (! empty($data['practitioner_id'])) {
+            $this->tryNhifConsultationAuth($visit, $request);
+        }
 
         $this->auditLog->record('reception_visit_walkin_created', $visit, null, $visit->only(['patient_id', 'department_id', 'practitioner_id', 'visit_type', 'status']), $request);
 
@@ -133,16 +158,26 @@ class ReceptionVisitService
     /**
      * Send a ready visit to its destination service/department — the final
      * reception step before the patient is admitted to the clinical queue.
-     * The financial gate (Step 62 fix) blocks patients whose consultation
-     * charge has not been cleared: the visit remains at ready_for_service and
-     * reception staff see a "payment required" flash message directing them
-     * to the billing counter.
+     * The financial gate blocks patients whose consultation charge has not been
+     * cleared. The no-charge rule applies: when no charge was captured (the
+     * assigned practitioner has no consultation service configured), the gate
+     * passes without payment — a free consultation.
      *
      * @throws ValidationException
      */
     public function sendToService(ReceptionVisit $visit, Request $request): ReceptionVisit
     {
-        $this->financialAuth->assertAuthorizedForSources(ReceptionVisit::class, [$visit->id]);
+        $status = $this->financialAuth->statusForSource(
+            ReceptionVisit::class,
+            $visit->id,
+            FinancialAuthorizationService::STATUS_AUTHORIZED,
+        );
+
+        if ($status !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+            throw ValidationException::withMessages([
+                'financial_authorization' => 'Payment is required before this patient can be sent to service.',
+            ]);
+        }
 
         return $this->transition($visit, ReceptionVisit::STATUS_SENT_TO_SERVICE, 'reception_visit_sent_to_service', $request);
     }
@@ -238,35 +273,95 @@ class ReceptionVisitService
             ->with([
                 'patient:id,patient_number,first_name,middle_name,last_name,phone',
                 'patient.insurances' => fn ($query) => $query->orderByDesc('is_primary'),
-                'department:id,name,code',
+                'department:id,name,code,hospital_id',
                 'practitioner:id,practitioner_number,staff_id',
                 'practitioner.staff:id,first_name,last_name',
                 'receptionVisit:id,appointment_id,visit_number,status',
             ])
             ->orderBy('scheduled_start')
-            ->get()
-            ->map(fn (Appointment $appointment) => [
-                'id' => $appointment->id,
-                'appointment_number' => $appointment->appointment_number,
-                'appointment_type' => $appointment->appointment_type,
-                'scheduled_start' => $appointment->scheduled_start,
-                'status' => $appointment->status,
-                'patient' => $appointment->patient?->only(['id', 'patient_number', 'first_name', 'middle_name', 'last_name']),
-                'department' => $appointment->department?->only(['id', 'name']),
-                'practitioner' => $appointment->practitioner?->staff?->only(['first_name', 'last_name']),
-                'reception_visit' => $appointment->receptionVisit?->only(['id', 'visit_number', 'status']),
-                'insurance_indicator' => $appointment->patient ? $this->insuranceIndicator($appointment->patient) : 'none',
-            ]);
+            ->get();
+
+        $appointmentVisitIds = $todaysAppointments->pluck('receptionVisit.id')->filter()->values()->all();
+        $appointmentFinancialStatuses = $this->financialAuth->statusesForSources(
+            ReceptionVisit::class,
+            $appointmentVisitIds,
+            FinancialAuthorizationService::STATUS_AUTHORIZED,
+        );
 
         $todaysWalkIns = ReceptionVisit::query()
             ->where('visit_type', 'walk_in')
             ->whereDate('created_at', today())
             ->when($hospitalId, fn ($query, $id) => $query->whereHas('department', fn ($query) => $query->where('hospital_id', $id)))
-            ->with(['patient:id,patient_number,first_name,middle_name,last_name', 'department:id,name'])
+            ->with(['patient:id,patient_number,first_name,middle_name,last_name', 'department:id,name,hospital_id'])
             ->latest('created_at')
             ->get();
 
+        $walkInFinancialStatuses = $this->financialAuth->statusesForSources(
+            ReceptionVisit::class,
+            $todaysWalkIns->pluck('id')->all(),
+            FinancialAuthorizationService::STATUS_AUTHORIZED,
+        );
+
+        $accountIds = $this->patientAccountIdsFor([
+            ...$todaysAppointments->map(fn (Appointment $a) => [$a->patient_id, $a->department?->hospital_id]),
+            ...$todaysWalkIns->map(fn (ReceptionVisit $v) => [$v->patient_id, $v->department?->hospital_id]),
+        ]);
+
+        $todaysAppointments = $todaysAppointments->map(fn (Appointment $appointment) => [
+            'id' => $appointment->id,
+            'appointment_number' => $appointment->appointment_number,
+            'appointment_type' => $appointment->appointment_type,
+            'scheduled_start' => $appointment->scheduled_start,
+            'status' => $appointment->status,
+            'patient' => $appointment->patient?->only(['id', 'patient_number', 'first_name', 'middle_name', 'last_name']),
+            'department' => $appointment->department?->only(['id', 'name']),
+            'practitioner' => $appointment->practitioner?->staff?->only(['first_name', 'last_name']),
+            'reception_visit' => $appointment->receptionVisit?->only(['id', 'visit_number', 'status']),
+            'insurance_indicator' => $appointment->patient ? $this->insuranceIndicator($appointment->patient) : 'none',
+            'financial_status' => $appointment->receptionVisit
+                ? ($appointmentFinancialStatuses[$appointment->receptionVisit->id] ?? null)
+                : null,
+            'patient_account_id' => $accountIds["{$appointment->patient_id}:{$appointment->department?->hospital_id}"] ?? null,
+        ]);
+
+        $todaysWalkIns->each(function (ReceptionVisit $visit) use ($walkInFinancialStatuses, $accountIds) {
+            $visit->financial_status = $walkInFinancialStatuses[$visit->id] ?? null;
+            $visit->patient_account_id = $accountIds["{$visit->patient_id}:{$visit->department?->hospital_id}"] ?? null;
+        });
+
         return compact('summary', 'todaysAppointments', 'todaysWalkIns');
+    }
+
+    /**
+     * Batch-resolve PatientAccount ids for many (patient_id, hospital_id)
+     * pairs in one query — avoids an N+1 lookup per dashboard row. Returns a
+     * map keyed by "{patient_id}:{hospital_id}" => account id.
+     *
+     * @param  iterable<array{0: int|null, 1: int|null}>  $pairs
+     * @return array<string, int>
+     */
+    protected function patientAccountIdsFor(iterable $pairs): array
+    {
+        $patientIds = [];
+        $hospitalIds = [];
+
+        foreach ($pairs as [$patientId, $hospitalId]) {
+            if ($patientId !== null && $hospitalId !== null) {
+                $patientIds[] = $patientId;
+                $hospitalIds[] = $hospitalId;
+            }
+        }
+
+        if (empty($patientIds)) {
+            return [];
+        }
+
+        return PatientAccount::query()
+            ->whereIn('patient_id', array_unique($patientIds))
+            ->whereIn('hospital_id', array_unique($hospitalIds))
+            ->get(['id', 'patient_id', 'hospital_id'])
+            ->mapWithKeys(fn (PatientAccount $account) => ["{$account->patient_id}:{$account->hospital_id}" => $account->id])
+            ->all();
     }
 
     /**
@@ -297,6 +392,48 @@ class ReceptionVisitService
             PatientInsurance::VERIFICATION_FAILED, PatientInsurance::VERIFICATION_EXPIRED => 'not_verified',
             default => 'pending_verification',
         };
+    }
+
+    /**
+     * Attempt NHIF consultation authorization for the freshly-created visit.
+     * Looks up the posted charge by source and calls NhifConsultationAuthorizationService.
+     * Never throws — NHIF failures degrade gracefully to the cash payment path.
+     */
+    protected function tryNhifConsultationAuth(ReceptionVisit $visit, Request $request): void
+    {
+        try {
+            $charge = Charge::query()
+                ->where('source_type', ReceptionVisit::class)
+                ->where('source_id', $visit->id)
+                ->where('status', Charge::STATUS_POSTED)
+                ->first();
+
+            if ($charge === null || $charge->service_id === null) {
+                return;
+            }
+
+            $this->nhifConsultationAuth->authorizeConsultation($visit, $charge, $request);
+        } catch (\Throwable) {
+            // NHIF failures must never block visit creation.
+        }
+    }
+
+    /**
+     * Post a freshly-captured reception-visit charge and immediately raise a
+     * posted invoice for it — the cashier then only needs to collect payment.
+     * No-op when $charge is null (the no-charge rule: no consultation service
+     * configured on the practitioner).
+     */
+    protected function postAndInvoiceReceptionCharge(?Charge $charge, Request $request): void
+    {
+        if ($charge === null) {
+            return;
+        }
+
+        $posted = $this->charges->post($charge, $request);
+        $account = $posted->patientAccount;
+        $invoice = $this->invoices->createDraft($account, [$posted->id], null, $request);
+        $this->invoices->post($invoice, $request);
     }
 
     /**

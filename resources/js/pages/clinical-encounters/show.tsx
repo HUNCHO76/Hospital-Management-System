@@ -2,6 +2,7 @@ import { CarePlanSection } from '@/components/care-plan/care-plan-section';
 import { CancelEncounterDialog } from '@/components/clinical-encounters/cancel-encounter-dialog';
 import { CompleteEncounterDialog } from '@/components/clinical-encounters/complete-encounter-dialog';
 import { LaboratoryOrdersSection } from '@/components/clinical-encounters/laboratory-orders-section';
+import { LaboratoryResultsSection } from '@/components/clinical-encounters/laboratory-results-section';
 import { PrescriptionOrdersSection } from '@/components/clinical-encounters/prescription-orders-section';
 import { RadiologyOrdersSection } from '@/components/clinical-encounters/radiology-orders-section';
 import { RadiologyResultsSection } from '@/components/clinical-encounters/radiology-results-section';
@@ -27,8 +28,8 @@ import { type ClinicalEncounter, type ClinicalEncounterDepartment, type Clinical
 import { type ClinicalNote } from '@/types/clinical-note';
 import { type Consultation } from '@/types/consultation';
 import { type EncounterDiagnosis } from '@/types/diagnosis';
-import { type LaboratoryOrder } from '@/types/laboratory';
-import { type PrescriptionOrder } from '@/types/prescription';
+import { type LaboratoryOrder, type LaboratoryReport } from '@/types/laboratory';
+import { type MedicationSafetyWarning, type PrescriptionOrder } from '@/types/prescription';
 import { type RadiologyOrder, type RadiologyResult } from '@/types/radiology';
 import { type TriageAssessment } from '@/types/triage';
 import { Head, Link, router } from '@inertiajs/react';
@@ -41,10 +42,12 @@ interface EncounterShowProps {
     diagnoses: EncounterDiagnosis[];
     carePlan: CarePlan | null;
     laboratoryOrders: LaboratoryOrder[];
+    laboratoryResults: LaboratoryReport[];
     radiologyOrders: RadiologyOrder[];
     radiologyResults: RadiologyResult[];
     prescriptionOrders: PrescriptionOrder[];
     clinicalNotes: ClinicalNote[];
+    medicationSafetyRules: Record<number, MedicationSafetyWarning[]>;
     departments: ClinicalEncounterDepartment[];
     referralPractitioners: ClinicalEncounterPractitioner[];
 }
@@ -67,10 +70,12 @@ export default function EncounterShow({
     diagnoses,
     carePlan,
     laboratoryOrders,
+    laboratoryResults,
     radiologyOrders,
     radiologyResults,
     prescriptionOrders,
     clinicalNotes,
+    medicationSafetyRules,
     departments,
     referralPractitioners,
 }: EncounterShowProps) {
@@ -261,11 +266,18 @@ export default function EncounterShow({
 
                 <LaboratoryOrdersSection encounterId={encounter.id} consultation={consultation} laboratoryOrders={laboratoryOrders} />
 
+                <LaboratoryResultsSection laboratoryResults={laboratoryResults} />
+
                 <RadiologyOrdersSection encounterId={encounter.id} consultation={consultation} radiologyOrders={radiologyOrders} />
 
                 <RadiologyResultsSection radiologyResults={radiologyResults} />
 
-                <PrescriptionOrdersSection encounterId={encounter.id} consultation={consultation} prescriptionOrders={prescriptionOrders} />
+                <PrescriptionOrdersSection
+                    encounterId={encounter.id}
+                    consultation={consultation}
+                    prescriptionOrders={prescriptionOrders}
+                    medicationSafetyRules={medicationSafetyRules}
+                />
 
                 <ClinicalNotesSection encounterId={encounter.id} clinicalNotes={clinicalNotes} />
             </div>

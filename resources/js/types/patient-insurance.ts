@@ -2,8 +2,8 @@ import { type InsuranceProviderSummary } from '@/types/insurance-provider';
 
 export type PatientInsuranceStatus = 'active' | 'inactive' | 'expired' | 'suspended';
 
-export type NhifVerificationStatus = 'verified' | 'not_found' | 'invalid' | 'expired' | 'inactive' | 'error';
-export type NhifIdentifierType = 'card_number' | 'nin';
+export type NhifVerificationStatus = 'verified' | 'lookup_found' | 'verification_failed' | 'not_found' | 'invalid' | 'expired' | 'inactive' | 'error';
+export type NhifIdentifierType = 'CardNo' | 'nin';
 export type NhifEligibilityStatus = 'eligible' | 'ineligible' | 'expired' | 'suspended' | 'unknown' | 'error';
 
 export interface NhifMemberVerification {
@@ -52,6 +52,91 @@ export interface InsuranceSchemeSummary {
     insurance_provider_id: number;
     name: string;
     code: string;
+}
+
+export interface NhifCardType {
+    cardTypeID?: string;
+    CardTypeID?: string;
+    cardTypeName?: string;
+    CardTypeName?: string;
+}
+
+export interface NhifVerifier {
+    verifierID?: string;
+    VerifierID?: string;
+    verifierName?: string;
+    VerifierName?: string;
+    cardTypes?: NhifCardType[];
+    CardTypes?: NhifCardType[];
+}
+
+export interface NhifVisitType {
+    visitTypeID?: number | string;
+    VisitTypeID?: number | string;
+    visitTypeName?: string;
+    VisitTypeName?: string;
+    RequiresRemarks?: boolean;
+    requiresRemarks?: boolean;
+    RequiresReferralNo?: boolean;
+    requiresReferralNo?: boolean;
+}
+
+/**
+ * The outcome states of an NHIF-first registration lookup (Phase 8) —
+ * mirrors the UI states the registration form must represent while
+ * fetching/showing a GetCardDetails / GetCardDetailsByNIN result.
+ */
+export type NhifLookupStatus = 'found' | 'not_found' | 'invalid_identifier' | 'api_error' | 'member_inactive' | 'duplicate_patient';
+
+/**
+ * Normalized NHIF member data returned by POST /patients/nhif-lookup. NHIF's
+ * GetCardDetails/GetCardDetailsByNIN response includes name, gender, and
+ * date of birth directly — only phone is not part of this response, so it
+ * still needs to be collected manually.
+ */
+export interface NhifLookupMember {
+    member_name: string | null;
+    first_name: string | null;
+    middle_name: string | null;
+    last_name: string | null;
+    gender: 'male' | 'female' | null;
+    date_of_birth: string | null;
+    membership_number: string | null;
+    card_number: string | null;
+    nin: string | null;
+    plan_name: string | null;
+    expiry_date: string | null;
+    authorization_no: string | null;
+    nhif_scheme_id: number | null;
+}
+
+export interface NhifSchemeService {
+    item_code: string;
+    item_name: string;
+    item_type_id: string | null;
+    type_name: string | null;
+    unit_price: string | null;
+}
+
+export interface NhifSchemeServicesResponse {
+    success: boolean;
+    data: NhifSchemeService[];
+}
+
+export interface NhifLookupExistingPatient {
+    id: number;
+    patient_number: string;
+    first_name: string;
+    middle_name: string | null;
+    last_name: string;
+}
+
+export interface NhifLookupResponse {
+    success: boolean;
+    status: NhifLookupStatus;
+    message: string | null;
+    member: NhifLookupMember | null;
+    existing_patient: NhifLookupExistingPatient | null;
 }
 
 export interface PatientInsurancePatient {
