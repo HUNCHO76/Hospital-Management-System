@@ -8,7 +8,9 @@ use App\Http\Requests\Admission\DischargeAdmissionRequest;
 use App\Http\Requests\Admission\RejectAdmissionRequest;
 use App\Http\Requests\Admission\ReturnAdmissionRequest;
 use App\Http\Requests\Admission\StoreAdmissionRequest;
+use App\Http\Requests\Admission\StoreTransferRequest;
 use App\Models\Admission;
+use App\Models\AdmissionTransfer;
 use App\Models\Department;
 use App\Models\Hospital;
 use App\Models\Practitioner;
@@ -21,10 +23,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * Phase 9, Step 71 — the inpatient admission lifecycle. Transfers
- * (storeTransfer/completeTransfer/submitTransferNhif) remain out of scope
- * for this step — see AdmissionService's own docblock and the Step 71 plan
- * for why; those three actions stay 501 stubs.
+ * Inpatient admission lifecycle (Phase 9, Step 71) + transfers (Step 72).
  */
 class AdmissionController extends Controller
 {
@@ -210,14 +209,30 @@ class AdmissionController extends Controller
         return back()->with('success', 'Admission request cancelled.');
     }
 
-    public function storeTransfer(Request $request, int $admission): RedirectResponse
+    public function storeTransfer(StoreTransferRequest $request, Admission $admission, AdmissionService $service): RedirectResponse
     {
-        abort(501, 'Admission transfers (Phase 9, Step 72) are not yet implemented.');
+        $this->authorize('storeTransfer', $admission);
+
+        try {
+            $service->storeTransfer($admission, $request->validated(), $request);
+        } catch (ValidationException $e) {
+            return back()->with('error', collect($e->errors())->flatten()->implode(' '));
+        }
+
+        return back()->with('success', 'Transfer request recorded.');
     }
 
-    public function completeTransfer(Request $request, int $admission, int $transfer): RedirectResponse
+    public function completeTransfer(Request $request, Admission $admission, AdmissionTransfer $transfer, AdmissionService $service): RedirectResponse
     {
-        abort(501, 'Admission transfers (Phase 9, Step 72) are not yet implemented.');
+        $this->authorize('completeTransfer', $admission);
+
+        try {
+            $service->completeTransfer($admission, $transfer, $request);
+        } catch (ValidationException $e) {
+            return back()->with('error', collect($e->errors())->flatten()->implode(' '));
+        }
+
+        return back()->with('success', 'Transfer completed.');
     }
 
     public function submitNhif(Request $request, Admission $admission, AdmissionService $service): RedirectResponse
@@ -229,9 +244,17 @@ class AdmissionController extends Controller
         return back()->with('success', 'Admission submitted to NHIF.');
     }
 
-    public function submitTransferNhif(Request $request, int $admission, int $transfer): RedirectResponse
+    public function submitTransferNhif(Request $request, Admission $admission, AdmissionTransfer $transfer, AdmissionService $service): RedirectResponse
     {
-        abort(501, 'Admission transfers (Phase 9, Step 72) are not yet implemented.');
+        $this->authorize('submitTransferNhif', $admission);
+
+        try {
+            $service->submitTransferNhif($admission, $transfer, $request);
+        } catch (ValidationException $e) {
+            return back()->with('error', collect($e->errors())->flatten()->implode(' '));
+        }
+
+        return back()->with('success', 'Transfer submitted to NHIF.');
     }
 
     /**

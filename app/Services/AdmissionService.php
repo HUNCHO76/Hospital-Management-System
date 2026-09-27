@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Admission;
+use App\Models\AdmissionTransfer;
 use App\Models\NhifAdmission;
 use App\Services\NHIF\NhifHttpClient;
 use App\Services\NHIF\NHIFPreauthorizationService;
@@ -347,5 +348,146 @@ class AdmissionService
         );
 
         return $admission->fresh();
+    }
+
+    /**
+     * Record a ward/hospital transfer for an active admission.
+     * The transfer starts as STATUS_PENDING until completeTransfer() is called.
+     *
+     * @param  array{to_hospital_id: int, to_ward_type?: string|null, to_room_type?: string|null, reason: string, charges_per_day?: float|null}  $data
+     *
+     * @throws ValidationException
+     */
+    public function storeTransfer(Admission $admission, array $data, Request $request): AdmissionTransfer
+    {
+        if (! $admission->isActive()) {
+            throw ValidationException::withMessages([
+                'status' => 'Only an active admission can be transferred.',
+            ]);
+        }
+
+        $transfer = DB::transaction(function () use ($admission, $data, $request) {
+            $transfer = AdmissionTransfer::create([
+                'admission_id' => $admission->id,
+                'from_hospital_id' => $admission->hospital_id,
+                'to_hospital_id' => $data['to_hospital_id'],
+                'from_ward_type' => $admission->ward_type,
+                'to_ward_type' => $data['to_ward_type'] ?? null,
+                'from_room_type' => $admission->room_type,
+                'to_room_type' => $data['to_room_type'] ?? null,
+                'reason' => $data['reason'],
+                'charges_per_day' => $data['charges_per_day'] ?? null,
+                'status' => AdmissionTransfer::STATUS_PENDING,
+                'nhif_status' => AdmissionTransfer::NHIF_STATUS_PENDING,
+                'requested_by' => $request->user()->id,
+                'requested_at' => now(),
+            ]);
+
+            $this->auditLog->record('admission_transfer_requested', $admission, null, [
+                'transfer_id' => $transfer->id,
+                'to_hospital_id' => $data['to_hospital_id'],
+                'to_ward_type' => $data['to_ward_type'] ?? null,
+            ], $request);
+
+            return $transfer;
+        });
+
+        return $transfer;
+    }
+
+    /**
+     * Complete a pending transfer, updating the admission's ward/room/hospital
+     * to the destination values.
+     *
+     * @throws ValidationException
+     */
+    public function completeTransfer(Admission $admission, AdmissionTransfer $transfer, Request $request): AdmissionTransfer
+    {
+        if ($transfer->admission_id !== $admission->id) {
+            throw ValidationException::withMessages([
+                'transfer' => 'Transfer does not belong to this admission.',
+            ]);
+        }
+
+        if ($transfer->status !== AdmissionTransfer::STATUS_PENDING) {
+            throw ValidationException::withMessages([
+                'status' => 'Only a pending transfer can be completed.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($admission, $transfer, $request) {
+            $transfer->update([
+                'status' => AdmissionTransfer::STATUS_COMPLETED,
+                'completed_at' => now(),
+                'completed_by' => $request->user()->id,
+            ]);
+
+            $admission->update([
+                'hospital_id' => $transfer->to_hospital_id,
+                'ward_type' => $transfer->to_ward_type ?? $admission->ward_type,
+                'room_type' => $transfer->to_room_type ?? $admission->room_type,
+            ]);
+
+            $this->auditLog->record('admission_transfer_completed', $admission, null, [
+                'transfer_id' => $transfer->id,
+                'to_hospital_id' => $transfer->to_hospital_id,
+            ], $request);
+
+            return $transfer->fresh();
+        });
+    }
+
+    /**
+     * Submit a transfer notification to NHIF. Never throws on an NHIF outage —
+     * mirrors submitNhif()'s own never-block precedent.
+     *
+     * @throws ValidationException
+     */
+    public function submitTransferNhif(Admission $admission, AdmissionTransfer $transfer, Request $request): AdmissionTransfer
+    {
+        if ($transfer->admission_id !== $admission->id) {
+            throw ValidationException::withMessages([
+                'transfer' => 'Transfer does not belong to this admission.',
+            ]);
+        }
+
+        $admission->loadMissing('hospital', 'practitioner');
+
+        $nhifAdmission = NhifAdmission::where('admission_id', $admission->id)->first();
+
+        $payload = [
+            'admissionNo' => $admission->admission_number,
+            'nhifAdmissionNo' => $nhifAdmission?->nhif_admission_no,
+            'facilityCode' => $admission->hospital?->code,
+            'practitionerNo' => $admission->practitioner?->nhif_practitioner_no,
+            'wardTypeId' => $transfer->nhif_ward_type_id,
+            'roomTypeId' => $transfer->nhif_room_type_id,
+            'transferDate' => now()->toDateString(),
+            'reason' => $transfer->reason,
+        ];
+
+        $result = $this->nhifClient->submitTransfer($payload);
+
+        $transfer->update([
+            'nhif_admission_no' => $nhifAdmission?->nhif_admission_no,
+            'nhif_status' => $result['success']
+                ? AdmissionTransfer::NHIF_STATUS_SUBMITTED
+                : AdmissionTransfer::NHIF_STATUS_PENDING,
+            'nhif_transfer_no' => $result['data']['transferNo'] ?? $result['data']['TransferNo'] ?? null,
+            'http_status' => $result['http_status'] ?? null,
+            'raw_request' => json_encode($payload),
+            'raw_response' => json_encode($result['data'] ?? []),
+            'error_message' => $result['error'] ?? null,
+        ]);
+
+        $this->auditLog->record(
+            $result['success'] ? 'admission_transfer_nhif_submitted' : 'admission_transfer_nhif_submission_failed',
+            $admission,
+            null,
+            ['transfer_id' => $transfer->id, 'success' => $result['success'], 'error' => $result['error'] ?? null],
+            $request,
+        );
+
+        return $transfer->fresh();
     }
 }
