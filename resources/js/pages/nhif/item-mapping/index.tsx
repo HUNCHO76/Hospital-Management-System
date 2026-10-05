@@ -51,7 +51,7 @@ export default function ItemMappingIndex({ laboratoryTests, medications, stats }
     const handleLabSelect = (testId: number, code: string) => {
         router.patch(
             route('nhif.item-mapping.laboratory-tests.update', testId),
-            { nhif_code: code || null },
+            { nhif_code: code ? String(code).trim() : null },
             { preserveScroll: true },
         );
     };
@@ -59,7 +59,7 @@ export default function ItemMappingIndex({ laboratoryTests, medications, stats }
     const handleMedSelect = (medId: number, code: string) => {
         router.patch(
             route('nhif.item-mapping.medications.update', medId),
-            { nhif_code: code || null },
+            { nhif_code: code ? String(code).trim() : null },
             { preserveScroll: true },
         );
     };

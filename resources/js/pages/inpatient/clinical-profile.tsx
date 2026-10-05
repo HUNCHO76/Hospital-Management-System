@@ -202,6 +202,13 @@ function WardRoundEncounterPanel({
                 <div className="flex items-center gap-2">
                     <FileText className="text-muted-foreground h-4 w-4" />
                     <span className="font-mono text-sm font-medium">{encounter.encounter_number}</span>
+                    <Badge variant="outline" className="capitalize text-xs font-normal">
+                        {encounter.encounter_type === 'opd'
+                            ? 'OPD Consultation'
+                            : encounter.encounter_type === 'inpatient'
+                              ? 'Inpatient Ward Round'
+                              : (encounter.encounter_type?.replace('_', ' ') ?? 'Encounter')}
+                    </Badge>
                     <Badge variant={clinicalEncounterStatusVariant[encounter.status]}>
                         {clinicalEncounterStatusLabel[encounter.status]}
                     </Badge>
@@ -700,7 +707,7 @@ export default function ClinicalProfile({
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-base">
                             <Stethoscope className="h-4 w-4" />
-                            Ward Round — Clinical Encounters ({encounters.length})
+                            Ward Round & Clinical Encounters ({encounters.length})
                         </CardTitle>
                     </CardHeader>
                     <CardContent>

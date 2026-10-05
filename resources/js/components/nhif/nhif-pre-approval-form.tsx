@@ -75,7 +75,7 @@ function NhifCatalogSearch({
         fetch(route('nhif.item-mapping.medications.update', medicationId), {
             method: 'PATCH',
             headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-XSRF-TOKEN': getCsrfToken() },
-            body: JSON.stringify({ nhif_code: catalogItem.item_code }),
+            body: JSON.stringify({ nhif_code: String(catalogItem.item_code) }),
         })
             .then((r) => {
                 if (r.ok) {

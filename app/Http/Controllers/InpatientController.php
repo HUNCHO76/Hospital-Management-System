@@ -100,10 +100,20 @@ class InpatientController extends Controller
             'clinicalStatusUpdatedBy:id,UserName',
         ]);
 
-        // All inpatient encounters for this admission, newest first.
+        // All encounters related to this admission episode (originating encounter + inpatient ward rounds), newest first.
+        $admissionWindowStart = ($admission->admitted_at ?? $admission->created_at)->copy()->subHours(24);
         $encounters = ClinicalEncounter::query()
-            ->where('admission_id', $admission->id)
-            ->where('encounter_type', 'inpatient')
+            ->where(function ($query) use ($admission, $admissionWindowStart) {
+                $query->where('admission_id', $admission->id);
+                if ($admission->clinical_encounter_id) {
+                    $query->orWhere('id', $admission->clinical_encounter_id);
+                }
+                $query->orWhere(function ($q) use ($admission, $admissionWindowStart) {
+                    $q->where('patient_id', $admission->patient_id)
+                        ->where('created_at', '>=', $admissionWindowStart)
+                        ->when($admission->discharged_at, fn ($sub) => $sub->where('created_at', '<=', $admission->discharged_at));
+                });
+            })
             ->with([
                 'practitioner:id,practitioner_number,staff_id',
                 'practitioner.staff:id,first_name,last_name',
@@ -118,11 +128,18 @@ class InpatientController extends Controller
             ->orderByDesc('created_at')
             ->get();
 
-        $admissionEncounterIds = ClinicalEncounter::query()
-            ->where('admission_id', $admission->id)
-            ->when($admission->clinical_encounter_id, fn ($q) => $q->orWhere('id', $admission->clinical_encounter_id))
-            ->pluck('id')
-            ->toArray();
+        // Ensure encounters belonging to this admission episode are linked
+        $unlinkedEncounters = $encounters->filter(fn ($e) => empty($e->admission_id));
+        if ($unlinkedEncounters->isNotEmpty()) {
+            ClinicalEncounter::whereIn('id', $unlinkedEncounters->pluck('id'))->update(['admission_id' => $admission->id]);
+        }
+
+        if (empty($admission->clinical_encounter_id) && $encounters->isNotEmpty()) {
+            $earliestEncounter = $encounters->sortBy('created_at')->first();
+            $admission->update(['clinical_encounter_id' => $earliestEncounter->id]);
+        }
+
+        $admissionEncounterIds = $encounters->pluck('id')->toArray();
 
         // Ensure any vitals recorded under encounters belonging to this admission have admission_id backfilled
         if (! empty($admissionEncounterIds)) {
@@ -224,7 +241,15 @@ class InpatientController extends Controller
             ->first();
 
         if ($encounter === null) {
-            return back()->with('error', 'No open inpatient encounter exists for this admission. Please open an encounter first.');
+            $encounter = ClinicalEncounter::query()
+                ->where('admission_id', $admission->id)
+                ->whereIn('status', ClinicalEncounter::ACTIVE_STATUSES)
+                ->latest('created_at')
+                ->first();
+        }
+
+        if ($encounter === null) {
+            return back()->with('error', 'No open clinical encounter exists for this admission. Please open an encounter first.');
         }
 
         try {

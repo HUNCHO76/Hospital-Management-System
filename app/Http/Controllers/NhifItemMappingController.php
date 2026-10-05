@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\LaboratoryTest;
 use App\Models\Medication;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -33,24 +34,42 @@ class NhifItemMappingController extends Controller
         ]);
     }
 
-    public function updateLaboratoryTest(Request $request, LaboratoryTest $laboratoryTest): RedirectResponse
+    public function updateLaboratoryTest(Request $request, LaboratoryTest $laboratoryTest): JsonResponse|RedirectResponse
     {
         $data = $request->validate([
-            'nhif_code' => ['nullable', 'string', 'max:50'],
+            'nhif_code' => ['nullable'],
         ]);
 
-        $laboratoryTest->update(['nhif_code' => $data['nhif_code'] ?? null]);
+        $code = ! empty($data['nhif_code']) ? trim((string) $data['nhif_code']) : null;
+        $laboratoryTest->update(['nhif_code' => $code]);
+
+        if ($request->wantsJson() && ! $request->header('X-Inertia')) {
+            return response()->json([
+                'success' => true,
+                'message' => "NHIF code updated for {$laboratoryTest->name}.",
+                'nhif_code' => $code,
+            ]);
+        }
 
         return back()->with('success', "NHIF code updated for {$laboratoryTest->name}.");
     }
 
-    public function updateMedication(Request $request, Medication $medication): RedirectResponse
+    public function updateMedication(Request $request, Medication $medication): JsonResponse|RedirectResponse
     {
         $data = $request->validate([
-            'nhif_code' => ['nullable', 'string', 'max:50'],
+            'nhif_code' => ['nullable'],
         ]);
 
-        $medication->update(['nhif_code' => $data['nhif_code'] ?? null]);
+        $code = ! empty($data['nhif_code']) ? trim((string) $data['nhif_code']) : null;
+        $medication->update(['nhif_code' => $code]);
+
+        if ($request->wantsJson() && ! $request->header('X-Inertia')) {
+            return response()->json([
+                'success' => true,
+                'message' => "NHIF code updated for {$medication->generic_name}.",
+                'nhif_code' => $code,
+            ]);
+        }
 
         return back()->with('success', "NHIF code updated for {$medication->generic_name}.");
     }

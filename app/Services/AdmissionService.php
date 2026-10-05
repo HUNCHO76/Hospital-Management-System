@@ -45,10 +45,18 @@ class AdmissionService
             $patientInsuranceId = $data['patient_insurance_id'] ?? $insurance?->id;
             $nhifAuthNo = !empty($data['nhif_authorization_no']) ? $data['nhif_authorization_no'] : $insurance?->nhif_authorization_no;
 
+            $clinicalEncounterId = $data['clinical_encounter_id'] ?? null;
+            if (empty($clinicalEncounterId) && !empty($data['patient_id'])) {
+                $clinicalEncounterId = \App\Models\ClinicalEncounter::where('patient_id', $data['patient_id'])
+                    ->whereIn('status', \App\Models\ClinicalEncounter::ACTIVE_STATUSES)
+                    ->latest('created_at')
+                    ->value('id');
+            }
+
             $admission = Admission::create([
                 'hospital_id' => $data['hospital_id'],
                 'patient_id' => $data['patient_id'],
-                'clinical_encounter_id' => $data['clinical_encounter_id'] ?? null,
+                'clinical_encounter_id' => $clinicalEncounterId,
                 'department_id' => $data['department_id'] ?? null,
                 'patient_insurance_id' => $patientInsuranceId,
                 'admission_type' => $data['admission_type'] ?? null,
@@ -61,6 +69,12 @@ class AdmissionService
                 'status' => Admission::STATUS_PENDING,
                 'created_by' => $request->user()->id,
             ]);
+
+            if ($clinicalEncounterId) {
+                \App\Models\ClinicalEncounter::where('id', $clinicalEncounterId)
+                    ->whereNull('admission_id')
+                    ->update(['admission_id' => $admission->id]);
+            }
 
             $charge = $this->chargeCapture->captureFromAdmission($admission, $request);
 
