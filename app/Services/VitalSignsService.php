@@ -35,6 +35,7 @@ class VitalSignsService
             ...$data,
             'clinical_encounter_id' => $triage->clinical_encounter_id,
             'triage_assessment_id' => $triage->id,
+            'admission_id' => $triage->clinicalEncounter?->admission_id,
             'recorded_by' => $request->user()->id,
             'recorded_at' => now(),
         ]);

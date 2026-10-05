@@ -153,7 +153,7 @@ class LaboratoryReportService
         $results = LaboratoryResult::query()
             ->where('status', LaboratoryResult::STATUS_RELEASED)
             ->whereHas('item', fn ($q) => $q->where('laboratory_order_id', $order->id))
-            ->with(['item', 'sample', 'enteredBy:id,UserName', 'verifiedBy:id,UserName', 'authorizedBy:id,UserName', 'releasedBy:id,UserName'])
+            ->with(['item', 'sample', 'enteredBy:id,UserName', 'verifiedBy:id,UserName', 'authorizedBy:id,UserName', 'releasedBy:id,UserName', 'resultValues.parameter'])
             ->get();
 
         return $results->map(fn (LaboratoryResult $result) => [
@@ -170,6 +170,23 @@ class LaboratoryReportService
             'reference_range' => $result->reference_range,
             'abnormal_flag' => $result->abnormal_flag,
             'result_comment' => $result->result_comment,
+            'result_values' => $result->resultValues
+                ->sortBy(fn ($rv) => $rv->parameter?->display_order ?? 0)
+                ->values()
+                ->map(fn ($rv) => [
+                    'parameter_name' => $rv->parameter?->name,
+                    'parameter_code' => $rv->parameter?->code,
+                    'value_numeric' => $rv->value_numeric,
+                    'value_text' => $rv->value_text,
+                    'value_code' => $rv->value_code,
+                    'unit' => $rv->unit,
+                    'reference_low' => $rv->reference_low,
+                    'reference_high' => $rv->reference_high,
+                    'reference_critical_low' => $rv->reference_critical_low,
+                    'reference_critical_high' => $rv->reference_critical_high,
+                    'abnormal_flag' => $rv->abnormal_flag,
+                    'result_comment' => $rv->result_comment,
+                ])->all(),
             'entered_by' => $result->enteredBy?->UserName,
             'verified_by' => $result->verifiedBy?->UserName,
             'verified_at' => optional($result->verified_at)->toIso8601String(),

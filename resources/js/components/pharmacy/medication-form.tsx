@@ -1,4 +1,5 @@
 import InputError from '@/components/input-error';
+import { NhifItemCodeSearch } from '@/components/nhif/nhif-item-code-search';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -149,13 +150,14 @@ export function MedicationForm({ medication, isReferenced, forms, routes }: Medi
 
             <div className="space-y-4 rounded-md border p-4">
                 <h3 className="text-sm font-medium">Billing / NHIF Mapping</h3>
-                <p className="text-muted-foreground text-xs">
-                    Preserved for a future billing/claims module — nothing in this system currently reads or acts on these values.
-                </p>
                 <div className="grid gap-4 sm:grid-cols-2">
                     <div className="grid gap-2">
-                        <Label htmlFor="nhif_code">NHIF Code</Label>
-                        <Input id="nhif_code" value={data.nhif_code} onChange={(e) => setData('nhif_code', e.target.value)} />
+                        <Label>NHIF Code</Label>
+                        <NhifItemCodeSearch
+                            value={data.nhif_code}
+                            onSelect={(code) => setData('nhif_code', code)}
+                            typeId={3}
+                        />
                         <InputError message={errors.nhif_code} />
                     </div>
                     <div className="grid gap-2">

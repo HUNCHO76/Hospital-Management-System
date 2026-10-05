@@ -118,6 +118,11 @@ class NhifMemberVerificationService
             $insuranceUpdates['nhif_facility_code'] = $record->nhif_facility_code;
         }
 
+        $pfNumber = $memberData['PFNumber'] ?? $memberData['pfNumber'] ?? null;
+        if (filled($pfNumber) && blank($insurance->nhif_pf_number)) {
+            $insuranceUpdates['nhif_pf_number'] = $pfNumber;
+        }
+
         $insurance->update($insuranceUpdates);
 
         if ($record->nhif_scheme_id && blank($insurance->getOriginal('nhif_scheme_id'))) {
@@ -294,6 +299,7 @@ class NhifMemberVerificationService
             'expiry_date' => $this->normalizeDate($memberData['ExpiryDate'] ?? $memberData['CardExpiryDate'] ?? null),
             'authorization_no' => $memberData['AuthorizationNo'] ?? $memberData['authorizationNo'] ?? $memberData['AuthNo'] ?? null,
             'nhif_scheme_id' => $memberData['SchemeID'] ?? $memberData['schemeID'] ?? $memberData['schemeId'] ?? null,
+            'pf_number' => $memberData['PFNumber'] ?? $memberData['pfNumber'] ?? null,
         ];
     }
 

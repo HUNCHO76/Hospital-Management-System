@@ -20,6 +20,7 @@ use App\Http\Resources\TriageAssessmentResource;
 use App\Models\ClinicalEncounter;
 use App\Models\Department;
 use App\Models\LaboratoryReport;
+use App\Models\NhifPreApprovalSession;
 use App\Models\Practitioner;
 use App\Models\RadiologyAppointment;
 use App\Models\RadiologyReport;
@@ -28,6 +29,7 @@ use App\Services\ClinicalEncounterSearchService;
 use App\Services\ClinicalEncounterService;
 use App\Services\FinancialAuthorizationService;
 use App\Services\MedicationSafetyService;
+use App\Services\NHIF\NhifEncounterPreApprovalService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -40,7 +42,7 @@ class ClinicalEncounterController extends Controller
         return [
             'patient:id,patient_number,first_name,middle_name,last_name,date_of_birth,gender',
             'department:id,name,code',
-            'practitioner:id,practitioner_number,practitioner_type,staff_id',
+            'practitioner:id,practitioner_number,practitioner_type,nhif_practitioner_no,staff_id',
             'practitioner.staff:id,first_name,last_name',
             'receptionVisit:id,visit_number,status',
             'appointment:id,appointment_number,appointment_type,scheduled_start',
@@ -118,7 +120,7 @@ class ClinicalEncounterController extends Controller
             'items.referredToDepartment:id,name',
             'items.referredToPractitioner:id,practitioner_number,staff_id',
             'items.referredToPractitioner.staff:id,first_name,last_name',
-            'items.prescription.medication:id,name',
+            'items.prescription.medication:id,generic_name,brand_name',
             'items.createdBy:id,UserName',
             'items.correctedBy:id,UserName',
             'completedBy:id,UserName',
@@ -234,6 +236,21 @@ class ClinicalEncounterController extends Controller
                 ->warningsForDiagnoses(
                     app(MedicationSafetyService::class)->activeDiagnosisCodeIds($clinicalEncounter->id),
                 ),
+            // Whether the patient has active verified NHIF insurance — used
+            // to show the NHIF disease field on the diagnosis form.
+            'nhifEligible' => $clinicalEncounter->patient?->activeNhifInsurance() !== null,
+            'nhifInsurance' => $clinicalEncounter->patient?->activeNhifInsurance()?->only([
+                'id', 'card_number', 'nhif_authorization_no', 'nhif_scheme_id',
+                'nhif_scheme_name', 'nhif_facility_code', 'nhif_pf_number',
+            ]),
+            'nhifPreApprovalSessions' => NhifPreApprovalSession::with('items')
+                ->where('clinical_encounter_id', $clinicalEncounter->id)
+                ->latest()
+                ->get(),
+            'nhifPendingItems' => Inertia::defer(fn () => $clinicalEncounter->patient?->activeNhifInsurance()
+                ? app(NhifEncounterPreApprovalService::class)
+                    ->prepareItems($clinicalEncounter, $clinicalEncounter->patient->activeNhifInsurance())
+                : null),
         ]);
     }
 

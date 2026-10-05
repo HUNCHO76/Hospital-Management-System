@@ -80,6 +80,7 @@ class RoleSeeder extends Seeder
             'audit-logs.view',
             'nhif-service-mappings.view', 'nhif-service-mappings.create', 'nhif-service-mappings.update', 'nhif-service-mappings.deactivate',
             'nhif-price-sync.view', 'nhif-price-sync.run',
+            'nhif-package-prices.view', 'nhif-package-prices.sync',
             'nhif-preauthorization.view', 'nhif-preauthorization.request', 'nhif-preauthorization.cancel',
             'nhif-authorization-context.lookup',
             'nhif-preapproval.view', 'nhif-preapproval.create',
@@ -87,6 +88,7 @@ class RoleSeeder extends Seeder
             'inpatient.encounter.create', 'inpatient.clinical-status.update',
             'inpatient.medications.view', 'inpatient.medications.administer', 'inpatient.medications.hold',
             'inpatient.medications.record-refusal', 'inpatient.medications.record-missed', 'inpatient.medications.correct',
+            'discharge-document.view', 'discharge-document.generate', 'discharge-document.print',
             'nhif-utilization.view', 'nhif-utilization.submit', 'nhif-utilization.reconcile',
             'nhif-claims.view', 'nhif-claims.create', 'nhif-claims.update', 'nhif-claims.validate', 'nhif-claims.finalize', 'nhif-claims.cancel',
             'nhif-claims.submit', 'nhif-claims.view-submission', 'nhif-claims.retry-submission',
@@ -122,9 +124,11 @@ class RoleSeeder extends Seeder
             'admission.view', 'admission.create',
             'inpatient.encounter.create',
             'inpatient.medications.view',
+            'discharge-document.view', 'discharge-document.generate', 'discharge-document.print',
             'laboratory-results.view',
             'laboratory-reports.view', 'laboratory-reports.print', 'laboratory-reports.download',
             'radiology-orders.create', 'radiology-orders.update', 'radiology-orders.cancel', 'radiology-procedures.view',
+            'nhif-preapproval.view', 'nhif-preapproval.create',
         ],
 
         'nurse' => [
@@ -142,6 +146,7 @@ class RoleSeeder extends Seeder
             'inpatient.encounter.create', 'inpatient.clinical-status.update',
             'inpatient.medications.view', 'inpatient.medications.administer', 'inpatient.medications.hold',
             'inpatient.medications.record-refusal', 'inpatient.medications.record-missed', 'inpatient.medications.correct',
+            'discharge-document.view', 'discharge-document.print',
         ],
 
         // Phase 6, Step 44: the pharmacy-facing role that receives and views
@@ -271,6 +276,10 @@ class RoleSeeder extends Seeder
         'accountant' => [
             'patients.view',
             'patient-insurance.view',
+            // Phase 9, Step 83: accountant must be able to view admissions to
+            // access the inpatient billing page (controller double-gates on both
+            // admission.view and billing.view).
+            'admission.view',
             'billing.view', 'billing-accounts.view', 'billing-charges.view', 'billing-charges.create',
             // Phase 7, Step 53: the same billing officer manages the
             // service catalog and its pricing — this app's one financial
@@ -306,6 +315,9 @@ class RoleSeeder extends Seeder
             // Phase 7, Step 60: the same billing officer views financial
             // reports and exports CSV extracts.
             'billing-reports.view', 'billing-reports.export',
+            // Phase 9, Step 94: accountant can view and print discharge
+            // documents (financial section gated by billing.view in the UI).
+            'discharge-document.view', 'discharge-document.print',
         ],
     ];
 

@@ -4,12 +4,16 @@ namespace App\Services;
 
 use App\Models\Admission;
 use App\Models\Charge;
+use App\Models\ChargeInsuranceAllocation;
 use App\Models\ClinicalEncounter;
 use App\Models\DispensingItem;
 use App\Models\Hospital;
+use App\Models\Invoice;
 use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryTest;
 use App\Models\Medication;
+use App\Models\Patient;
+use App\Models\PatientInsurance;
 use App\Models\Practitioner;
 use App\Models\PrescriptionOrderItem;
 use App\Models\RadiologyOrderItem;
@@ -19,6 +23,7 @@ use App\Models\Service;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -66,6 +71,8 @@ class ChargeCaptureService
         protected ChargeService $charges,
         protected ServicePriceResolver $prices,
         protected AuditLogService $auditLog,
+        protected InvoiceService $invoices,
+        protected InsuranceBillingService $insuranceBilling,
     ) {}
 
     /**
@@ -100,7 +107,7 @@ class ChargeCaptureService
 
             $service = Service::query()->findOrFail($admission->service_id);
 
-            return $this->createFromCatalogService(
+            $charge = $this->createFromCatalogService(
                 $service,
                 $admission->hospital_id,
                 $admission->patient_id,
@@ -112,6 +119,12 @@ class ChargeCaptureService
                 null,
                 $admission->practitioner_id,
             );
+
+            if ($admission->patient_insurance_id || $admission->patient?->activeNhifInsurance()) {
+                $this->postAndInvoiceForInsuredPatient($charge, $admission->patient_id, $request);
+            }
+
+            return $charge;
         } catch (ValidationException $e) {
             $this->recordCaptureSkipped(Admission::class, $admission->id, $e, $request);
 
@@ -124,7 +137,7 @@ class ChargeCaptureService
         try {
             $service = $this->resolveMappedService(LaboratoryTest::class, $item->laboratory_test_id, 'laboratory test');
 
-            return $this->createFromCatalogService(
+            $charge = $this->createFromCatalogService(
                 $service,
                 $encounter->department->hospital_id,
                 $encounter->patient_id,
@@ -134,6 +147,10 @@ class ChargeCaptureService
                 1,
                 $request,
             );
+
+            $this->postAndInvoiceForInsuredPatient($charge, $encounter->patient_id, $request);
+
+            return $charge;
         } catch (ValidationException $e) {
             $this->recordCaptureSkipped(LaboratoryOrderItem::class, $item->id, $e, $request);
 
@@ -151,7 +168,7 @@ class ChargeCaptureService
         try {
             $service = $this->resolveMappedService(RadiologyProcedure::class, $item->radiology_procedure_id, 'radiology procedure');
 
-            return $this->createFromCatalogService(
+            $charge = $this->createFromCatalogService(
                 $service,
                 $encounter->department->hospital_id,
                 $encounter->patient_id,
@@ -161,6 +178,10 @@ class ChargeCaptureService
                 1,
                 $request,
             );
+
+            $this->postAndInvoiceForInsuredPatient($charge, $encounter->patient_id, $request);
+
+            return $charge;
         } catch (ValidationException $e) {
             $this->recordCaptureSkipped(RadiologyOrderItem::class, $item->id, $e, $request);
 
@@ -253,6 +274,41 @@ class ChargeCaptureService
     }
 
     /**
+     * Capture a charge for an NHIF-funded reception visit using the NHIF API
+     * price directly, bypassing local ServicePrice lookup (which may not have
+     * a row for NHIF-imported services).
+     */
+    public function captureNhifReceptionVisit(
+        ReceptionVisit $visit,
+        Practitioner $practitioner,
+        Service $service,
+        string $nhifUnitPrice,
+        Request $request,
+    ): ?Charge {
+        try {
+            $visit->loadMissing('department');
+
+            return $this->createFromResolvedPrice(
+                hospitalId: $visit->department->hospital_id,
+                patientId: $visit->patient_id,
+                encounterId: null,
+                serviceId: $service->id,
+                sourceType: ReceptionVisit::class,
+                sourceId: $visit->id,
+                serviceCodeSnapshot: $service->code,
+                description: $service->name,
+                quantity: 1,
+                unitPrice: $nhifUnitPrice,
+                request: $request,
+            );
+        } catch (ValidationException $e) {
+            $this->recordCaptureSkipped(ReceptionVisit::class, $visit->id, $e, $request);
+
+            return null;
+        }
+    }
+
+    /**
      * Transfer a reception-visit consultation charge to its newly-created
      * clinical encounter (Step 62 fix) — updates source_type/source_id and
      * encounter_id so the financial gate in ConsultationService::create() can
@@ -294,7 +350,7 @@ class ChargeCaptureService
                 ]);
             }
 
-            return $this->createFromResolvedPrice(
+            $charge = $this->createFromResolvedPrice(
                 hospitalId: $encounter->department->hospital_id,
                 patientId: $encounter->patient_id,
                 encounterId: $encounter->id,
@@ -307,6 +363,10 @@ class ChargeCaptureService
                 unitPrice: (string) $medication->price,
                 request: $request,
             );
+
+            $this->postAndInvoiceForInsuredPatient($charge, $encounter->patient_id, $request);
+
+            return $charge;
         } catch (ValidationException $e) {
             $this->recordCaptureSkipped(PrescriptionOrderItem::class, $item->id, $e, $request);
 
@@ -586,6 +646,91 @@ class ChargeCaptureService
     protected function isDuplicateKeyViolation(QueryException $e): bool
     {
         return $e->getCode() === '23000';
+    }
+
+    /**
+     * For insured patients: auto-post the charge, create a draft invoice,
+     * apply insurance allocation, and post the invoice — so the financial
+     * gate passes without requiring the cashier to settle it manually.
+     * Mirrors ReceptionVisitService::postAndInvoiceReceptionCharge().
+     *
+     * For NHIF patients whose PatientInsurance has no insurance_scheme_id
+     * (created through NHIF verification, not the general insurance model),
+     * the ChargeInsuranceAllocation is created directly with full coverage
+     * since InsuranceBillingService::applyToInvoice() requires a scheme.
+     *
+     * No-op for uninsured (cash) patients. Never blocks clinical orders.
+     */
+    public function postAndInvoiceForInsuredPatient(Charge $charge, int $patientId, Request $request): void
+    {
+        try {
+            $patient = Patient::find($patientId);
+            if (! $patient) {
+                return;
+            }
+
+            $coverage = $this->insuranceBilling->primaryCoverage($patient);
+            if (! $coverage || ! $this->insuranceBilling->isCoverageValidOn($coverage, now())) {
+                return;
+            }
+
+            $posted = $this->charges->post($charge, $request);
+            $account = $posted->patientAccount;
+            if (! $account) {
+                return;
+            }
+
+            $invoice = $this->invoices->createDraft($account, [$posted->id], null, $request);
+
+            if ($coverage->insurance_scheme_id) {
+                $this->insuranceBilling->applyToInvoice($invoice, $request);
+            } else {
+                $this->createNhifFullCoverageAllocation($posted, $invoice, $coverage, $request);
+            }
+
+            $this->invoices->post($invoice, $request);
+        } catch (\Throwable $e) {
+            Log::warning('Auto-invoice for insured patient failed; charge remains pending.', [
+                'charge_id' => $charge->id,
+                'patient_id' => $patientId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * For NHIF patients without a linked InsuranceScheme: create a fully-covered
+     * ChargeInsuranceAllocation directly. NHIF covers 100% — the patient owes nothing.
+     */
+    protected function createNhifFullCoverageAllocation(
+        Charge $charge,
+        Invoice $invoice,
+        PatientInsurance $coverage,
+        Request $request,
+    ): void {
+        $eligibleAmount = round((float) $charge->net_amount, 2);
+
+        ChargeInsuranceAllocation::updateOrCreate(
+            ['charge_id' => $charge->id],
+            [
+                'hospital_id' => $charge->hospital_id,
+                'patient_id' => $charge->patient_id,
+                'invoice_id' => $invoice->id,
+                'patient_insurance_id' => $coverage->id,
+                'insurance_coverage_rule_id' => null,
+                'coverage_type_applied' => 'full',
+                'coverage_percentage_applied' => null,
+                'copay_amount_applied' => null,
+                'eligible_amount' => $eligibleAmount,
+                'covered_amount' => $eligibleAmount,
+                'patient_responsibility' => 0,
+                'currency' => $charge->currency,
+                'status' => ChargeInsuranceAllocation::STATUS_FULLY_COVERED,
+                'rejection_reason' => null,
+                'calculated_at' => now(),
+                'calculated_by' => $request->user()->id,
+            ],
+        );
     }
 
     /**

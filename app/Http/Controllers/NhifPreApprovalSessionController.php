@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\NHIF\IssuePreApprovalSessionRequest;
 use App\Models\NhifPreApprovalSession;
 use App\Models\Patient;
 use App\Models\PatientInsurance;
@@ -116,7 +117,7 @@ class NhifPreApprovalSessionController extends Controller
     }
 
     public function issue(
-        Request $request,
+        IssuePreApprovalSessionRequest $request,
         Patient $patient,
         PatientInsurance $patientInsurance,
         NhifPreApprovalSession $nhifPreApprovalSession,
@@ -124,11 +125,20 @@ class NhifPreApprovalSessionController extends Controller
     ): RedirectResponse {
         $this->authorize('update', $nhifPreApprovalSession);
 
-        $service->issue($nhifPreApprovalSession, $request);
+        $session = $service->issue($nhifPreApprovalSession, $request);
 
-        return redirect()
-            ->route('patients.insurance.nhif.pre-approval-sessions.show', [$patient, $patientInsurance, $nhifPreApprovalSession])
-            ->with('success', 'Approved services issued.');
+        $redirect = redirect()
+            ->route('patients.insurance.nhif.pre-approval-sessions.show', [$patient, $patientInsurance, $nhifPreApprovalSession]);
+
+        if ($session->status !== NhifPreApprovalSession::STATUS_ISSUED) {
+            $message = $session->issue_response_payload['error']
+                ?? $session->issue_response_payload['data']['message']
+                ?? 'NHIF did not accept the issue request.';
+
+            return $redirect->with('error', "Issue failed: {$message}");
+        }
+
+        return $redirect->with('success', 'Approved services issued.');
     }
 
     public function cancel(

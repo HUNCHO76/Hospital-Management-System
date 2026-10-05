@@ -196,6 +196,8 @@ class PermissionSeeder extends Seeder
         // Phase 8, Step 68: NHIF service/price mapping admin
         'nhif-service-mappings' => ['view', 'create', 'update', 'deactivate'],
         'nhif-price-sync' => ['view', 'run'],
+        // Phase 8 — NHIF package price catalog (GetPricePackage sync + browser).
+        'nhif-package-prices' => ['view', 'sync'],
         // Phase 8, Step 69: NHIF preauthorization. 'request' covers create +
         // submit (one atomic action: you never create a preauth without sending
         // it). 'cancel' is separate — mirrors the pattern set by
@@ -232,6 +234,12 @@ class PermissionSeeder extends Seeder
             'medications.record-missed',
             'medications.correct',
         ],
+
+        // Phase 9, Step 94: discharge document generation.
+        // 'view' — read the document and version history.
+        // 'generate' — create a new version (initial or amendment).
+        // 'print' — trigger the browser print view.
+        'discharge-document' => ['view', 'generate', 'print'],
 
         // Phase 8, Step 71: NHIF clinical service utilization. Records are made by
         // clinical completion events, never by users, so there is no 'create'.

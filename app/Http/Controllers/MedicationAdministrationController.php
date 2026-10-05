@@ -58,7 +58,7 @@ class MedicationAdministrationController extends Controller
             ->where('status', PrescriptionOrder::STATUS_ACTIVE)
             ->with([
                 'items' => fn ($q) => $q->where('status', PrescriptionOrderItem::STATUS_ACTIVE),
-                'items.medication:id,name,code',
+                'items.medication:id,generic_name,brand_name,code',
                 'items.dispensingItems',
                 'clinicalEncounter:id,encounter_number,started_at',
             ])

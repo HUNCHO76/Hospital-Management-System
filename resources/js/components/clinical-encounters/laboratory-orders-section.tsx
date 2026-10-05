@@ -199,6 +199,7 @@ function AddLaboratoryOrderForm({ encounterId }: { encounterId: number }) {
                             tests.map((t) => t.id),
                         );
                     }}
+                    clinicalEncounterId={encounterId}
                 />
                 <InputError message={errors.test_ids} />
             </div>

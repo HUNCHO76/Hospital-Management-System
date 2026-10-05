@@ -29,6 +29,7 @@ class NHIFPreauthorizationService
 {
     public function __construct(
         protected NhifHttpClient $client,
+        protected NhifPriceResolutionService $priceResolution,
         protected AuditLogService $auditLog,
         protected InsuranceBillingService $insuranceBilling,
     ) {}
@@ -45,7 +46,7 @@ class NHIFPreauthorizationService
 
         if ($payload === null) {
             $this->auditLog->record('preauthorization_request_skipped', $preauth, null, [
-                'reason' => 'No billable charge/service is associated with this preauthorization source yet.',
+                'reason' => 'Skipped: No billable charge is associated, or a valid NHIF practitioner number is missing.',
             ], $request);
 
             return $preauth;
@@ -233,9 +234,40 @@ class NHIFPreauthorizationService
             ->first();
 
         $patient = $charge->patient;
-        $practitioner = Practitioner::query()
-            ->whereHas('staff.user', fn ($q) => $q->whereKey($preauth->created_by))
-            ->first();
+        $practitioner = null;
+        if ($charge->encounter_id) {
+            $practitioner = \App\Models\ClinicalEncounter::find($charge->encounter_id)?->practitioner;
+        }
+
+        if (! $practitioner || blank($practitioner->nhif_practitioner_no)) {
+            $practitioner = Practitioner::query()
+                ->whereHas('staff.user', fn ($q) => $q->whereKey($preauth->created_by))
+                ->whereNotNull('nhif_practitioner_no')
+                ->where('nhif_practitioner_no', '!=', '')
+                ->first();
+        }
+
+        if (! $practitioner || blank($practitioner->nhif_practitioner_no)) {
+            $practitioner = Practitioner::query()
+                ->whereHas('staff', fn ($q) => $q->where('hospital_id', $charge->hospital_id))
+                ->where('status', Practitioner::STATUS_ACTIVE)
+                ->whereNotNull('nhif_practitioner_no')
+                ->where('nhif_practitioner_no', '!=', '')
+                ->first();
+        }
+
+        $practitionerNo = $practitioner?->nhif_practitioner_no;
+
+        if (blank($practitionerNo)) {
+            return null; // Triggers 'preauthorization_request_skipped' audit log in request()
+        }
+
+        $insurance = $patient->activeNhifInsurance();
+        $unitPrice = (float) $charge->unit_price;
+        if ($insurance && $mapping?->nhif_item_code) {
+            $resolved = $this->priceResolution->resolve($insurance, $mapping->nhif_item_code, $unitPrice);
+            $unitPrice = $resolved['unit_price'];
+        }
 
         return [
             'authorizationNo' => $preauth->authorization_no,
@@ -243,9 +275,9 @@ class NHIFPreauthorizationService
             'lastName' => $patient->last_name,
             'gender' => $patient->gender,
             'dateOfBirth' => optional($patient->date_of_birth)->toDateString(),
-            'patientFileNo' => $patient->patient_number,
+            'patientFileNo' => $insurance?->nhif_pf_number ?? $patient->patient_number,
             'clinicalNotes' => null,
-            'practitionerNo' => $practitioner?->nhif_practitioner_no,
+            'practitionerNo' => $practitionerNo,
             'practitionersRemarks' => null,
             'telephoneNo' => $patient->phone,
             'facilityCode' => $charge->hospital->code,
@@ -254,7 +286,7 @@ class NHIFPreauthorizationService
                 'itemCode' => $mapping?->nhif_item_code,
                 'usage' => $charge->description ?? $charge->service_code_snapshot,
                 'effectiveDate' => now()->toDateString(),
-                'unitPrice' => (float) $charge->unit_price,
+                'unitPrice' => $unitPrice,
                 'endDate' => now()->toDateString(),
                 'quantityRequested' => (int) $charge->quantity,
                 'remarks' => null,

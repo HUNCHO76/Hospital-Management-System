@@ -34,7 +34,10 @@ export default function VisitShow({ visit, consultationFinancialStatus, consulta
     const patientName = visit.patient
         ? [visit.patient.first_name, visit.patient.middle_name, visit.patient.last_name].filter(Boolean).join(' ')
         : '—';
+    const serviceBlocked = consultationFinancialStatus !== 'authorized';
     const paymentRequired = consultationFinancialStatus === 'payment_required';
+    const nhifPending = consultationFinancialStatus === 'nhif_pending';
+    const nhifRejected = consultationFinancialStatus === 'nhif_rejected';
     const nhifStatus = nhifPreApprovalItem?.approval_status ?? null;
 
     const breadcrumbs: BreadcrumbItem[] = [
@@ -77,13 +80,23 @@ export default function VisitShow({ visit, consultationFinancialStatus, consulta
                         )}
 
                         {actions.includes('sendToService') && can('reception.update') && (
-                            <Button size="sm" onClick={() => runAction('send-to-service')} disabled={paymentRequired} title={paymentRequired ? 'Payment must be cleared before sending to service' : undefined}>
+                            <Button
+                                size="sm"
+                                onClick={() => runAction('send-to-service')}
+                                disabled={serviceBlocked}
+                                title={
+                                    nhifPending ? 'NHIF authorization is pending — cannot send to service'
+                                        : nhifRejected ? 'NHIF authorization was rejected — convert to cash or resubmit'
+                                            : paymentRequired ? 'Payment must be cleared before sending to service'
+                                                : undefined
+                                }
+                            >
                                 <Send className="h-4 w-4" />
                                 Send to Service
                             </Button>
                         )}
 
-                        {(visit.status === 'ready_for_service' || visit.status === 'sent_to_service') && can('clinical-encounters.create') && !paymentRequired && (
+                        {(visit.status === 'ready_for_service' || visit.status === 'sent_to_service') && can('clinical-encounters.create') && !serviceBlocked && (
                             <Button size="sm" variant="outline" asChild>
                                 <Link href={route('clinical-encounters.create', { patient_id: visit.patient_id, reception_visit_id: visit.id })}>
                                     <ClipboardPlus className="h-4 w-4" />
@@ -171,8 +184,8 @@ export default function VisitShow({ visit, consultationFinancialStatus, consulta
                             </Alert>
                         )}
 
-                        {/* NHIF partial coverage — patient co-payment required */}
-                        {(nhifStatus === 'accepted' || nhifStatus === 'approved') && paymentRequired && (
+                        {/* NHIF partial coverage — patient co-payment informational */}
+                        {(nhifStatus === 'accepted' || nhifStatus === 'approved') && nhifPreApprovalItem?.nhif_percent_covered !== null && nhifPreApprovalItem.nhif_percent_covered < 100 && (
                             <Alert className="border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-300">
                                 <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                                 <AlertDescription className="space-y-1">
@@ -188,7 +201,7 @@ export default function VisitShow({ visit, consultationFinancialStatus, consulta
                         )}
 
                         {/* Cash / no NHIF item — standard payment status */}
-                        {!nhifStatus && (
+                        {!nhifStatus && !nhifPending && !nhifRejected && (
                             <Alert
                                 variant={paymentRequired ? 'destructive' : 'default'}
                                 className={paymentRequired ? 'border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'border-green-500 bg-green-500/10 text-green-800 dark:text-green-300'}

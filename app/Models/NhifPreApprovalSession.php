@@ -46,6 +46,8 @@ class NhifPreApprovalSession extends Model
         'facility_code',
         'nhif_facility_code_returned',
         'practitioner_no',
+        'clinical_notes',
+        'practitioner_remarks',
         'status',
         'submitted_at',
         'synced_at',

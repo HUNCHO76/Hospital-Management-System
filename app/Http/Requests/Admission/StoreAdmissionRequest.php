@@ -37,6 +37,10 @@ class StoreAdmissionRequest extends FormRequest
             'room_type' => ['nullable', 'string', 'max:100'],
             'diagnosis_at_admission' => ['nullable', 'string', 'max:2000'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'nhif_authorization_no' => ['nullable', 'string', 'max:50'],
+            'nhif_ward_type_id' => ['nullable', 'integer'],
+            'nhif_room_type_id' => ['nullable', 'integer'],
+            'nhif_admission_type_id' => ['nullable', 'integer'],
         ];
     }
 }

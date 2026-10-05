@@ -86,6 +86,44 @@ class VitalSign extends Model
     }
 
     /**
+     * The accessors to append to the model's array form.
+     *
+     * @var list<string>
+     */
+    protected $appends = [
+        'pulse_rate',
+        'blood_pressure_systolic',
+        'blood_pressure_diastolic',
+        'respiratory_rate',
+        'oxygen_saturation',
+    ];
+
+    public function getPulseRateAttribute(): ?int
+    {
+        return $this->pulse_bpm;
+    }
+
+    public function getBloodPressureSystolicAttribute(): ?int
+    {
+        return $this->systolic_mmhg;
+    }
+
+    public function getBloodPressureDiastolicAttribute(): ?int
+    {
+        return $this->diastolic_mmhg;
+    }
+
+    public function getRespiratoryRateAttribute(): ?int
+    {
+        return $this->respiratory_rate_bpm;
+    }
+
+    public function getOxygenSaturationAttribute(): ?int
+    {
+        return $this->oxygen_saturation_pct;
+    }
+
+    /**
      * The triage assessment this observation was recorded under.
      * Nullable for inpatient vitals (no triage assessment exists).
      */

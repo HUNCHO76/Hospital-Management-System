@@ -89,7 +89,30 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
         { title: result.item?.test_name ?? `Result #${result.id}`, href: `/laboratory/results/${result.id}` },
     ];
 
-    const isParameterized = result.result_values && result.result_values.length > 0;
+    // A test is parameterized when its catalog has active parameters configured —
+    // NOT just when result_value rows already exist in the DB. This ensures the
+    // dynamic parameter table renders even for orders created before the fix or
+    // where initializeForItem created no rows yet (e.g., parameters added later).
+    const activeParameters = result.laboratory_test?.active_parameters ?? [];
+    const isParameterized = activeParameters.length > 0;
+
+    // Build the editable parameter_values form state:
+    // • If result_value rows already exist, seed from them (preserves any saved draft).
+    // • Otherwise, build empty entries from the test's active_parameters catalog.
+    const initialParameterValues: ParameterValueEntry[] = isParameterized
+        ? activeParameters.map((param) => {
+              const existingRv = result.result_values?.find(
+                  (rv) => rv.laboratory_test_parameter_id === param.id,
+              );
+              return {
+                  parameter_id: param.id,
+                  value_numeric: existingRv?.value_numeric ?? '',
+                  value_text: existingRv?.value_text ?? '',
+                  value_code: existingRv?.value_code ?? '',
+                  result_comment: existingRv?.result_comment ?? '',
+              };
+          })
+        : [];
 
     const { data, setData, put, processing, errors } = useForm<SaveLaboratoryResultDraftFormData>({
         value_numeric: result.value_numeric ?? '',
@@ -97,15 +120,7 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
         value_code: result.value_code ?? '',
         abnormal_flag: result.abnormal_flag ?? '',
         result_comment: result.result_comment ?? '',
-        parameter_values: isParameterized
-            ? result.result_values.map((rv) => ({
-                  parameter_id: rv.laboratory_test_parameter_id,
-                  value_numeric: rv.value_numeric ?? '',
-                  value_text: rv.value_text ?? '',
-                  value_code: rv.value_code ?? '',
-                  result_comment: rv.result_comment ?? '',
-              }))
-            : [],
+        parameter_values: initialParameterValues,
     });
 
     const handleParameterValueChange = (
@@ -308,7 +323,8 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
                             <form onSubmit={saveDraft} className="space-y-4">
                                 {isParameterized ? (
                                     <LaboratoryParameterResultTable
-                                        resultValues={result.result_values}
+                                        activeParameters={activeParameters}
+                                        resultValues={result.result_values ?? []}
                                         parameterValues={data.parameter_values}
                                         onChangeParameterValue={handleParameterValueChange}
                                         disabled={!canEdit}
@@ -382,7 +398,8 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
                             <div className="space-y-4">
                                 {isParameterized ? (
                                     <LaboratoryParameterResultTable
-                                        resultValues={result.result_values}
+                                        activeParameters={activeParameters}
+                                        resultValues={result.result_values ?? []}
                                         parameterValues={[]}
                                         onChangeParameterValue={() => undefined}
                                         disabled={true}

@@ -236,6 +236,24 @@ class Admission extends Model
         return $this->hasMany(AdmissionTransfer::class);
     }
 
+    /**
+     * All discharge document versions generated for this admission, newest first.
+     */
+    public function dischargeDocuments(): HasMany
+    {
+        return $this->hasMany(DischargeDocument::class)->latest('version');
+    }
+
+    /**
+     * The current (active) discharge document, if one has been generated.
+     */
+    public function currentDischargeDocument(): HasOne
+    {
+        return $this->hasOne(DischargeDocument::class)
+            ->where('status', DischargeDocument::STATUS_ACTIVE)
+            ->latestOfMany('version');
+    }
+
     public function nhifAdmission(): HasOne
     {
         return $this->hasOne(NhifAdmission::class);

@@ -1,5 +1,5 @@
 import { Head, useForm } from '@inertiajs/react';
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import AppLayout from '@/layouts/app-layout';
 
 interface Confirmation {
     id: number;
@@ -32,7 +32,7 @@ export default function BillConfirmation({ confirmations }: Props) {
     });
 
     return (
-        <AuthenticatedLayout>
+        <AppLayout>
             <Head title="NHIF Bill Confirmation" />
 
             <div className="py-8 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
@@ -135,6 +135,6 @@ export default function BillConfirmation({ confirmations }: Props) {
                     </table>
                 </div>
             </div>
-        </AuthenticatedLayout>
+        </AppLayout>
     );
 }

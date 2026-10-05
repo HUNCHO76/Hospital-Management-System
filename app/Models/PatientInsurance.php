@@ -71,6 +71,7 @@ class PatientInsurance extends Model
         'nhif_authorization_no',
         'nhif_scheme_id',
         'nhif_facility_code',
+        'nhif_pf_number',
         'principal_member_name',
         'relationship',
         'effective_from',

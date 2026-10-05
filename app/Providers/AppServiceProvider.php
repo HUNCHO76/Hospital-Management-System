@@ -3,8 +3,10 @@
 namespace App\Providers;
 
 use App\Models\NhifClaim;
+use App\Models\NhifPackagePrice;
 use App\Models\User;
 use App\Policies\NhifFolioPolicy;
+use App\Policies\NhifPackagePricePolicy;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -31,6 +33,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         Gate::policy(NhifClaim::class, NhifFolioPolicy::class);
+        Gate::policy(NhifPackagePrice::class, NhifPackagePricePolicy::class);
 
         $this->configureRateLimiters();
     }

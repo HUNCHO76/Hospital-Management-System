@@ -9,6 +9,7 @@ use App\Services\NHIF\NhifHttpClient;
 use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -31,17 +32,25 @@ class AdmissionService
     ) {}
 
     /**
-     * @param  array{hospital_id: int, patient_id: int, service_id?: int|null, department_id?: int|null, practitioner_id?: int|null, clinical_encounter_id?: int|null, patient_insurance_id?: int|null, admission_type?: string|null, ward_type?: string|null, room_type?: string|null, diagnosis_at_admission?: string|null, notes?: string|null}  $data
+     * @param  array{hospital_id: int, patient_id: int, service_id?: int|null, department_id?: int|null, practitioner_id?: int|null, clinical_encounter_id?: int|null, patient_insurance_id?: int|null, admission_type?: string|null, ward_type?: string|null, room_type?: string|null, diagnosis_at_admission?: string|null, notes?: string|null, nhif_authorization_no?: string|null, nhif_ward_type_id?: int|null, nhif_room_type_id?: int|null, nhif_admission_type_id?: int|null}  $data
      */
     public function create(array $data, Request $request): Admission
     {
         $admission = DB::transaction(function () use ($data, $request) {
+            $patient = \App\Models\Patient::find($data['patient_id']);
+            $insurance = $patient?->activeNhifInsurance()
+                ?? (!empty($data['patient_insurance_id']) ? \App\Models\PatientInsurance::find($data['patient_insurance_id']) : null)
+                ?? $patient?->insurances()->whereNotNull('nhif_authorization_no')->latest()->first();
+
+            $patientInsuranceId = $data['patient_insurance_id'] ?? $insurance?->id;
+            $nhifAuthNo = !empty($data['nhif_authorization_no']) ? $data['nhif_authorization_no'] : $insurance?->nhif_authorization_no;
+
             $admission = Admission::create([
                 'hospital_id' => $data['hospital_id'],
                 'patient_id' => $data['patient_id'],
                 'clinical_encounter_id' => $data['clinical_encounter_id'] ?? null,
                 'department_id' => $data['department_id'] ?? null,
-                'patient_insurance_id' => $data['patient_insurance_id'] ?? null,
+                'patient_insurance_id' => $patientInsuranceId,
                 'admission_type' => $data['admission_type'] ?? null,
                 'ward_type' => $data['ward_type'] ?? null,
                 'room_type' => $data['room_type'] ?? null,
@@ -57,6 +66,17 @@ class AdmissionService
 
             if ($charge !== null) {
                 $admission->update(['charges_per_day' => $charge->unit_price]);
+            }
+
+            if (!empty($nhifAuthNo) || !empty($data['nhif_ward_type_id'])) {
+                NhifAdmission::create([
+                    'admission_id' => $admission->id,
+                    'nhif_authorization_no' => $nhifAuthNo,
+                    'nhif_status' => NhifAdmission::STATUS_PENDING,
+                    'nhif_ward_type_id' => $data['nhif_ward_type_id'] ?? null,
+                    'nhif_room_type_id' => $data['nhif_room_type_id'] ?? null,
+                    'nhif_admission_type_id' => $data['nhif_admission_type_id'] ?? null,
+                ]);
             }
 
             return $admission->fresh();
@@ -218,12 +238,20 @@ class AdmissionService
                 ]);
             }
 
-            $this->nhifPreauth->assertPreauthorizedForSources(Admission::class, [$admission->id]);
-            $this->financialAuth->assertAuthorizedForSources(
-                Admission::class,
-                [$admission->id],
-                FinancialAuthorizationService::STATUS_AUTHORIZED,
-            );
+            $admission->loadMissing(['nhifAdmission', 'patient']);
+            $hasNhifAdmissionNo = ! empty($admission->nhifAdmission?->nhif_admission_no);
+
+            if ($hasNhifAdmissionNo) {
+                // Patient has an authorized NHIF admission number — no cash payment required!
+                $this->settleAdmissionChargeForNhif($admission, $request);
+            } else {
+                $this->nhifPreauth->assertPreauthorizedForSources(Admission::class, [$admission->id]);
+                $this->financialAuth->assertAuthorizedForSources(
+                    Admission::class,
+                    [$admission->id],
+                    FinancialAuthorizationService::STATUS_AUTHORIZED,
+                );
+            }
 
             $oldStatus = $admission->status;
 
@@ -310,23 +338,65 @@ class AdmissionService
      */
     public function submitNhif(Admission $admission, Request $request): Admission
     {
-        $admission->loadMissing('hospital', 'practitioner');
+        $admission->loadMissing('hospital', 'practitioner', 'patient', 'patientInsurance');
+
+        $nhifAdmission = NhifAdmission::where('admission_id', $admission->id)->first();
+
+        $authNo = $nhifAdmission?->nhif_authorization_no;
+        if (empty($authNo) || $authNo === 'UNKNOWN') {
+            $authNo = $admission->patientInsurance?->nhif_authorization_no
+                ?? $admission->patient?->activeNhifInsurance()?->nhif_authorization_no
+                ?? $admission->patient?->insurances()->whereNotNull('nhif_authorization_no')->latest()->value('nhif_authorization_no');
+
+            if ($authNo) {
+                if ($nhifAdmission) {
+                    $nhifAdmission->update(['nhif_authorization_no' => $authNo]);
+                } else {
+                    $nhifAdmission = NhifAdmission::create([
+                        'admission_id' => $admission->id,
+                        'nhif_authorization_no' => $authNo,
+                        'nhif_status' => NhifAdmission::STATUS_PENDING,
+                    ]);
+                }
+            }
+        }
+
+        $dob = $admission->patient?->date_of_birth ?? $admission->patient?->dob;
 
         $payload = [
-            'admissionNo' => $admission->admission_number,
-            'facilityCode' => $admission->hospital?->code,
-            'practitionerNo' => $admission->practitioner?->nhif_practitioner_no,
-            'admissionDate' => optional($admission->admitted_at)->toDateString(),
-            'wardType' => $admission->ward_type,
-            'roomType' => $admission->room_type,
-            'diagnosis' => $admission->diagnosis_at_admission,
+            'authorizationNo' => $authNo ?: 'UNKNOWN',
+            'fullName' => $admission->patient ? trim($admission->patient->first_name . ' ' . $admission->patient->last_name) : 'UNKNOWN',
+            'gender' => $admission->patient?->gender ? ucfirst(strtolower($admission->patient->gender)) : 'Unknown',
+            'dateOfBirth' => optional($dob)->toIso8601String() ?: '1900-01-01T00:00:00Z',
+            'dateAdmitted' => optional($admission->admitted_at)->toIso8601String() ?: now()->toIso8601String(),
+            'createdBy' => $request->user()->UserName ?? $request->user()->name ?? 'SYSTEM',
+
+            'wardTypeID' => (int) ($nhifAdmission?->nhif_ward_type_id ?: 1),
+            'roomTypeID' => (int) ($nhifAdmission?->nhif_room_type_id ?: 1),
+            'admissionTypeID' => (int) ($nhifAdmission?->nhif_admission_type_id ?: 1),
+
+            'chargesPerDay' => (float) ($admission->charges_per_day ?: 1.0),
+            
+            'diagnosisAtAdmission' => $admission->diagnosis_at_admission ?: 'None provided',
+            'practitionersRemarks' => $admission->notes ?: 'None provided',
+
+            'practitionerNo' => $admission->practitioner?->nhif_practitioner_no ?: 'UNKNOWN',
+            'facilityCode' => $admission->hospital?->code ?: 'UNKNOWN',
+            'patientFileNo' => $admission->patient?->patient_number ?: 'UNKNOWN',
         ];
 
-        $result = $this->nhifClient->submitAdmission($payload);
+        $result = $this->nhifClient->admitPatient($payload);
+
+        $existingAdmissionNo = $nhifAdmission?->nhif_admission_no;
+        $returnedAdmissionNo = $result['data']['AdmissionNo'] ?? $result['data']['admissionNo'] ?? null;
+        $admissionNo = $returnedAdmissionNo ?: $existingAdmissionNo;
+
+        $retryCount = ($nhifAdmission?->retry_count ?? 0) + ($nhifAdmission && $nhifAdmission->submitted_at ? 1 : 0);
 
         $nhifAdmission = NhifAdmission::updateOrCreate(
             ['admission_id' => $admission->id],
             [
+                'nhif_admission_no' => $admissionNo,
                 'nhif_facility_code' => $admission->hospital?->code,
                 'nhif_practitioner_no' => $admission->practitioner?->nhif_practitioner_no,
                 'nhif_status' => $result['success'] ? NhifAdmission::STATUS_SUBMITTED : NhifAdmission::STATUS_FAILED,
@@ -334,20 +404,43 @@ class AdmissionService
                 'raw_request' => json_encode($payload),
                 'raw_response' => json_encode($result['data'] ?? []),
                 'error_message' => $result['error'] ?? null,
+                'retry_count' => $retryCount,
                 'submitted_by' => $request->user()->id,
                 'submitted_at' => now(),
             ],
         );
 
+        if ($result['success'] && ! empty($admissionNo)) {
+            $this->settleAdmissionChargeForNhif($admission, $request);
+        }
+
         $this->auditLog->record(
             $result['success'] ? 'admission_nhif_submitted' : 'admission_nhif_submission_failed',
             $admission,
             null,
-            ['success' => $result['success'], 'error' => $result['error'] ?? null],
+            ['success' => $result['success'], 'error' => $result['error'] ?? null, 'admission_no' => $admissionNo],
             $request,
         );
 
-        return $admission->fresh();
+        return $admission->fresh(['nhifAdmission']);
+    }
+
+    /**
+     * Once an admission has an NHIF Admission Number (or active NHIF authorization),
+     * automatically post and invoice the admission charge under NHIF with 100% coverage
+     * (zero patient responsibility) so that no cash payment is required.
+     */
+    public function settleAdmissionChargeForNhif(Admission $admission, Request $request): void
+    {
+        $charge = \App\Models\Charge::query()
+            ->where('source_type', Admission::class)
+            ->where('source_id', $admission->id)
+            ->whereNotIn('status', [\App\Models\Charge::STATUS_VOIDED, \App\Models\Charge::STATUS_CANCELLED])
+            ->first();
+
+        if ($charge) {
+            $this->chargeCapture->postAndInvoiceForInsuredPatient($charge, $admission->patient_id, $request);
+        }
     }
 
     /**
@@ -489,5 +582,35 @@ class AdmissionService
         );
 
         return $transfer->fresh();
+    }
+
+    public function getNhifAdmissionTypes(): array
+    {
+        return $this->fetchAndCacheNhifType('nhif.admission_types', fn() => $this->nhifClient->getAdmissionTypes());
+    }
+
+    public function getNhifWardTypes(): array
+    {
+        return $this->fetchAndCacheNhifType('nhif.ward_types', fn() => $this->nhifClient->getWardTypes());
+    }
+
+    public function getNhifRoomTypes(): array
+    {
+        return $this->fetchAndCacheNhifType('nhif.room_types', fn() => $this->nhifClient->getRoomTypes());
+    }
+
+    private function fetchAndCacheNhifType(string $cacheKey, callable $fetcher): array
+    {
+        $types = Cache::get($cacheKey);
+        if (!$types) {
+            $res = $fetcher();
+            if (isset($res['success']) && $res['success'] && !empty($res['data'])) {
+                $types = $res['data'];
+                Cache::put($cacheKey, $types, 86400); // 24 hours
+            } else {
+                $types = []; // Don't cache failures
+            }
+        }
+        return $types;
     }
 }

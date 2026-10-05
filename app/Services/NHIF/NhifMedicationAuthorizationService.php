@@ -11,6 +11,7 @@ use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
 use App\Services\AuditLogService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Bridges prescription order items to NHIF pre-approval sessions.
@@ -23,6 +24,7 @@ class NhifMedicationAuthorizationService
 {
     public function __construct(
         protected NhifAuthorizationService $authorization,
+        protected NhifPriceResolutionService $priceResolution,
         protected AuditLogService $auditLog,
     ) {}
 
@@ -107,10 +109,28 @@ class NhifMedicationAuthorizationService
         }
 
         $medicineName = $item->medicine_name ?? $item->medication_name ?? (string) $item->id;
+        $requestedQty = (int) ($item->quantity ?? 1);
+
+        $resolved = $this->priceResolution->resolve($insurance, $mapping->nhif_item_code, (float) $charge->unit_price);
+        $maxQty = $resolved['maximum_quantity'];
+
+        $submittedQty = $requestedQty;
+        if ($maxQty !== null && $maxQty > 0 && $requestedQty > $maxQty) {
+            Log::info('NHIF medication quantity capped', [
+                'item_id' => $item->id,
+                'nhif_item_code' => $mapping->nhif_item_code,
+                'requested' => $requestedQty,
+                'maximum' => $maxQty,
+            ]);
+            $submittedQty = $maxQty;
+        }
 
         $this->auditLog->record('NHIF_MEDICATION_AUTHORIZATION_REQUESTED', $item, null, [
             'nhif_item_code' => $mapping->nhif_item_code,
             'prescription_order_id' => $item->prescription_order_id,
+            'requested_quantity' => $requestedQty,
+            'submitted_quantity' => $submittedQty,
+            'nhif_maximum_quantity' => $maxQty,
         ], $request);
 
         return $this->authorization->authorize(
@@ -120,7 +140,7 @@ class NhifMedicationAuthorizationService
             $mapping->nhif_item_code,
             $mapping->nhif_item_name ?? $medicineName,
             (float) $charge->unit_price,
-            (int) ($item->quantity ?? 1),
+            $submittedQty,
             $encounter,
             $request,
         );

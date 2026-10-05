@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\NhifPackage;
+use App\Models\NhifSchemeService;
 use App\Models\NhifService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -28,6 +30,36 @@ class NhifServiceCatalogController extends Controller
             'filters' => $request->only('search', 'active_only'),
             'lastSync' => NhifService::max('synced_at'),
         ]);
+    }
+
+    /**
+     * Search the schemes_services catalog dump for NHIF item code autocomplete.
+     */
+    public function searchItemsJson(Request $request): JsonResponse
+    {
+        $q = trim((string) $request->query('q', ''));
+
+        if (mb_strlen($q) < 2) {
+            return response()->json([]);
+        }
+
+        $query = NhifSchemeService::catalog()
+            ->where(function ($builder) use ($q) {
+                $builder->where('item_name', 'like', "%{$q}%")
+                    ->orWhere('item_code', 'like', "%{$q}%");
+            });
+
+        if ($request->filled('type_id')) {
+            $query->where('item_type_id', (int) $request->query('type_id'));
+        }
+
+        $results = $query
+            ->selectRaw('DISTINCT item_code, item_name, type_name')
+            ->orderBy('item_name')
+            ->limit(20)
+            ->get();
+
+        return response()->json($results);
     }
 
     public function packages(Request $request): Response

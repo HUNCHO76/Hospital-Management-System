@@ -3,7 +3,9 @@
 namespace App\Services\NHIF;
 
 use App\Models\Hospital;
+use App\Models\NhifDisease;
 use App\Models\NhifPackage;
+use App\Models\NhifPackagePrice;
 use App\Models\NhifPriceSyncLog;
 use App\Models\NhifSchemeService;
 use App\Models\NhifService;
@@ -238,6 +240,168 @@ class NhifCatalogSyncService
             } else {
                 $counts['new']++;
             }
+        }
+
+        $log->update([
+            'status' => 'completed',
+            'total_records' => $counts['total'],
+            'new_records' => $counts['new'],
+            'updated_records' => $counts['updated'],
+            'skipped_records' => $counts['skipped'],
+            'completed_at' => now(),
+        ]);
+
+        return $log;
+    }
+
+    /**
+     * Sync NHIF disease reference from OCS GetDiseases.
+     * Scheme-less: all diseases apply to all schemes.
+     */
+    public function syncDiseases(): NhifPriceSyncLog
+    {
+        $log = NhifPriceSyncLog::create([
+            'sync_type' => 'diseases',
+            'status' => 'started',
+            'started_at' => now(),
+            'performed_by' => auth()->id() ?? 1,
+        ]);
+
+        $result = $this->client->getOcsDiseases();
+
+        if (! $result['success']) {
+            $log->update([
+                'status' => 'failed',
+                'error_message' => $result['error'],
+                'completed_at' => now(),
+            ]);
+
+            return $log;
+        }
+
+        $diseases = $result['data']['Diseases'] ?? $result['data']['diseases'] ?? $result['data'] ?? [];
+        if (! is_array($diseases)) {
+            $diseases = [];
+        }
+
+        $counts = ['total' => count($diseases), 'new' => 0, 'updated' => 0, 'skipped' => 0];
+        $now = now();
+
+        foreach ($diseases as $item) {
+            $code = $item['DiseaseCode'] ?? $item['diseaseCode'] ?? null;
+            $icdVersion = $item['ICDVersionCode'] ?? $item['icdVersionCode'] ?? $item['IcdVersionCode'] ?? null;
+
+            if (! $code) {
+                $counts['skipped']++;
+
+                continue;
+            }
+
+            $exists = NhifDisease::where('disease_code', $code)
+                ->where('icd_version_code', $icdVersion ?? '')
+                ->exists();
+
+            NhifDisease::updateOrCreate(
+                ['disease_code' => $code, 'icd_version_code' => $icdVersion ?? ''],
+                [
+                    'disease_name' => $item['DiseaseName'] ?? $item['diseaseName'] ?? 'Unknown',
+                    'synced_at' => $now,
+                    'raw_data' => $item,
+                ],
+            );
+
+            $exists ? $counts['updated']++ : $counts['new']++;
+        }
+
+        $log->update([
+            'status' => 'completed',
+            'total_records' => $counts['total'],
+            'new_records' => $counts['new'],
+            'updated_records' => $counts['updated'],
+            'skipped_records' => $counts['skipped'],
+            'completed_at' => now(),
+        ]);
+
+        return $log;
+    }
+
+    /**
+     * Sync NHIF package price catalog from GetPricePackage.
+     * Keyed by (item_code, scheme_id, package_id) — idempotent via updateOrCreate.
+     * Never deletes existing rows when the API call fails.
+     */
+    public function syncPackagePrices(?int $schemeId = null, ?int $packageId = null): NhifPriceSyncLog
+    {
+        $log = NhifPriceSyncLog::create([
+            'sync_type' => 'package_prices',
+            'status' => 'started',
+            'started_at' => now(),
+            'performed_by' => auth()->id() ?? 1,
+        ]);
+
+        $result = $this->client->getPricePackage($schemeId, $packageId);
+
+        if (! $result['success']) {
+            $log->update([
+                'status' => 'failed',
+                'error_message' => $result['error'],
+                'completed_at' => now(),
+            ]);
+
+            return $log;
+        }
+
+        $items = $result['data']['PricePackages'] ?? $result['data']['Items'] ?? $result['data'] ?? [];
+        if (! is_array($items)) {
+            $items = [];
+        }
+
+        $counts = ['total' => count($items), 'new' => 0, 'updated' => 0, 'skipped' => 0];
+        $now = now();
+
+        foreach ($items as $item) {
+            $code = $item['ItemCode'] ?? $item['item_code'] ?? null;
+
+            if (! $code) {
+                $counts['skipped']++;
+
+                continue;
+            }
+
+            $resolvedSchemeId = $item['SchemeID'] ?? $item['scheme_id'] ?? $schemeId;
+            $resolvedPackageId = $item['PackageID'] ?? $item['package_id'] ?? $packageId;
+
+            $exists = NhifPackagePrice::query()
+                ->where('item_code', $code)
+                ->where('scheme_id', $resolvedSchemeId)
+                ->where('package_id', $resolvedPackageId)
+                ->exists();
+
+            NhifPackagePrice::updateOrCreate(
+                [
+                    'item_code' => $code,
+                    'scheme_id' => $resolvedSchemeId,
+                    'package_id' => $resolvedPackageId,
+                ],
+                [
+                    'price_code' => $item['PriceCode'] ?? $item['price_code'] ?? null,
+                    'item_type_id' => $item['ItemTypeID'] ?? $item['item_type_id'] ?? null,
+                    'item_name' => $item['ItemName'] ?? $item['item_name'] ?? null,
+                    'strength' => $item['Strength'] ?? $item['strength'] ?? null,
+                    'dosage' => $item['Dosage'] ?? $item['dosage'] ?? null,
+                    'unit_price' => (float) ($item['UnitPrice'] ?? $item['unit_price'] ?? 0),
+                    'is_restricted' => (bool) ($item['IsRestricted'] ?? false),
+                    'is_over_the_counter' => (bool) ($item['IsOverTheCounter'] ?? false),
+                    'maximum_quantity' => $item['MaximumQuantity'] ?? null,
+                    'maximum_quantity_out_patient' => $item['MaximumQuantityOutPatient'] ?? null,
+                    'maximum_quantity_in_patient' => $item['MaximumQuantityInPatient'] ?? null,
+                    'has_co_payment' => (bool) ($item['HasCoPayment'] ?? false),
+                    'synced_at' => $now,
+                    'raw_data' => $item,
+                ],
+            );
+
+            $exists ? $counts['updated']++ : $counts['new']++;
         }
 
         $log->update([

@@ -75,7 +75,11 @@ export interface PatientSearchResult {
     middle_name: string | null;
     last_name: string;
     phone: string | null;
+    gender?: string | null;
+    date_of_birth?: string | null;
     has_active_nhif?: boolean;
+    active_nhif_authorization_no?: string | null;
+    patient_insurance_id?: number | null;
 }
 
 export interface PossibleDuplicatePatient {

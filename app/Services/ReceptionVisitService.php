@@ -4,12 +4,19 @@ namespace App\Services;
 
 use App\Models\Appointment;
 use App\Models\Charge;
+use App\Models\Department;
+use App\Models\NhifPreApprovalSession;
+use App\Models\NhifPreApprovalSessionItem;
+use App\Models\NhifServiceMapping;
 use App\Models\Patient;
 use App\Models\PatientAccount;
 use App\Models\PatientInsurance;
 use App\Models\Practitioner;
 use App\Models\ReceptionVisit;
+use App\Models\Service;
 use App\Services\NHIF\NhifConsultationAuthorizationService;
+use App\Services\NHIF\NhifHttpClient;
+use App\Services\NHIF\NhifSchemeEligibilityService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +32,7 @@ class ReceptionVisitService
         protected InvoiceService $invoices,
         protected FinancialAuthorizationService $financialAuth,
         protected NhifConsultationAuthorizationService $nhifConsultationAuth,
+        protected NhifSchemeEligibilityService $nhifSchemeEligibility,
     ) {}
 
     /**
@@ -86,20 +94,100 @@ class ReceptionVisitService
     }
 
     /**
-     * Register a walk-in patient's visit at the front desk. If a practitioner
-     * is provided, the consultation charge is captured immediately (against
-     * the practitioner's own consultation service, or the facility default —
-     * see ChargeCaptureService::resolveConsultationService()) so the
-     * financial gate at sendToService() can verify payment before the
-     * patient reaches the clinical queue (Step 62 fix).
+     * Register a walk-in patient's visit at the front desk.
      *
-     * @param  array{patient_id: int, department_id: int, visit_type: string, practitioner_id?: int|null}  $data
+     * For NHIF patients (nhif_item_code supplied): the NHIF preapproval is
+     * submitted BEFORE the visit is created. If NHIF rejects/pends/errors,
+     * the visit is NOT created — a ValidationException is thrown. Only an
+     * accepted NHIF authorization allows the visit to be registered.
+     *
+     * For CASH patients: the visit is created immediately and the standard
+     * financial gate at sendToService() handles payment verification.
+     *
+     * @param  array{patient_id: int, department_id: int, visit_type: string, practitioner_id?: int|null, nhif_item_code?: string|null}  $data
      *
      * @throws ValidationException
      */
     public function createWalkIn(array $data, Request $request): ReceptionVisit
     {
-        $visit = DB::transaction(function () use ($data, $request) {
+        $nhifItemCode = $data['nhif_item_code'] ?? null;
+        $nhifPreAuthResult = null;
+        $resolvedServiceId = null;
+
+        // ── NHIF gate: pre-authorize BEFORE creating the visit ──────────
+        if ($nhifItemCode) {
+            $patient = Patient::find($data['patient_id']);
+            $insurance = $patient?->activeNhifInsurance();
+            if (! $insurance?->nhif_scheme_id) {
+                throw ValidationException::withMessages([
+                    'nhif_item_code' => 'Patient has no active verified NHIF insurance with a captured scheme.',
+                ]);
+            }
+            $this->nhifSchemeEligibility->assertEligible((int) $insurance->nhif_scheme_id, $nhifItemCode);
+
+            if (! empty($data['practitioner_id'])) {
+                $practitioner = Practitioner::query()->find($data['practitioner_id']);
+                if ($practitioner && ! $practitioner->isNhifConfigured()) {
+                    throw ValidationException::withMessages([
+                        'practitioner_id' => 'The selected practitioner does not have an NHIF practitioner number registered. Please assign an NHIF practitioner number in the practitioner profile before creating an NHIF-billed visit.',
+                    ]);
+                }
+            }
+
+            $department = Department::find($data['department_id']);
+            $hospitalId = $department?->hospital_id ?? 0;
+
+            $mapping = NhifServiceMapping::query()
+                ->where('hospital_id', $hospitalId)
+                ->where('nhif_item_code', $nhifItemCode)
+                ->where('coverage_status', NhifServiceMapping::COVERAGE_COVERED)
+                ->first();
+            $resolvedServiceId = $mapping?->service_id;
+
+            if (! $resolvedServiceId) {
+                $resolvedServiceId = Service::where('code', $nhifItemCode)->value('id')
+                    ?? Service::where('code', 'CONSULT-GP')->value('id');
+            }
+
+            $nhifPreAuthResult = $this->nhifConsultationAuth->preAuthorize(
+                (int) $data['patient_id'],
+                $hospitalId,
+                $resolvedServiceId ?? 0,
+                ! empty($data['practitioner_id']) ? (int) $data['practitioner_id'] : null,
+                $nhifItemCode,
+                $request,
+            );
+
+            $reqNo = $nhifPreAuthResult['nhif_request_no'] ?? null;
+            $reqLabel = $reqNo ? " (Request No: {$reqNo})" : '';
+
+            if ($nhifPreAuthResult['status'] === 'rejected') {
+                $reason = $nhifPreAuthResult['rejection_reason'];
+                $message = $reason
+                    ? "NHIF rejected the service: {$reason}{$reqLabel}"
+                    : "NHIF rejected the service without specifying a reason.{$reqLabel} Contact NHIF for details.";
+
+                throw ValidationException::withMessages(['nhif' => $message]);
+            }
+
+            if ($nhifPreAuthResult['status'] === 'pending') {
+                throw ValidationException::withMessages([
+                    'nhif' => "NHIF authorization is pending approval{$reqLabel}. Registration cannot proceed until NHIF approves the service.",
+                ]);
+            }
+
+            if ($nhifPreAuthResult['status'] !== 'authorized') {
+                $detail = $nhifPreAuthResult['error'] ?? $nhifPreAuthResult['rejection_reason'] ?? null;
+                $message = $detail
+                    ? "NHIF authorization failed: {$detail}"
+                    : 'NHIF authorization could not be completed. Please check the NHIF service mapping and try again.';
+
+                throw ValidationException::withMessages(['nhif' => $message]);
+            }
+        }
+
+        // ── Create the visit (only reached if NHIF accepted or CASH) ────
+        $visitCharge = DB::transaction(function () use ($data, $request, $nhifItemCode, $resolvedServiceId) {
             Patient::query()->whereKey($data['patient_id'])->lockForUpdate()->firstOrFail();
 
             $this->assertNoActiveVisit($data['patient_id']);
@@ -113,24 +201,54 @@ class ReceptionVisitService
                 'status' => ReceptionVisit::STATUS_CHECKED_IN,
             ]);
 
+            $charge = null;
+
             if (! empty($data['practitioner_id'])) {
                 $practitioner = Practitioner::query()->find($data['practitioner_id']);
 
                 if ($practitioner) {
                     $visit->load('department');
-                    $charge = $this->chargeCapture->captureFromReceptionVisit($visit, $practitioner, $request);
-                    $this->postAndInvoiceReceptionCharge($charge, $request);
 
-                    if ($charge === null) {
+                    if ($nhifItemCode && $resolvedServiceId) {
+                        $nhifService = Service::find($resolvedServiceId);
+                        $nhifPrice = $this->fetchNhifItemPrice($data['patient_id'], $nhifItemCode);
+
+                        if ($nhifService && $nhifPrice !== null) {
+                            $charge = $this->chargeCapture->captureNhifReceptionVisit(
+                                $visit, $practitioner, $nhifService, (string) $nhifPrice, $request
+                            );
+                        }
+                    }
+
+                    if ($charge === null && ! $nhifItemCode) {
+                        $charge = $this->chargeCapture->captureFromReceptionVisit($visit, $practitioner, $request);
+                    }
+
+                    if ($charge !== null) {
+                        $this->postAndInvoiceReceptionCharge($charge, $request);
+                    } elseif (! $nhifItemCode) {
                         $visit->billing_warning = 'No consultation price is configured for this practitioner or facility — the visit was created without a billing charge. Notify billing/admin to configure pricing.';
                     }
                 }
             }
 
-            return $visit;
+            return ['visit' => $visit, 'charge' => $charge];
         });
 
-        if (! empty($data['practitioner_id'])) {
+        $visit = $visitCharge['visit'];
+        $charge = $visitCharge['charge'];
+
+        // ── Post-transaction: link NHIF authorization to the visit ───────
+        if ($nhifPreAuthResult && $nhifPreAuthResult['status'] === 'authorized' && $nhifPreAuthResult['session_item_id'] && $charge) {
+            $this->nhifConsultationAuth->attachToVisit(
+                $nhifPreAuthResult['session_item_id'],
+                $visit,
+                $charge,
+                $nhifPreAuthResult['percent_covered'] ?? 100.0,
+                $nhifPreAuthResult['insurance_id'],
+                $request,
+            );
+        } elseif (! $nhifItemCode && ! empty($data['practitioner_id'])) {
             $this->tryNhifConsultationAuth($visit, $request);
         }
 
@@ -159,27 +277,118 @@ class ReceptionVisitService
      * Send a ready visit to its destination service/department — the final
      * reception step before the patient is admitted to the clinical queue.
      * The financial gate blocks patients whose consultation charge has not been
-     * cleared. The no-charge rule applies: when no charge was captured (the
-     * assigned practitioner has no consultation service configured), the gate
-     * passes without payment — a free consultation.
+     * cleared. NHIF-authorized visits (accepted/approved pre-approval) pass
+     * the gate without cash payment. The no-charge rule still applies for
+     * free consultations (no charge captured).
      *
      * @throws ValidationException
      */
     public function sendToService(ReceptionVisit $visit, Request $request): ReceptionVisit
     {
-        $status = $this->financialAuth->statusForSource(
+        $status = $this->consultationAccessStatus($visit->id);
+
+        if ($status === FinancialAuthorizationService::STATUS_AUTHORIZED) {
+            return $this->transition($visit, ReceptionVisit::STATUS_SENT_TO_SERVICE, 'reception_visit_sent_to_service', $request);
+        }
+
+        $message = match ($status) {
+            'nhif_pending' => 'NHIF authorization is still pending — patient cannot be sent to service until NHIF approves.',
+            'nhif_rejected' => 'NHIF authorization was rejected — patient must pay as cash or the request must be resubmitted.',
+            default => 'Payment is required before this patient can be sent to service.',
+        };
+
+        throw ValidationException::withMessages(['financial_authorization' => $message]);
+    }
+
+    /**
+     * Compute the NHIF-aware service access status for a reception visit.
+     *
+     * For NHIF visits (those with a pre-approval session item):
+     *   - accepted/approved → authorized (patient proceeds regardless of copayment)
+     *   - pending_approval  → nhif_pending (blocked until NHIF responds)
+     *   - rejected          → nhif_rejected (blocked, must convert to cash)
+     *   - unknown/error     → nhif_pending (blocked, awaiting resolution)
+     *
+     * For cash visits (no pre-approval item): delegates to FinancialAuthorizationService.
+     */
+    public function consultationAccessStatus(int $visitId): string
+    {
+        $nhifItem = NhifPreApprovalSessionItem::query()
+            ->where('source_type', ReceptionVisit::class)
+            ->where('source_id', $visitId)
+            ->whereHas('session', fn ($q) => $q->whereNotIn('status', [
+                NhifPreApprovalSession::STATUS_CANCELLED,
+            ]))
+            ->latest()
+            ->first();
+
+        if ($nhifItem) {
+            if ($nhifItem->isAccepted() || $nhifItem->isApproved()) {
+                return FinancialAuthorizationService::STATUS_AUTHORIZED;
+            }
+
+            if ($nhifItem->isRejected()) {
+                return 'nhif_rejected';
+            }
+
+            return 'nhif_pending';
+        }
+
+        return $this->financialAuth->statusForSource(
             ReceptionVisit::class,
-            $visit->id,
+            $visitId,
+            FinancialAuthorizationService::STATUS_AUTHORIZED,
+        );
+    }
+
+    /**
+     * Batch-compute NHIF-aware service access statuses for multiple visits.
+     *
+     * @param  list<int>  $visitIds
+     * @return array<int, string>
+     */
+    public function consultationAccessStatuses(array $visitIds): array
+    {
+        if (empty($visitIds)) {
+            return [];
+        }
+
+        $nhifItems = NhifPreApprovalSessionItem::query()
+            ->where('source_type', ReceptionVisit::class)
+            ->whereIn('source_id', $visitIds)
+            ->whereHas('session', fn ($q) => $q->whereNotIn('status', [
+                NhifPreApprovalSession::STATUS_CANCELLED,
+            ]))
+            ->get()
+            ->groupBy('source_id')
+            ->map(fn ($items) => $items->sortByDesc('id')->first());
+
+        $cashVisitIds = collect($visitIds)->diff($nhifItems->keys())->values()->all();
+        $cashStatuses = $this->financialAuth->statusesForSources(
+            ReceptionVisit::class,
+            $cashVisitIds,
             FinancialAuthorizationService::STATUS_AUTHORIZED,
         );
 
-        if ($status !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
-            throw ValidationException::withMessages([
-                'financial_authorization' => 'Payment is required before this patient can be sent to service.',
-            ]);
+        $result = [];
+
+        foreach ($visitIds as $visitId) {
+            $nhifItem = $nhifItems->get($visitId);
+
+            if ($nhifItem) {
+                if ($nhifItem->isAccepted() || $nhifItem->isApproved()) {
+                    $result[$visitId] = FinancialAuthorizationService::STATUS_AUTHORIZED;
+                } elseif ($nhifItem->isRejected()) {
+                    $result[$visitId] = 'nhif_rejected';
+                } else {
+                    $result[$visitId] = 'nhif_pending';
+                }
+            } else {
+                $result[$visitId] = $cashStatuses[$visitId] ?? FinancialAuthorizationService::STATUS_AUTHORIZED;
+            }
         }
 
-        return $this->transition($visit, ReceptionVisit::STATUS_SENT_TO_SERVICE, 'reception_visit_sent_to_service', $request);
+        return $result;
     }
 
     /**
@@ -434,6 +643,32 @@ class ReceptionVisitService
         $account = $posted->patientAccount;
         $invoice = $this->invoices->createDraft($account, [$posted->id], null, $request);
         $this->invoices->post($invoice, $request);
+    }
+
+    private function fetchNhifItemPrice(int $patientId, string $itemCode): ?float
+    {
+        $insurance = PatientInsurance::where('patient_id', $patientId)
+            ->where('status', PatientInsurance::STATUS_ACTIVE)
+            ->where('verification_status', PatientInsurance::VERIFICATION_VERIFIED)
+            ->whereNotNull('nhif_facility_code')
+            ->first(['nhif_facility_code']);
+
+        $facilityCode = $insurance?->nhif_facility_code;
+        if (! $facilityCode) {
+            return null;
+        }
+
+        $result = app(NhifHttpClient::class)->getPricePackageByItemCode($facilityCode, $itemCode);
+        if (! $result['success']) {
+            return null;
+        }
+
+        $data = $result['data'];
+        if (isset($data[0]) && is_array($data[0])) {
+            $data = $data[0];
+        }
+
+        return isset($data['UnitPrice']) ? (float) $data['UnitPrice'] : null;
     }
 
     /**

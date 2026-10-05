@@ -16,12 +16,15 @@ use App\Http\Controllers\ConsultationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DiagnosisCodeController;
+use App\Http\Controllers\DischargeDocumentController;
 use App\Http\Controllers\DispensingController;
 use App\Http\Controllers\EncounterDiagnosisController;
 use App\Http\Controllers\EncounterLaboratoryOrderController;
+use App\Http\Controllers\EncounterNhifPreApprovalController;
 use App\Http\Controllers\EncounterPrescriptionOrderController;
 use App\Http\Controllers\EncounterRadiologyOrderController;
 use App\Http\Controllers\HospitalController;
+use App\Http\Controllers\InpatientBillingController;
 use App\Http\Controllers\InpatientController;
 use App\Http\Controllers\InsuranceCoverageRuleController;
 use App\Http\Controllers\InsuranceProviderController;
@@ -41,12 +44,17 @@ use App\Http\Controllers\LaboratoryTestController;
 use App\Http\Controllers\LaboratoryTestParameterController;
 use App\Http\Controllers\MedicationAdministrationController;
 use App\Http\Controllers\MedicationController;
+use App\Http\Controllers\NhifAdmissionController;
 use App\Http\Controllers\NhifAuthorizationContextController;
 use App\Http\Controllers\NhifClaimController;
 use App\Http\Controllers\NhifClaimReconciliationController;
 use App\Http\Controllers\NhifDashboardController;
+use App\Http\Controllers\NhifDiseaseController;
+use App\Http\Controllers\NhifDiseaseSyncController;
 use App\Http\Controllers\NhifEligibilityController;
+use App\Http\Controllers\NhifItemMappingController;
 use App\Http\Controllers\NhifMemberVerificationController;
+use App\Http\Controllers\NhifPackagePriceController;
 use App\Http\Controllers\NhifPractitionerAttendanceController;
 use App\Http\Controllers\NhifPreApprovalSessionController;
 use App\Http\Controllers\NhifPreauthorizationController;
@@ -128,6 +136,11 @@ Route::middleware(['auth'])->group(function () {
         Route::get('{admission}/medications', [MedicationAdministrationController::class, 'worklist'])->name('medications.worklist');
         Route::post('{admission}/medications', [MedicationAdministrationController::class, 'store'])->name('medications.store');
         Route::post('{admission}/medications/{medicationAdministration}/correct', [MedicationAdministrationController::class, 'correct'])->name('medications.correct');
+        // Phase 9, Step 83 — inpatient billing view
+        Route::get('{admission}/billing', [InpatientBillingController::class, 'show'])->name('billing');
+        // Phase 9, Step 94 — discharge document generation
+        Route::get('{admission}/discharge-document', [DischargeDocumentController::class, 'show'])->name('discharge-document');
+        Route::post('{admission}/discharge-document', [DischargeDocumentController::class, 'generate'])->name('discharge-document.generate');
     });
 
     // Phase 8, Step 68 — NHIF service/price mapping administration
@@ -135,10 +148,15 @@ Route::middleware(['auth'])->group(function () {
     // Phase 8 Refactor — NHIF authorization-number lookup
     Route::prefix('nhif')->name('nhif.')->group(function () {
         // Phase 8, Step 75 — NHIF operational dashboard (read-only).
+        Route::get('admissions', [NhifAdmissionController::class, 'index'])->name('admissions.index');
+        Route::get('admissions/lookup', [NhifAdmissionController::class, 'lookup'])->name('admissions.lookup');
+        Route::post('admissions/sync', [NhifAdmissionController::class, 'sync'])->name('admissions.sync');
+
         Route::get('dashboard', [NhifDashboardController::class, 'index'])->name('dashboard');
+        Route::get('diseases/search-json', [NhifDiseaseController::class, 'searchJson'])->name('diseases.search-json');
 
         Route::get('authorization-context', [NhifAuthorizationContextController::class, 'index'])->name('authorization-context.index');
-        Route::post('authorization-context/lookup', [NhifAuthorizationContextController::class, 'lookup'])->name('authorization-context.lookup');
+        Route::match(['get', 'post'], 'authorization-context/lookup', [NhifAuthorizationContextController::class, 'lookup'])->name('authorization-context.lookup');
         Route::get('service-mappings', [NhifServiceMappingController::class, 'index'])->name('service-mappings.index');
         Route::get('service-mappings/create', [NhifServiceMappingController::class, 'create'])->name('service-mappings.create');
         Route::post('service-mappings', [NhifServiceMappingController::class, 'store'])->name('service-mappings.store');
@@ -148,8 +166,16 @@ Route::middleware(['auth'])->group(function () {
         Route::post('service-mappings/{nhifServiceMapping}/deactivate', [NhifServiceMappingController::class, 'deactivate'])->name('service-mappings.deactivate');
         Route::get('price-sync', [NhifPriceSyncController::class, 'index'])->name('price-sync.index');
         Route::post('price-sync', [NhifPriceSyncController::class, 'store'])->name('price-sync.store');
+        Route::get('disease-sync', [NhifDiseaseSyncController::class, 'index'])->name('disease-sync.index');
+        Route::post('disease-sync', [NhifDiseaseSyncController::class, 'store'])->name('disease-sync.store');
+        Route::get('package-prices', [NhifPackagePriceController::class, 'index'])->name('package-prices.index');
+        Route::post('package-prices/sync', [NhifPackagePriceController::class, 'sync'])->name('package-prices.sync');
         Route::get('catalog/services', [NhifServiceCatalogController::class, 'services'])->name('catalog.services');
         Route::get('catalog/packages', [NhifServiceCatalogController::class, 'packages'])->name('catalog.packages');
+        Route::get('catalog-items/search-json', [NhifServiceCatalogController::class, 'searchItemsJson'])->name('catalog-items.search-json');
+        Route::get('item-mapping', [NhifItemMappingController::class, 'index'])->name('item-mapping.index');
+        Route::patch('item-mapping/laboratory-tests/{laboratoryTest}', [NhifItemMappingController::class, 'updateLaboratoryTest'])->name('item-mapping.laboratory-tests.update');
+        Route::patch('item-mapping/medications/{medication}', [NhifItemMappingController::class, 'updateMedication'])->name('item-mapping.medications.update');
 
         // Individual preauth record actions (no patient context needed for these)
         Route::get('preauthorizations/{nhifPreauthorization}', [NhifPreauthorizationController::class, 'show'])->name('preauthorization.show');
@@ -274,6 +300,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('walk-in/create', [ReceptionVisitController::class, 'createWalkIn'])->name('walk-in.create');
         Route::post('walk-in', [ReceptionVisitController::class, 'storeWalkIn'])->name('walk-in.store');
         Route::get('consultation-price', [ReceptionVisitController::class, 'consultationPrice'])->name('consultation-price');
+        Route::get('nhif-consultation-services', [ReceptionVisitController::class, 'nhifConsultationServices'])->name('nhif-consultation-services');
         Route::post('appointments/{appointment}/check-in', [ReceptionVisitController::class, 'checkInAppointment'])->name('appointments.check-in');
         Route::post('visits/{visit}/waiting', [ReceptionVisitController::class, 'markWaiting'])->name('visits.waiting');
         Route::post('visits/{visit}/ready', [ReceptionVisitController::class, 'markReady'])->name('visits.ready');
@@ -383,11 +410,22 @@ Route::middleware(['auth'])->group(function () {
         Route::put('{clinicalEncounter}/prescription-orders/{prescriptionOrder}', [EncounterPrescriptionOrderController::class, 'update'])->name('prescription-orders.update');
         Route::post('{clinicalEncounter}/prescription-orders/{prescriptionOrder}/cancel', [EncounterPrescriptionOrderController::class, 'cancel'])->name('prescription-orders.cancel');
         Route::post('{clinicalEncounter}/prescription-orders/{prescriptionOrder}/items/{item}/cancel', [EncounterPrescriptionOrderController::class, 'cancelItem'])->name('prescription-orders.items.cancel');
+
+        // NHIF pre-approval sessions scoped to this encounter (Phase 8).
+        // Submitted inline on the encounter page — prices are fetched
+        // server-side from the NHIF API, never trusted from the client.
+        Route::post('{clinicalEncounter}/nhif-pre-approval', [EncounterNhifPreApprovalController::class, 'store'])->name('nhif-pre-approval.store');
+        Route::post('{clinicalEncounter}/nhif-pre-approval/{nhifPreApprovalSession}/submit', [EncounterNhifPreApprovalController::class, 'submit'])->name('nhif-pre-approval.submit');
+        Route::post('{clinicalEncounter}/nhif-pre-approval/{nhifPreApprovalSession}/sync', [EncounterNhifPreApprovalController::class, 'sync'])->name('nhif-pre-approval.sync');
+        Route::post('{clinicalEncounter}/nhif-pre-approval/{nhifPreApprovalSession}/issue', [EncounterNhifPreApprovalController::class, 'issue'])->name('nhif-pre-approval.issue');
+        Route::post('{clinicalEncounter}/nhif-pre-approval/{nhifPreApprovalSession}/cancel', [EncounterNhifPreApprovalController::class, 'cancel'])->name('nhif-pre-approval.cancel');
     });
 
     Route::get('diagnosis-codes/search-json', [DiagnosisCodeController::class, 'searchJson'])->name('diagnosis-codes.search-json');
     Route::get('medications/search-json', [MedicationController::class, 'searchJson'])->name('medications.search-json');
+    Route::get('medications/resolve-nhif-item', [MedicationController::class, 'resolveNhifItem'])->name('medications.resolve-nhif-item');
     Route::get('laboratory-tests/search-json', [LaboratoryTestController::class, 'searchJson'])->name('laboratory-tests.search-json');
+    Route::get('laboratory-tests/resolve-nhif-item', [LaboratoryTestController::class, 'resolveNhifItem'])->name('laboratory-tests.resolve-nhif-item');
     Route::get('radiology-procedures/search-json', [RadiologyProcedureController::class, 'searchJson'])->name('radiology-procedures.search-json');
 
     // The Laboratory dashboard/worklist/detail — a standalone,

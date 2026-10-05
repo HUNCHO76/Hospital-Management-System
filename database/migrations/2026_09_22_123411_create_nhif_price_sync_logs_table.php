@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('hospital_id')->nullable()->constrained()->nullOnDelete();
             $table->string('facility_code', 100)->nullable();
-            $table->enum('sync_type', ['price_list', 'excluded_services', 'package_with_exclusions', 'items', 'packages']);
+            $table->enum('sync_type', ['price_list', 'excluded_services', 'package_with_exclusions', 'items', 'packages', 'scheme_services', 'diseases', 'package_prices']);
             $table->string('type_name', 100)->nullable();
             $table->string('facility_level', 100)->nullable();
             $table->enum('status', ['started', 'completed', 'failed', 'partial']);

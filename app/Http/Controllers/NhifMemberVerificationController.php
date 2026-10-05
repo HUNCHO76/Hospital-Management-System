@@ -190,11 +190,15 @@ class NhifMemberVerificationController extends Controller
 
         $validated = $request->validate(['scheme_id' => ['required', 'integer', 'min:1']]);
 
-        $services = NhifSchemeService::active()
+        $base = NhifSchemeService::query()->exists()
+            ? NhifSchemeService::active()
+            : NhifSchemeService::catalog();
+
+        $services = $base
             ->where('scheme_id', $validated['scheme_id'])
             ->orderBy('type_name')
             ->orderBy('item_name')
-            ->get(['item_code', 'item_name', 'item_type_id', 'type_name', 'unit_price']);
+            ->get(['item_code', 'item_name', 'item_type_id', 'type_name']);
 
         return response()->json(['success' => true, 'data' => $services]);
     }

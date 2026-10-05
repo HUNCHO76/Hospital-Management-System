@@ -66,6 +66,7 @@ export function AppSidebar() {
         ...(can('insurance-schemes.view') ? [{ title: 'Insurance Schemes', url: '/insurance/schemes', icon: ShieldCheck }] : []),
         ...(can('patient-insurance.view') ? [{ title: 'Patient Insurance', url: '/insurance/patient-insurance', icon: ShieldCheck }] : []),
         ...(can('nhif-dashboard.view') ? [{ title: 'NHIF Dashboard', url: '/nhif/dashboard', icon: LineChart }] : []),
+        ...(can('admission.view') ? [{ title: 'NHIF Admissions', url: '/nhif/admissions', icon: BedDouble }] : []),
         ...(can('nhif-utilization.view') ? [{ title: 'NHIF Utilization', url: '/nhif/utilizations', icon: Activity }] : []),
         ...(can('nhif-claims.view') ? [{ title: 'NHIF Claims', url: '/nhif/claims', icon: FileText }] : []),
         ...(can('nhif-claims.view-reconciliation') ? [{ title: 'NHIF Reconciliation', url: '/nhif/reconciliation', icon: ClipboardCheck }] : []),

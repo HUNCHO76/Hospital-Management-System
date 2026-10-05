@@ -362,7 +362,7 @@ class NhifFolioService
             'Gender' => $patient?->gender,
             'DateOfBirth' => $patient?->date_of_birth?->toDateString(),
             'TelephoneNo' => $patient?->phone,
-            'PatientFileNo' => $patient?->patient_number,
+            'PatientFileNo' => $insurance?->nhif_pf_number ?? $patient?->patient_number,
             'BillNo' => $claim->bill_no,
             'ClinicalNotes' => $claim->clinical_notes,
             'AuthorizationNo' => $claim->authorization_no,

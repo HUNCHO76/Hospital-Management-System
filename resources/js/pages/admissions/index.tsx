@@ -12,6 +12,8 @@ import { type BreadcrumbItem, type Paginated } from '@/types';
 import { type Admission, type AdmissionDepartment, type AdmissionFilters, type AdmissionType } from '@/types/admission';
 import { Head, Link, router } from '@inertiajs/react';
 import { BedDouble, Plus } from 'lucide-react';
+import { NhifAdmissionLookupDialog } from '@/components/admissions/nhif-admission-lookup-dialog';
+
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Admissions', href: '/admissions' }];
 
@@ -44,14 +46,17 @@ export default function AdmissionsIndex({ admissions, filters, departments, admi
                     title="Admissions"
                     description="Inpatient admission requests and their status."
                     actions={
-                        <Can permission="admission.create">
-                            <Button asChild>
-                                <Link href={route('admissions.create')}>
-                                    <Plus className="h-4 w-4" />
-                                    New Admission Request
-                                </Link>
-                            </Button>
-                        </Can>
+                        <div className="flex gap-2">
+                            <Can permission="admission.create">
+                                <Button asChild>
+                                    <Link href={route('admissions.create')}>
+                                        <Plus className="h-4 w-4" />
+                                        New Admission Request
+                                    </Link>
+                                </Button>
+                            </Can>
+                            <NhifAdmissionLookupDialog />
+                        </div>
                     }
                 />
 

@@ -112,12 +112,25 @@ class PatientController extends Controller
                     ->where('verification_status', PatientInsurance::VERIFICATION_VERIFIED)
                     ->whereNotNull('nhif_authorization_no');
             }])
-            ->get(['id', 'patient_number', 'first_name', 'middle_name', 'last_name', 'phone'])
-            ->map(fn (Patient $patient) => [
-                ...$patient->only(['id', 'patient_number', 'first_name', 'middle_name', 'last_name']),
-                'phone' => PhoneMasker::mask($patient->phone),
-                'has_active_nhif' => (bool) $patient->has_active_nhif,
-            ]);
+            ->with(['insurances' => function ($query): void {
+                $query->where('status', PatientInsurance::STATUS_ACTIVE)
+                    ->where('verification_status', PatientInsurance::VERIFICATION_VERIFIED)
+                    ->whereNotNull('nhif_authorization_no')
+                    ->latest();
+            }])
+            ->get(['id', 'patient_number', 'first_name', 'middle_name', 'last_name', 'phone', 'gender', 'date_of_birth'])
+            ->map(function (Patient $patient) {
+                $nhifIns = $patient->insurances->first();
+
+                return [
+                    ...$patient->only(['id', 'patient_number', 'first_name', 'middle_name', 'last_name', 'gender']),
+                    'date_of_birth' => $patient->date_of_birth?->toDateString(),
+                    'phone' => PhoneMasker::mask($patient->phone),
+                    'has_active_nhif' => (bool) $patient->has_active_nhif,
+                    'active_nhif_authorization_no' => $nhifIns?->nhif_authorization_no,
+                    'patient_insurance_id' => $nhifIns?->id,
+                ];
+            });
 
         return response()->json(['data' => $patients]);
     }

@@ -64,7 +64,7 @@ class AdmissionController extends Controller
         ]);
     }
 
-    public function create(Request $request): Response
+    public function create(Request $request, AdmissionService $service): Response
     {
         $this->authorize('viewAny', Admission::class);
 
@@ -74,6 +74,9 @@ class AdmissionController extends Controller
             'practitioners' => Practitioner::query()->where('status', 'active')->with('staff:id,first_name,last_name')->get(['id', 'practitioner_number', 'staff_id']),
             'services' => Service::query()->where('status', Service::STATUS_ACTIVE)->where('is_billable', true)->where('category', 'inpatient')->orderBy('name')->get(['id', 'code', 'name']),
             'admissionTypes' => Admission::ADMISSION_TYPES,
+            'nhifAdmissionTypes' => $service->getNhifAdmissionTypes(),
+            'nhifWardTypes' => $service->getNhifWardTypes(),
+            'nhifRoomTypes' => $service->getNhifRoomTypes(),
         ]);
     }
 
@@ -239,9 +242,19 @@ class AdmissionController extends Controller
     {
         $this->authorize('submitNhif', $admission);
 
-        $service->submitNhif($admission, $request);
+        $admission = $service->submitNhif($admission, $request);
 
-        return back()->with('success', 'Admission submitted to NHIF.');
+        $nhif = $admission->nhifAdmission;
+        if ($nhif && $nhif->nhif_status === 'submitted') {
+            $msg = 'Admission successfully submitted to NHIF.';
+            if ($nhif->nhif_admission_no) {
+                $msg .= " NHIF Admission No: {$nhif->nhif_admission_no}";
+            }
+
+            return back()->with('success', $msg);
+        }
+
+        return back()->with('error', $nhif?->error_message ?? 'NHIF admission submission failed.');
     }
 
     public function submitTransferNhif(Request $request, Admission $admission, AdmissionTransfer $transfer, AdmissionService $service): RedirectResponse

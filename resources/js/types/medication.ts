@@ -37,6 +37,17 @@ export interface MedicationSearchResult {
     brand_name: string | null;
     strength: string | null;
     form: MedicationForm | null;
+    nhif_code?: string | null;
+}
+
+export interface NhifMedicationCatalogItem {
+    item_code: string;
+    item_name: string;
+    local_medication: {
+        id: number;
+        code: string;
+        generic_name: string;
+    } | null;
 }
 
 export interface MedicationUser {

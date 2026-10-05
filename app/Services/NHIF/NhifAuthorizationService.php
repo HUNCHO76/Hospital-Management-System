@@ -30,6 +30,7 @@ class NhifAuthorizationService
     public function __construct(
         protected NhifPreApprovalSessionService $sessions,
         protected NhifSchemeEligibilityService $eligibility,
+        protected NhifPriceResolutionService $priceResolution,
         protected AuditLogService $auditLog,
     ) {}
 
@@ -42,6 +43,7 @@ class NhifAuthorizationService
      *   rejection_reason: string|null,
      *   session_item_id: int|null,
      *   error: string|null,
+     *   maximum_quantity: int|null,
      * }
      */
     public function authorize(
@@ -69,7 +71,7 @@ class NhifAuthorizationService
                 'error' => $e->getMessage(),
             ], $request);
 
-            return $this->result('error', null, null, null, $e->getMessage());
+            return $this->result('error', null, null, null, $e->getMessage(), null);
         }
     }
 
@@ -85,7 +87,7 @@ class NhifAuthorizationService
         Request $request,
     ): array {
         if (blank($insurance->nhif_authorization_no)) {
-            return $this->result('not_covered', null, null, null, null);
+            return $this->result('not_covered', null, null, null, null, null);
         }
 
         // Scheme eligibility check (skipped when nhif_scheme_id is null — graceful degradation).
@@ -99,7 +101,7 @@ class NhifAuthorizationService
             ], $request);
 
             return $this->result('not_eligible', null, null, null,
-                "Item {$nhifItemCode} is not covered under scheme {$schemeId}.");
+                "Item {$nhifItemCode} is not covered under scheme {$schemeId}.", null);
         }
 
         // Idempotency: reuse any existing non-cancelled session item for this source.
@@ -116,10 +118,14 @@ class NhifAuthorizationService
             return $this->resultFromItem($existingItem);
         }
 
+        $resolved = $this->priceResolution->resolve($insurance, $nhifItemCode, $unitPrice);
+
         $this->auditLog->record('NHIF_AUTHORIZATION_REQUESTED', $insurance, null, [
             'source_type' => $sourceType,
             'source_id' => $sourceId,
             'nhif_item_code' => $nhifItemCode,
+            'price_source' => $resolved['source'],
+            'resolved_unit_price' => $resolved['unit_price'],
         ], $request);
 
         $session = $this->sessions->create(
@@ -131,7 +137,7 @@ class NhifAuthorizationService
                 'nhif_item_code' => $nhifItemCode,
                 'nhif_item_name' => $nhifItemName,
                 'quantity' => $quantity,
-                'unit_price' => $unitPrice,
+                'unit_price' => $resolved['unit_price'],
             ]],
             $request,
         );
@@ -140,35 +146,35 @@ class NhifAuthorizationService
         $item = $session->items->first();
 
         if (! $item) {
-            return $this->result('error', $session->nhif_request_no, null, null, 'No item in NHIF response.');
+            return $this->result('error', $session->nhif_request_no, null, null, 'No item in NHIF response.', null);
         }
 
-        return $this->resultFromItem($item);
+        return $this->resultFromItem($item, $resolved['maximum_quantity']);
     }
 
-    private function resultFromItem(NhifPreApprovalSessionItem $item): array
+    private function resultFromItem(NhifPreApprovalSessionItem $item, ?int $maximumQuantity = null): array
     {
         $item->loadMissing('session');
         $requestNo = $item->session?->nhif_request_no;
 
         if ($item->isAccepted() || $item->isApproved()) {
-            return $this->result('authorized', $requestNo, null, $item->id, null);
+            return $this->result('authorized', $requestNo, null, $item->id, null, $maximumQuantity);
         }
 
         if ($item->isPendingApproval()) {
-            return $this->result('pending', $requestNo, null, $item->id, null);
+            return $this->result('pending', $requestNo, null, $item->id, null, $maximumQuantity);
         }
 
         if ($item->isRejected()) {
-            return $this->result('rejected', $requestNo, $item->rejection_reason, $item->id, null);
+            return $this->result('rejected', $requestNo, $item->rejection_reason, $item->id, null, $maximumQuantity);
         }
 
         return $this->result('error', $requestNo, null, $item->id,
-            "NHIF returned unknown status: {$item->approval_status}");
+            "NHIF returned unknown status: {$item->approval_status}", $maximumQuantity);
     }
 
     /**
-     * @return array{status: string, nhif_request_no: string|null, rejection_reason: string|null, session_item_id: int|null, error: string|null}
+     * @return array{status: string, nhif_request_no: string|null, rejection_reason: string|null, session_item_id: int|null, error: string|null, maximum_quantity: int|null}
      */
     private function result(
         string $status,
@@ -176,6 +182,7 @@ class NhifAuthorizationService
         ?string $rejectionReason,
         ?int $sessionItemId,
         ?string $error,
+        ?int $maximumQuantity,
     ): array {
         return [
             'status' => $status,
@@ -183,6 +190,7 @@ class NhifAuthorizationService
             'rejection_reason' => $rejectionReason,
             'session_item_id' => $sessionItemId,
             'error' => $error,
+            'maximum_quantity' => $maximumQuantity,
         ];
     }
 }

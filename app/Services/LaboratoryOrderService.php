@@ -8,6 +8,8 @@ use App\Models\Consultation;
 use App\Models\LaboratoryOrder;
 use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryTest;
+use App\Models\NhifSchemeService;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -58,6 +60,8 @@ class LaboratoryOrderService
                 ]);
             }
 
+            $this->autoMapNhifCodes($encounter, $tests);
+
             $order = LaboratoryOrder::create([
                 'clinical_encounter_id' => $encounter->id,
                 'priority' => $data['priority'] ?? LaboratoryOrder::PRIORITY_ROUTINE,
@@ -85,14 +89,18 @@ class LaboratoryOrderService
 
         $order = $order->fresh('items');
 
-        $billedCount = Charge::query()
-            ->where('source_type', LaboratoryOrderItem::class)
-            ->whereIn('source_id', $order->items->pluck('id'))
-            ->whereNotIn('status', [Charge::STATUS_VOIDED, Charge::STATUS_CANCELLED])
-            ->count();
+        $isNhifCovered = $encounter->patient?->activeNhifInsurance() !== null;
 
-        if ($billedCount < $order->items->count()) {
-            $order->billing_warning = 'One or more tests could not be billed — no price is configured for them. Ask billing/admin to add prices via Billing → Services.';
+        if (! $isNhifCovered) {
+            $billedCount = Charge::query()
+                ->where('source_type', LaboratoryOrderItem::class)
+                ->whereIn('source_id', $order->items->pluck('id'))
+                ->whereNotIn('status', [Charge::STATUS_VOIDED, Charge::STATUS_CANCELLED])
+                ->count();
+
+            if ($billedCount < $order->items->count()) {
+                $order->billing_warning = 'One or more tests could not be billed — no price is configured for them. Ask billing/admin to add prices via Billing → Services.';
+            }
         }
 
         return $order;
@@ -320,10 +328,18 @@ class LaboratoryOrderService
      * explicit exception so urgent care is never blocked on a final
      * diagnosis not yet being entered.
      *
+     * Inpatient encounters (created via InpatientClinicalService::openEncounter)
+     * have no consultation context — the clinician opens the encounter directly
+     * against the admission during a ward round, so the requirement is bypassed.
+     *
      * @throws ValidationException
      */
-    protected function assertConsultationEligible(ClinicalEncounter $encounter): Consultation
+    protected function assertConsultationEligible(ClinicalEncounter $encounter): ?Consultation
     {
+        if ($encounter->encounter_type === 'inpatient') {
+            return null;
+        }
+
         $consultation = $encounter->consultation;
 
         if (! $consultation || ! in_array($consultation->status, [Consultation::STATUS_IN_PROGRESS, Consultation::STATUS_COMPLETED], true)) {
@@ -344,6 +360,38 @@ class LaboratoryOrderService
             throw ValidationException::withMessages([
                 'status' => "Cannot modify a laboratory order with status \"{$order->status}\".",
             ]);
+        }
+    }
+
+    /**
+     * For NHIF encounters, auto-set nhif_code on tests that lack one by
+     * matching against the schemes_services catalog (item_type_id = 5).
+     *
+     * @param  Collection<int, LaboratoryTest>  $tests
+     */
+    protected function autoMapNhifCodes(ClinicalEncounter $encounter, $tests): void
+    {
+        $insurance = $encounter->patient?->activeNhifInsurance();
+        if (! $insurance?->nhif_scheme_id) {
+            return;
+        }
+
+        $unmapped = $tests->filter(fn (LaboratoryTest $t) => blank($t->nhif_code));
+        if ($unmapped->isEmpty()) {
+            return;
+        }
+
+        foreach ($unmapped as $test) {
+            $match = NhifSchemeService::catalog()
+                ->where('item_type_id', 5)
+                ->where('scheme_id', $insurance->nhif_scheme_id)
+                ->where('item_name', 'like', "{$test->name}%")
+                ->selectRaw('DISTINCT item_code, item_name')
+                ->first();
+
+            if ($match) {
+                $test->update(['nhif_code' => $match->item_code]);
+            }
         }
     }
 }

@@ -125,6 +125,23 @@ class Patient extends Model
     }
 
     /**
+     * The patient's currently active, NHIF-verified insurance record with a
+     * captured scheme ID. Returns the most recent such record, or null if the
+     * patient has no active NHIF coverage.
+     */
+    public function activeNhifInsurance(): ?PatientInsurance
+    {
+        return $this->insurances()
+            ->where('status', PatientInsurance::STATUS_ACTIVE)
+            ->where('verification_status', PatientInsurance::VERIFICATION_VERIFIED)
+            ->whereNotNull('nhif_authorization_no')
+            ->whereNotNull('nhif_scheme_id')
+            ->with('insuranceScheme:id,name')
+            ->latest()
+            ->first();
+    }
+
+    /**
      * Get the patient's full name.
      */
     public function getFullNameAttribute(): string

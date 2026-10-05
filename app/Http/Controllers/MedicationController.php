@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\Medication\StoreMedicationRequest;
 use App\Http\Requests\Medication\UpdateMedicationRequest;
+use App\Models\ClinicalEncounter;
 use App\Models\Medication;
+use App\Models\NhifSchemeService;
 use App\Services\MedicationSearchService;
 use App\Services\MedicationService;
 use Illuminate\Http\JsonResponse;
@@ -44,15 +46,57 @@ class MedicationController extends Controller
         $search = $request->string('search')->trim()->toString();
 
         if (mb_strlen($search) < 2) {
-            return response()->json(['data' => []]);
+            return response()->json(['data' => [], 'nhif_catalog' => []]);
         }
 
-        $medications = $this->search->query(['search' => $search, 'status' => Medication::STATUS_ACTIVE])
+        $nhifSchemeId = $this->resolveNhifSchemeId($request);
+
+        $medications = $this->search->query(['search' => $search, 'status' => Medication::STATUS_ACTIVE], $nhifSchemeId)
             ->orderBy('generic_name')
             ->limit(10)
-            ->get(['id', 'code', 'generic_name', 'brand_name', 'strength', 'form']);
+            ->get(['id', 'code', 'generic_name', 'brand_name', 'strength', 'form', 'nhif_code']);
 
-        return response()->json(['data' => $medications]);
+        $nhifCatalog = [];
+
+        if ($nhifSchemeId !== null) {
+            $catalogItems = NhifSchemeService::catalog()
+                ->where('type_name', 'Medicine and Consumables')
+                ->where('scheme_id', $nhifSchemeId)
+                ->where(function ($q) use ($search) {
+                    $q->where('item_name', 'like', "%{$search}%")
+                        ->orWhere('item_code', 'like', "%{$search}%");
+                })
+                ->selectRaw('DISTINCT item_code, item_name')
+                ->orderBy('item_name')
+                ->limit(15)
+                ->get();
+
+            $mappedMedications = Medication::where('status', Medication::STATUS_ACTIVE)
+                ->whereNotNull('nhif_code')
+                ->whereIn('nhif_code', $catalogItems->pluck('item_code'))
+                ->get(['id', 'code', 'generic_name', 'nhif_code'])
+                ->keyBy('nhif_code');
+
+            $nhifCatalog = $catalogItems->map(function ($item) use ($mappedMedications) {
+                $localMed = $mappedMedications->get($item->item_code);
+
+                return [
+                    'item_code' => $item->item_code,
+                    'item_name' => $item->item_name,
+                    'local_medication' => $localMed ? [
+                        'id' => $localMed->id,
+                        'code' => $localMed->code,
+                        'generic_name' => $localMed->generic_name,
+                    ] : null,
+                ];
+            })->values();
+        }
+
+        return response()->json([
+            'data' => $medications,
+            'nhif_catalog' => $nhifCatalog,
+            'nhif_filtered' => $nhifSchemeId !== null,
+        ]);
     }
 
     /**
@@ -151,6 +195,67 @@ class MedicationController extends Controller
         $service->deactivate($medication, $request);
 
         return back()->with('success', 'Medication deactivated.');
+    }
+
+    /**
+     * Resolve an NHIF catalog item_code to a local Medication. If a
+     * medication with that nhif_code already exists it is returned; otherwise
+     * a new active medication is created from the catalog item's name and code.
+     */
+    public function resolveNhifItem(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Medication::class);
+
+        $request->validate([
+            'item_code' => ['required', 'string', 'max:50'],
+            'item_name' => ['required', 'string', 'max:255'],
+        ]);
+
+        $itemCode = $request->input('item_code');
+        $itemName = $request->input('item_name');
+
+        $medication = Medication::where('nhif_code', $itemCode)->first();
+
+        if (! $medication) {
+            $medication = Medication::create([
+                'code' => 'NHIF-'.$itemCode,
+                'generic_name' => $itemName,
+                'nhif_code' => $itemCode,
+                'status' => Medication::STATUS_ACTIVE,
+            ]);
+        }
+
+        return response()->json([
+            'id' => $medication->id,
+            'code' => $medication->code,
+            'generic_name' => $medication->generic_name,
+            'brand_name' => $medication->brand_name,
+            'strength' => $medication->strength,
+            'form' => $medication->form,
+        ]);
+    }
+
+    /**
+     * Resolve the NHIF scheme ID from an optional clinical_encounter_id param.
+     * Returns null if no encounter is provided or the patient has no active NHIF.
+     * Only the server-side query param is trusted — never a raw scheme_id from
+     * the client.
+     */
+    private function resolveNhifSchemeId(Request $request): ?int
+    {
+        $encounterId = $request->query('clinical_encounter_id');
+        if (! $encounterId) {
+            return null;
+        }
+
+        $encounter = ClinicalEncounter::find((int) $encounterId);
+        if (! $encounter) {
+            return null;
+        }
+
+        $insurance = $encounter->patient?->activeNhifInsurance();
+
+        return $insurance?->nhif_scheme_id ? (int) $insurance->nhif_scheme_id : null;
     }
 
     /**

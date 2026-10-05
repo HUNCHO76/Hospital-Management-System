@@ -6,6 +6,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -109,7 +110,7 @@ class NhifHttpClient
      */
     public function loginPractitioner(string $practitionerNo, string $facilityCode): array
     {
-        return $this->post('/v2/Practitioners/LoginPractitioner', [
+        return $this->post('/api/Practitioners/LoginPractitioner', [
             'PractitionerNo' => $practitionerNo,
             'FacilityCode' => $facilityCode,
         ], 'LoginPractitioner');
@@ -122,7 +123,7 @@ class NhifHttpClient
      */
     public function logoutPractitioner(string $practitionerNo, string $facilityCode): array
     {
-        return $this->post('/v2/Practitioners/LogoutPractitioner', [
+        return $this->post('/api/Practitioners/LogoutPractitioner', [
             'PractitionerNo' => $practitionerNo,
             'FacilityCode' => $facilityCode,
         ], 'LogoutPractitioner');
@@ -150,7 +151,74 @@ class NhifHttpClient
      */
     public function getPackageList(): array
     {
-        return $this->get('/v2/PriceLists/GetPackageList', [], 'GetPackageList');
+        return $this->get('/api/Packages/GetPricePackageList', [], 'GetPackageList');
+    }
+
+    /**
+     * Fetch the NHIF price catalog for a specific scheme and/or package.
+     * Calls /api/Packages/GetPricePackage — returns per-item unit prices
+     * that must be used verbatim in RequestServices payloads.
+     *
+     * @return array{success: bool, data: array<string, mixed>, http_status: int, error: string|null, correlation_id: string}
+     */
+    public function getPricePackage(?int $schemeId = null, ?int $packageId = null): array
+    {
+        $query = [];
+        if ($schemeId !== null) {
+            $query['SchemeID'] = $schemeId;
+        }
+        if ($packageId !== null) {
+            $query['PackageID'] = $packageId;
+        }
+
+        return $this->get('/api/Packages/GetPricePackage', $query, 'GetPricePackage');
+    }
+
+    /**
+     * Fetch the NHIF unit price for a single item at a specific facility.
+     * Calls /api/Packages/GetPricePackageByItemCode on the OCS endpoint.
+     *
+     * @return array{success: bool, data: array<string, mixed>, http_status: int, error: string|null, correlation_id: string}
+     */
+    public function getPricePackageByItemCode(string $facilityCode, string $itemCode): array
+    {
+        return $this->getOcs('/api/Packages/GetPricePackageByItemCode', [
+            'facilityCode' => $facilityCode,
+            'itemCode' => $itemCode,
+        ], 'GetPricePackageByItemCode');
+    }
+
+    /**
+     * Fetch NHIF unit prices for multiple item codes at a facility.
+     * Results are cached for 1 hour per facilityCode+itemCode pair.
+     *
+     * @param  list<string>  $itemCodes
+     * @return array<string, float|null> Keyed by item code
+     */
+    public function fetchBulkPrices(string $facilityCode, array $itemCodes): array
+    {
+        $prices = [];
+
+        foreach ($itemCodes as $itemCode) {
+            $cacheKey = "nhif_price:{$facilityCode}:{$itemCode}";
+
+            $prices[$itemCode] = Cache::remember($cacheKey, 3600, function () use ($facilityCode, $itemCode): ?float {
+                $result = $this->getPricePackageByItemCode($facilityCode, $itemCode);
+
+                if (! $result['success']) {
+                    return null;
+                }
+
+                $data = $result['data'];
+                if (isset($data[0]) && is_array($data[0])) {
+                    $data = $data[0];
+                }
+
+                return isset($data['UnitPrice']) ? (float) $data['UnitPrice'] : null;
+            });
+        }
+
+        return $prices;
     }
 
     /**
@@ -463,9 +531,9 @@ class NhifHttpClient
      */
     public function getAdmissionDetailsByAuthorizationNo(string $authorizationNo): array
     {
-        return $this->get('/api/Admissions/GetDetailsByAuthorizationNo', [
+        return $this->get('/api/Admissions/GetAdmissionDetailsByAuthorizationNo', [
             'authorizationNo' => $authorizationNo,
-        ], 'GetDetailsByAuthorizationNo');
+        ], 'GetAdmissionDetailsByAuthorizationNo');
     }
 
     /**
@@ -1691,6 +1759,14 @@ class NhifHttpClient
             $echoedId = $response->header('X-Correlation-ID') ?: $correlationId;
             $body = $response->json() ?? [];
 
+            Log::channel('daily')->info("NHIF POST {$operationName}", [
+                'correlation_id' => $echoedId,
+                'path' => $path,
+                'http_status' => $response->status(),
+                'request' => $payload,
+                'response' => is_array($body) ? $body : [],
+            ]);
+
             if ($response->successful()) {
                 return [
                     'success' => true,
@@ -1711,6 +1787,12 @@ class NhifHttpClient
                 'operation' => $operationName,
             ];
         } catch (ConnectionException $e) {
+            Log::channel('daily')->error("NHIF POST {$operationName} connection error", [
+                'correlation_id' => $correlationId,
+                'path' => $path,
+                'error' => $e->getMessage(),
+            ]);
+
             return [
                 'success' => false,
                 'data' => [],
@@ -1720,6 +1802,13 @@ class NhifHttpClient
                 'operation' => $operationName,
             ];
         } catch (RequestException $e) {
+            Log::channel('daily')->error("NHIF POST {$operationName} request error", [
+                'correlation_id' => $correlationId,
+                'path' => $path,
+                'http_status' => $e->response->status(),
+                'error' => $this->extractError($e->response->json() ?? [], $e->response->status()),
+            ]);
+
             return [
                 'success' => false,
                 'data' => [],
@@ -1861,8 +1950,17 @@ class NhifHttpClient
      *
      * @param  array<string, mixed>  $body
      */
-    protected function extractError(array $body, int $httpStatus): string
+    protected function extractError(array|string $body, int $httpStatus): string
     {
+        if (is_string($body)) {
+            $decoded = json_decode($body, true);
+            if (is_array($decoded)) {
+                $body = $decoded;
+            } else {
+                return $body ?: "NHIF API request failed with HTTP {$httpStatus}.";
+            }
+        }
+
         return $body['message']
             ?? $body['error_description']
             ?? $body['error']

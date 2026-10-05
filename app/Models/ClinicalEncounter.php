@@ -302,4 +302,12 @@ class ClinicalEncounter extends Model
     {
         return $this->hasMany(PrescriptionOrder::class)->orderBy('prescribed_at');
     }
+
+    /**
+     * NHIF pre-approval sessions linked to this encounter (Phase 8).
+     */
+    public function nhifPreApprovalSessions(): HasMany
+    {
+        return $this->hasMany(NhifPreApprovalSession::class);
+    }
 }

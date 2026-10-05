@@ -3,6 +3,8 @@
 namespace App\Services\NHIF;
 
 use App\Models\NhifSchemeService;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
@@ -14,10 +16,14 @@ class NhifSchemeEligibilityService
 {
     public function isEligible(int $schemeId, string $itemCode): bool
     {
-        return NhifSchemeService::active()
-            ->where('scheme_id', $schemeId)
-            ->where('item_code', $itemCode)
-            ->exists();
+        try {
+            return $this->schemeQuery()
+                ->where('scheme_id', $schemeId)
+                ->where('item_code', $itemCode)
+                ->exists();
+        } catch (QueryException) {
+            return false;
+        }
     }
 
     /**
@@ -34,9 +40,22 @@ class NhifSchemeEligibilityService
 
     public function getEligibleItems(int $schemeId): Collection
     {
-        return NhifSchemeService::active()
+        return $this->schemeQuery()
             ->where('scheme_id', $schemeId)
             ->orderBy('item_name')
             ->get();
+    }
+
+    /**
+     * Query from `nhif_scheme_services` (API-synced) if populated,
+     * otherwise fall back to `schemes_services` (SQL dump import).
+     */
+    private function schemeQuery(): Builder
+    {
+        if (NhifSchemeService::query()->exists()) {
+            return NhifSchemeService::active();
+        }
+
+        return NhifSchemeService::catalog();
     }
 }

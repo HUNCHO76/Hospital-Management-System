@@ -34,6 +34,9 @@ class UpdateEncounterDiagnosisRequest extends FormRequest
                 Rule::exists(DiagnosisCode::class, 'id')->where('status', DiagnosisCode::STATUS_ACTIVE),
             ],
             'clinical_note' => ['nullable', 'string', 'max:2000'],
+            'nhif_disease_code' => ['nullable', 'string', 'max:20', 'required_with:nhif_disease_name,nhif_icd_version_code'],
+            'nhif_disease_name' => ['nullable', 'string', 'max:255', 'required_with:nhif_disease_code'],
+            'nhif_icd_version_code' => ['nullable', 'string', 'max:10', 'required_with:nhif_disease_code'],
         ];
     }
 }

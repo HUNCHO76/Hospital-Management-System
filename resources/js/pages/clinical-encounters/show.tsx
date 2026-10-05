@@ -10,10 +10,12 @@ import { WorkflowStatus } from '@/components/clinical-encounters/workflow-status
 import { ClinicalNotesSection } from '@/components/clinical-notes/clinical-notes-section';
 import { ConsultationPanel } from '@/components/consultation/consultation-panel';
 import { DiagnosisSection } from '@/components/diagnosis/diagnosis-section';
+import { NhifPreApprovalSection } from '@/components/nhif/nhif-pre-approval-section';
 import { TriagePanel } from '@/components/triage/triage-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { usePermissions } from '@/hooks/use-permissions';
 import AppLayout from '@/layouts/app-layout';
 import {
@@ -29,11 +31,13 @@ import { type ClinicalNote } from '@/types/clinical-note';
 import { type Consultation } from '@/types/consultation';
 import { type EncounterDiagnosis } from '@/types/diagnosis';
 import { type LaboratoryOrder, type LaboratoryReport } from '@/types/laboratory';
+import { type NhifInsuranceSummary, type NhifPendingItems, type NhifPreApprovalSession } from '@/types/nhif';
 import { type MedicationSafetyWarning, type PrescriptionOrder } from '@/types/prescription';
 import { type RadiologyOrder, type RadiologyResult } from '@/types/radiology';
 import { type TriageAssessment } from '@/types/triage';
 import { Head, Link, router } from '@inertiajs/react';
 import { PlayCircle, XCircle } from 'lucide-react';
+import { useState } from 'react';
 
 interface EncounterShowProps {
     encounter: ClinicalEncounter;
@@ -50,6 +54,10 @@ interface EncounterShowProps {
     medicationSafetyRules: Record<number, MedicationSafetyWarning[]>;
     departments: ClinicalEncounterDepartment[];
     referralPractitioners: ClinicalEncounterPractitioner[];
+    nhifEligible: boolean;
+    nhifInsurance: NhifInsuranceSummary | null;
+    nhifPreApprovalSessions: NhifPreApprovalSession[];
+    nhifPendingItems: NhifPendingItems | null;
 }
 
 function formatDateTime(value: string): string {
@@ -62,6 +70,27 @@ const ENCOUNTER_TYPE_LABELS: Record<string, string> = {
     scheduled: 'Scheduled',
     follow_up: 'Follow-up',
 };
+
+function readStoredTab(encounterId: number): string {
+    try {
+        return localStorage.getItem(`encounter-tab-${encounterId}`) ?? 'assessment';
+    } catch {
+        return 'assessment';
+    }
+}
+
+function storeTab(encounterId: number, tab: string) {
+    try {
+        localStorage.setItem(`encounter-tab-${encounterId}`, tab);
+    } catch {
+        // localStorage unavailable
+    }
+}
+
+function TabBadge({ count }: { count: number }) {
+    if (count <= 0) return null;
+    return <span className="bg-primary/10 text-primary ml-1.5 rounded-full px-1.5 py-0.5 text-xs font-medium">{count}</span>;
+}
 
 export default function EncounterShow({
     encounter,
@@ -78,6 +107,10 @@ export default function EncounterShow({
     medicationSafetyRules,
     departments,
     referralPractitioners,
+    nhifEligible,
+    nhifInsurance,
+    nhifPreApprovalSessions,
+    nhifPendingItems,
 }: EncounterShowProps) {
     const { can } = usePermissions();
     const patientName = encounter.patient
@@ -95,11 +128,23 @@ export default function EncounterShow({
         router.post(route(`clinical-encounters.${action}`, encounter.id), {}, { preserveScroll: true });
     };
 
+    const [activeTab, setActiveTab] = useState(() => readStoredTab(encounter.id));
+
+    const handleTabChange = (tab: string) => {
+        setActiveTab(tab);
+        storeTab(encounter.id, tab);
+    };
+
+    const orderCount = laboratoryOrders.length + radiologyOrders.length + prescriptionOrders.length;
+    const resultCount = laboratoryResults.length + radiologyResults.length;
+    const hasPendingNhif = nhifPendingItems && ((nhifPendingItems.lab_items?.length ?? 0) + (nhifPendingItems.medication_items?.length ?? 0)) > 0;
+
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={`Encounter ${encounter.encounter_number}`} />
 
             <div className="flex flex-col gap-6 p-4">
+                {/* ── Header ── */}
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <h1 className="text-2xl font-semibold">{encounter.encounter_number}</h1>
@@ -139,6 +184,7 @@ export default function EncounterShow({
                     </div>
                 </div>
 
+                {/* ── Encounter Details + Patient Cards ── */}
                 <div className="grid gap-4 md:grid-cols-2">
                     <Card>
                         <CardHeader>
@@ -241,6 +287,7 @@ export default function EncounterShow({
                     </Card>
                 </div>
 
+                {/* ── Workflow Status (always visible) ── */}
                 <WorkflowStatus
                     encounter={encounter}
                     triage={triage}
@@ -250,36 +297,77 @@ export default function EncounterShow({
                     clinicalNotes={clinicalNotes}
                 />
 
-                <TriagePanel encounterId={encounter.id} encounterStatus={encounter.status} triage={triage} />
+                {/* ── Tabbed Clinical Sections ── */}
+                <Tabs value={activeTab} onValueChange={handleTabChange}>
+                    <TabsList className="flex flex-wrap gap-1">
+                        <TabsTrigger value="assessment">Assessment</TabsTrigger>
+                        <TabsTrigger value="diagnosis">
+                            Diagnosis
+                            <TabBadge count={diagnoses.length} />
+                        </TabsTrigger>
+                        <TabsTrigger value="orders">
+                            Orders
+                            <TabBadge count={orderCount} />
+                        </TabsTrigger>
+                        <TabsTrigger value="results">
+                            Results
+                            <TabBadge count={resultCount} />
+                        </TabsTrigger>
+                        <TabsTrigger value="careplan">
+                            Care Plan & NHIF
+                            {hasPendingNhif && <span className="bg-amber-500 ml-1.5 inline-block h-2 w-2 rounded-full" />}
+                        </TabsTrigger>
+                    </TabsList>
 
-                <ConsultationPanel encounterId={encounter.id} encounterStatus={encounter.status} triage={triage} consultation={consultation} />
+                    {/* ── Assessment: Triage → Consultation → Clinical Notes ── */}
+                    <TabsContent value="assessment" className="flex flex-col gap-6">
+                        <TriagePanel encounterId={encounter.id} encounterStatus={encounter.status} triage={triage} />
+                        <ConsultationPanel encounterId={encounter.id} encounterStatus={encounter.status} triage={triage} consultation={consultation} />
+                        <ClinicalNotesSection encounterId={encounter.id} clinicalNotes={clinicalNotes} />
+                    </TabsContent>
 
-                <DiagnosisSection encounterId={encounter.id} consultation={consultation} diagnoses={diagnoses} />
+                    {/* ── Diagnosis ── */}
+                    <TabsContent value="diagnosis" className="flex flex-col gap-6">
+                        <DiagnosisSection encounterId={encounter.id} consultation={consultation} diagnoses={diagnoses} nhifEligible={nhifEligible} />
+                    </TabsContent>
 
-                <CarePlanSection
-                    encounterId={encounter.id}
-                    diagnoses={diagnoses}
-                    carePlan={carePlan}
-                    departments={departments}
-                    referralPractitioners={referralPractitioners}
-                />
+                    {/* ── Orders: Lab → Radiology → Prescriptions ── */}
+                    <TabsContent value="orders" className="flex flex-col gap-6">
+                        <LaboratoryOrdersSection encounterId={encounter.id} consultation={consultation} laboratoryOrders={laboratoryOrders} />
+                        <RadiologyOrdersSection encounterId={encounter.id} consultation={consultation} radiologyOrders={radiologyOrders} />
+                        <PrescriptionOrdersSection
+                            encounterId={encounter.id}
+                            consultation={consultation}
+                            prescriptionOrders={prescriptionOrders}
+                            medicationSafetyRules={medicationSafetyRules}
+                        />
+                    </TabsContent>
 
-                <LaboratoryOrdersSection encounterId={encounter.id} consultation={consultation} laboratoryOrders={laboratoryOrders} />
+                    {/* ── Results: Lab Results → Radiology Results ── */}
+                    <TabsContent value="results" className="flex flex-col gap-6">
+                        <LaboratoryResultsSection laboratoryResults={laboratoryResults} />
+                        <RadiologyResultsSection radiologyResults={radiologyResults} />
+                    </TabsContent>
 
-                <LaboratoryResultsSection laboratoryResults={laboratoryResults} />
-
-                <RadiologyOrdersSection encounterId={encounter.id} consultation={consultation} radiologyOrders={radiologyOrders} />
-
-                <RadiologyResultsSection radiologyResults={radiologyResults} />
-
-                <PrescriptionOrdersSection
-                    encounterId={encounter.id}
-                    consultation={consultation}
-                    prescriptionOrders={prescriptionOrders}
-                    medicationSafetyRules={medicationSafetyRules}
-                />
-
-                <ClinicalNotesSection encounterId={encounter.id} clinicalNotes={clinicalNotes} />
+                    {/* ── Care Plan & NHIF ── */}
+                    <TabsContent value="careplan" className="flex flex-col gap-6">
+                        <CarePlanSection
+                            encounterId={encounter.id}
+                            diagnoses={diagnoses}
+                            carePlan={carePlan}
+                            departments={departments}
+                            referralPractitioners={referralPractitioners}
+                        />
+                        <NhifPreApprovalSection
+                            encounterId={encounter.id}
+                            insurance={nhifInsurance ?? null}
+                            pendingItems={nhifPendingItems ?? null}
+                            sessions={nhifPreApprovalSessions ?? []}
+                            patientName={patientName}
+                            practitioner={encounter.practitioner ?? null}
+                        />
+                    </TabsContent>
+                </Tabs>
             </div>
         </AppLayout>
     );

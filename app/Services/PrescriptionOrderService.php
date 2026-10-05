@@ -5,10 +5,12 @@ namespace App\Services;
 use App\Models\ClinicalEncounter;
 use App\Models\Consultation;
 use App\Models\Medication;
+use App\Models\NhifSchemeService;
 use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
 use App\Models\PrescriptionVerification;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -58,6 +60,8 @@ class PrescriptionOrderService
             if (! empty($safetyErrors)) {
                 throw ValidationException::withMessages($safetyErrors);
             }
+
+            $this->autoMapNhifCodes($encounter, collect($medications));
 
             $order = PrescriptionOrder::create([
                 'clinical_encounter_id' => $encounter->id,
@@ -328,6 +332,53 @@ class PrescriptionOrderService
         }
 
         return $medications->all();
+    }
+
+    /**
+     * For NHIF encounters, auto-set nhif_code on medications that lack one
+     * by matching against the schemes_services catalog
+     * (type_name = 'Medicine and Consumables').
+     *
+     * @param  Collection<int, Medication>  $medications
+     */
+    protected function autoMapNhifCodes(ClinicalEncounter $encounter, $medications): void
+    {
+        $insurance = $encounter->patient?->activeNhifInsurance();
+        if (! $insurance?->nhif_scheme_id) {
+            return;
+        }
+
+        $unmapped = $medications->filter(fn (Medication $m) => blank($m->nhif_code));
+        if ($unmapped->isEmpty()) {
+            return;
+        }
+
+        foreach ($unmapped as $medication) {
+            $name = $medication->generic_name;
+
+            $match = NhifSchemeService::catalog()
+                ->where('type_name', 'Medicine and Consumables')
+                ->where('scheme_id', $insurance->nhif_scheme_id)
+                ->where('item_name', 'like', "{$name}%")
+                ->selectRaw('DISTINCT item_code, item_name')
+                ->first();
+
+            if (! $match) {
+                $firstWord = explode(' ', $name)[0] ?? '';
+                if (mb_strlen($firstWord) >= 3) {
+                    $match = NhifSchemeService::catalog()
+                        ->where('type_name', 'Medicine and Consumables')
+                        ->where('scheme_id', $insurance->nhif_scheme_id)
+                        ->where('item_name', 'like', "{$firstWord}%")
+                        ->selectRaw('DISTINCT item_code, item_name')
+                        ->first();
+                }
+            }
+
+            if ($match) {
+                $medication->update(['nhif_code' => $match->item_code]);
+            }
+        }
     }
 
     /**

@@ -46,13 +46,21 @@ class NhifAuthorizationContextController extends Controller
     public function lookup(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'patient_insurance_id' => ['required', 'integer', 'exists:patient_insurances,id'],
+            'patient_insurance_id' => ['nullable', 'integer', 'exists:patient_insurances,id'],
+            'patient_id' => ['nullable', 'integer', 'exists:patients,id'],
             'source_type' => ['nullable', 'string'],
             'source_id' => ['nullable', 'integer'],
         ]);
 
-        $query = NhifPreauthorization::where('patient_insurance_id', $data['patient_insurance_id'])
-            ->where('status', NhifPreauthorization::STATUS_APPROVED);
+        $query = NhifPreauthorization::where('status', NhifPreauthorization::STATUS_APPROVED);
+
+        if (! empty($data['patient_insurance_id'])) {
+            $query->where('patient_insurance_id', $data['patient_insurance_id']);
+        } elseif (! empty($data['patient_id'])) {
+            $query->whereHas('patientInsurance', fn ($q) => $q->where('patient_id', $data['patient_id']));
+        } else {
+            return response()->json(['error' => 'Must provide patient_insurance_id or patient_id.'], 400);
+        }
 
         if (! empty($data['source_type']) && ! empty($data['source_id'])) {
             $query->where('source_type', $data['source_type'])
@@ -62,13 +70,44 @@ class NhifAuthorizationContextController extends Controller
         $preauth = $query->latest()->first();
 
         if (! $preauth) {
+            $patientId = $data['patient_id'] ?? null;
+            $insuranceId = $data['patient_insurance_id'] ?? null;
+
+            $insurance = null;
+            if ($insuranceId) {
+                $insurance = \App\Models\PatientInsurance::find($insuranceId);
+            } elseif ($patientId) {
+                $patient = \App\Models\Patient::find($patientId);
+                $insurance = $patient?->activeNhifInsurance()
+                    ?? $patient?->insurances()->whereNotNull('nhif_authorization_no')->latest()->first();
+            }
+
+            if ($insurance && ! empty($insurance->nhif_authorization_no)) {
+                return response()->json([
+                    'found' => true,
+                    'authorization_no' => $insurance->nhif_authorization_no,
+                    'patient_insurance_id' => $insurance->id,
+                    'preauthorization' => [
+                        'id' => null,
+                        'authorization_no' => $insurance->nhif_authorization_no,
+                        'approved_amount' => null,
+                        'source_type' => 'insurance',
+                        'source_id' => $insurance->id,
+                        'resolved_at' => optional($insurance->verified_at)->toDateTimeString(),
+                    ],
+                ]);
+            }
+
             return response()->json(['found' => false, 'preauthorization' => null]);
         }
 
         return response()->json([
             'found' => true,
+            'authorization_no' => $preauth->authorization_no,
+            'patient_insurance_id' => $preauth->patient_insurance_id,
             'preauthorization' => [
                 'id' => $preauth->id,
+                'authorization_no' => $preauth->authorization_no,
                 'approved_amount' => $preauth->approved_amount,
                 'source_type' => $preauth->source_type,
                 'source_id' => $preauth->source_id,

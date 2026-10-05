@@ -51,6 +51,9 @@ class DiagnosisService
                 'clinical_note' => $data['clinical_note'] ?? null,
                 'diagnosed_by' => $request->user()->id,
                 'diagnosed_at' => now(),
+                'nhif_disease_code' => $data['nhif_disease_code'] ?? null,
+                'nhif_disease_name' => $data['nhif_disease_name'] ?? null,
+                'nhif_icd_version_code' => $data['nhif_icd_version_code'] ?? null,
             ]);
         });
 

@@ -37,7 +37,7 @@ export interface ReceptionVisitAppointment {
     };
 }
 
-export type ConsultationFinancialStatus = 'authorized' | 'payment_required';
+export type ConsultationFinancialStatus = 'authorized' | 'payment_required' | 'nhif_pending' | 'nhif_rejected';
 
 export interface ReceptionPractitioner {
     id: number;
@@ -45,6 +45,7 @@ export interface ReceptionPractitioner {
     staff_id: number;
     consultation_service_id: number | null;
     practitioner_type: string | null;
+    nhif_practitioner_no: string | null;
     staff?: { first_name: string; last_name: string };
 }
 
@@ -127,11 +128,32 @@ export interface ReceptionDashboardSummary {
     cancelled: number;
 }
 
+export interface NhifConsultationService {
+    id: number;
+    item_code: string;
+    item_name: string;
+    item_type_id: number | null;
+    type_name: string | null;
+    unit_price: string | null;
+}
+
+export interface NhifInsuranceSummary {
+    scheme_id: number;
+    scheme_name: string | null;
+    nhif_authorization_no: string;
+    card_number: string | null;
+    verification_status: string;
+    nhif_pf_number: string | null;
+}
+
 export interface WalkInFormData {
     patient_id: string;
     department_id: string;
     visit_type: ReceptionVisitType | '';
     practitioner_id: string;
+    nhif_item_code: string;
+    clinical_notes: string;
+    practitioner_remarks: string;
     [key: string]: string;
 }
 

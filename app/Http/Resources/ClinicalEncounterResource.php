@@ -42,6 +42,7 @@ class ClinicalEncounterResource extends JsonResource
                 'id' => $this->practitioner->id,
                 'practitioner_number' => $this->practitioner->practitioner_number,
                 'practitioner_type' => $this->practitioner->practitioner_type,
+                'nhif_practitioner_no' => $this->practitioner->nhif_practitioner_no,
                 'name' => $this->practitioner->relationLoaded('staff') ? $this->practitioner->staff?->full_name : null,
             ] : null),
             'reception_visit' => $this->whenLoaded('receptionVisit', fn () => $this->receptionVisit ? [

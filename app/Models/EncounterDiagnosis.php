@@ -85,6 +85,9 @@ class EncounterDiagnosis extends Model
         'corrected_at',
         'corrected_by',
         'correction_reason',
+        'nhif_disease_code',
+        'nhif_disease_name',
+        'nhif_icd_version_code',
     ];
 
     /**

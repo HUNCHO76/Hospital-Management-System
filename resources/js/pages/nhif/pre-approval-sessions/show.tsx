@@ -1,6 +1,8 @@
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
+import { useState } from 'react';
+import { BiometricIssueDialog } from '@/components/nhif/biometric-issue-dialog';
 import { Button } from '@/components/ui/button';
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -11,6 +13,7 @@ const breadcrumbs: BreadcrumbItem[] = [
 const statusColors: Record<string, string> = {
     draft: 'bg-gray-100 text-gray-700',
     submitted: 'bg-blue-100 text-blue-700',
+    accepted: 'bg-green-100 text-green-700',
     partially_approved: 'bg-yellow-100 text-yellow-700',
     approved: 'bg-green-100 text-green-700',
     rejected: 'bg-red-100 text-red-700',
@@ -20,6 +23,7 @@ const statusColors: Record<string, string> = {
 
 const itemStatusColors: Record<string, string> = {
     pending: 'text-muted-foreground',
+    accepted: 'text-green-600 font-medium',
     approved: 'text-green-600 font-medium',
     rejected: 'text-destructive',
     issued: 'text-purple-600 font-medium',
@@ -33,7 +37,7 @@ interface SessionItem {
     quantity: number;
     unit_price: string;
     approval_reference_no: string | null;
-    approval_status: 'pending' | 'approved' | 'rejected' | 'issued';
+    approval_status: 'pending' | 'accepted' | 'approved' | 'rejected' | 'issued';
     quantity_approved: number | null;
     quantity_issued: number | null;
     rejection_reason: string | null;
@@ -67,6 +71,8 @@ interface Props {
 
 export default function Show({ patient, insurance, session }: Props) {
     const postTo = (path: string) => router.post(path);
+    const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+    const canIssue = ['accepted', 'approved', 'partially_approved'].includes(session.status);
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -113,9 +119,8 @@ export default function Show({ patient, insurance, session }: Props) {
                             Sync Approval Status
                         </Button>
                     )}
-                    {(session.status === 'approved' || session.status === 'partially_approved') && (
-                        <Button className="bg-green-600 hover:bg-green-700"
-                            onClick={() => postTo(route('patients.insurance.nhif.pre-approval-sessions.issue', [patient.id, insurance.id, session.id]))}>
+                    {canIssue && (
+                        <Button className="bg-green-600 hover:bg-green-700" onClick={() => setIssueDialogOpen(true)}>
                             Issue Approved Services
                         </Button>
                     )}
@@ -181,6 +186,14 @@ export default function Show({ patient, insurance, session }: Props) {
                     </div>
                 )}
             </div>
+
+            {canIssue && (
+                <BiometricIssueDialog
+                    open={issueDialogOpen}
+                    onOpenChange={setIssueDialogOpen}
+                    issueUrl={route('patients.insurance.nhif.pre-approval-sessions.issue', [patient.id, insurance.id, session.id])}
+                />
+            )}
         </AppLayout>
     );
 }

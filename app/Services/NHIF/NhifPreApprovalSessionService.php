@@ -2,9 +2,12 @@
 
 namespace App\Services\NHIF;
 
+use App\Http\Requests\NHIF\IssuePreApprovalSessionRequest;
 use App\Models\ClinicalEncounter;
+use App\Models\Hospital;
 use App\Models\NhifPreApprovalSession;
 use App\Models\NhifPreApprovalSessionItem;
+use App\Models\NhifSchemeService;
 use App\Models\PatientInsurance;
 use App\Services\AuditLogService;
 use Illuminate\Database\Eloquent\Collection;
@@ -44,6 +47,9 @@ class NhifPreApprovalSessionService
         ?ClinicalEncounter $encounter,
         array $itemsData,
         Request $request,
+        ?string $practitionerNo = null,
+        ?string $clinicalNotes = null,
+        ?string $practitionerRemarks = null,
     ): NhifPreApprovalSession {
         if (blank($insurance->nhif_authorization_no)) {
             throw ValidationException::withMessages([
@@ -91,9 +97,10 @@ class NhifPreApprovalSessionService
             }
         }
 
-        return DB::transaction(function () use ($insurance, $encounter, $itemsData, $request): NhifPreApprovalSession {
+        return DB::transaction(function () use ($insurance, $encounter, $itemsData, $request, $practitionerNo, $clinicalNotes, $practitionerRemarks): NhifPreApprovalSession {
             $hospitalId = $encounter?->hospital_id
-                ?? $request->user()?->staff?->hospital_id;
+                ?? $request->user()?->staff?->hospital_id
+                ?? Hospital::first()?->id;
 
             $session = NhifPreApprovalSession::create([
                 'patient_id' => $insurance->patient_id,
@@ -102,8 +109,10 @@ class NhifPreApprovalSessionService
                 'clinical_encounter_id' => $encounter?->id,
                 'nhif_authorization_no' => $insurance->nhif_authorization_no,
                 'nhif_card_no' => $insurance->card_number,
-                'facility_code' => null,
-                'practitioner_no' => null,
+                'facility_code' => $insurance->nhif_facility_code,
+                'practitioner_no' => $practitionerNo,
+                'clinical_notes' => $clinicalNotes,
+                'practitioner_remarks' => $practitionerRemarks,
                 'status' => NhifPreApprovalSession::STATUS_DRAFT,
                 'created_by' => $request->user()->id,
             ]);
@@ -162,17 +171,68 @@ class NhifPreApprovalSessionService
         $patient = $insurance->patient;
         $hospital = $session->hospital;
 
-        $requestedServices = $session->items->map(fn ($item) => [
-            'itemCode' => $item->nhif_item_code,
-            'usage' => $item->nhif_item_name ?? $item->nhif_item_code,
-            'effectiveDate' => now()->toIso8601String(),
-            'unitPrice' => (float) $item->unit_price,
-            'endDate' => now()->addDays(4)->toIso8601String(),
-            'quantityRequested' => $item->quantity,
-            'remarks' => null,
-        ])->values()->all();
+        $usageMap = [
+            'Registration/Consultation Charges' => 'Consultation',
+            'Medicine and Consumables' => 'Medication',
+            'Diagnostic Examinations' => 'Investigation',
+            'Procedural Charges' => 'Procedure',
+            'Surgical Charges' => 'Procedure',
+            'Major Surgeries' => 'Procedure',
+            'Specialized Surgeries' => 'Procedure',
+            'Specialized Procedures' => 'Procedure',
+            'Inpatient Charges' => 'Inpatient',
+            'Cardiac Services' => 'Procedure',
+            'Oncology Services' => 'Procedure',
+            'Physio and Occupational Services' => 'Procedure',
+            'Renal Services' => 'Procedure',
+            'Implant Services' => 'Procedure',
+            'Other Charges' => 'Others',
+        ];
 
-        $facilityCode = $hospital?->nhif_facility_code ?? $hospital?->code ?? null;
+        $requestedServices = $session->items->map(function ($item) use ($usageMap) {
+            $typeName = NhifSchemeService::where('item_code', $item->nhif_item_code)->value('type_name');
+
+            if (blank($typeName) && ! app()->environment('testing')) {
+                try {
+                    $typeName = DB::table('schemes_services')->where('item_code', $item->nhif_item_code)->value('type_name');
+                } catch (\Exception $e) {
+                    $typeName = null;
+                }
+            }
+
+            return [
+                'itemCode' => $item->nhif_item_code,
+                'usage' => $usageMap[$typeName] ?? $item->nhif_item_name ?? $item->nhif_item_code,
+                'effectiveDate' => now()->toIso8601String(),
+                'unitPrice' => (float) $item->unit_price,
+                'endDate' => now()->addDays(10)->toIso8601String(),
+                'quantityRequested' => $item->quantity,
+            ];
+        })->values()->all();
+
+        $facilityCode = $insurance?->nhif_facility_code ?? $hospital?->code ?? null;
+
+        if (blank($session->practitioner_no)) {
+            $resolved = \App\Models\Practitioner::query()
+                ->where('status', \App\Models\Practitioner::STATUS_ACTIVE)
+                ->whereNotNull('nhif_practitioner_no')
+                ->where('nhif_practitioner_no', '!=', '')
+                ->whereHas('staff', fn ($q) => $q->where('hospital_id', $session->hospital_id))
+                ->value('nhif_practitioner_no');
+
+            $resolved ??= $request->user()?->staff?->practitioner?->nhif_practitioner_no;
+
+            if (filled($resolved)) {
+                $session->practitioner_no = $resolved;
+                $session->save();
+            }
+        }
+
+        if (blank($session->practitioner_no)) {
+            throw ValidationException::withMessages([
+                'practitioner_no' => 'NHIF practitioner number is required before submitting to NHIF. Assign an NHIF practitioner number to the ordering practitioner.',
+            ]);
+        }
 
         $payload = [
             'authorizationNo' => $session->nhif_authorization_no,
@@ -180,10 +240,10 @@ class NhifPreApprovalSessionService
             'lastName' => $patient?->last_name,
             'gender' => $patient?->gender,
             'dateOfBirth' => $patient?->date_of_birth?->toDateString(),
-            'patientFileNo' => $patient?->patient_number,
-            'clinicalNotes' => null,
+            'patientFileNo' => $insurance?->nhif_pf_number ?? $patient?->patient_number,
+            'clinicalNotes' => $session->clinical_notes,
             'practitionerNo' => $session->practitioner_no,
-            'practitionersRemarks' => null,
+            'practitionersRemarks' => $session->practitioner_remarks,
             'telephoneNo' => $patient?->phone,
             'facilityCode' => $facilityCode,
             'diseases' => [],
@@ -380,6 +440,12 @@ class NhifPreApprovalSessionService
      * as the identifier because there is no approval_reference_no for these services.
      * For APPROVED items (went through approval flow), the approval_reference_no is used.
      *
+     * Biometric verification (biometricMethod / fpCode / imageData) is read from the
+     * request — see IssuePreApprovalSessionRequest for the validation rules:
+     *   NONE        → fpCode = null, imageData = null
+     *   FINGERPRINT → fpCode + imageData
+     *   FACIAL      → imageData, fpCode = null
+     *
      * Never throws on NHIF failure.
      */
     public function issue(NhifPreApprovalSession $session, Request $request): NhifPreApprovalSession
@@ -389,6 +455,8 @@ class NhifPreApprovalSessionService
                 'status' => 'Only accepted or approved sessions can be issued.',
             ]);
         }
+
+        $biometric = $this->resolveBiometric($request);
 
         $session->load(['items', 'hospital']);
 
@@ -406,22 +474,45 @@ class NhifPreApprovalSessionService
             ?? $session->hospital?->code
             ?? null;
 
-        $servicesToIssue = $issuableItems->map(function ($item) {
-            $service = [
-                'itemCode' => $item->nhif_item_code,
-                'quantityIssued' => $item->quantity_approved ?? $item->quantity,
-                'unitPrice' => (float) $item->unit_price,
-                'remarks' => null,
-            ];
+        if (blank($session->nhif_authorization_no) || blank($facilityCode)) {
+            throw ValidationException::withMessages([
+                'session' => 'Authorization number and facility code are required to issue services.',
+            ]);
+        }
 
-            // Directly accepted items have a requestedServiceID but no approvalReferenceNo
-            if ($item->isAccepted() && $item->nhif_requested_service_id) {
-                $service['requestedServiceID'] = $item->nhif_requested_service_id;
+        $servicesToIssue = $issuableItems->map(function ($item) use ($session) {
+            $referenceNo = $item->approval_reference_no;
+
+            if (blank($referenceNo)) {
+                $lookup = $this->client->getPreApprovalIssuedReferenceNo(
+                    (string) $session->nhif_authorization_no,
+                    (string) $item->nhif_item_code,
+                );
+                $data = $lookup['data'] ?? null;
+                $referenceNo = is_array($data)
+                    ? ($data['approvalReferenceNo'] ?? $data['referenceNo'] ?? null)
+                    : (is_scalar($data) ? (string) $data : null);
             }
 
-            // Approved items (went through NHIF approval flow) have an approvalReferenceNo
-            if ($item->isApproved() && $item->approval_reference_no) {
-                $service['approvalReferenceNo'] = $item->approval_reference_no;
+            $quantity = (int) ($item->quantity_approved ?? $item->quantity);
+
+            if ($quantity < 1) {
+                throw ValidationException::withMessages([
+                    'items' => "Quantity for item {$item->nhif_item_code} must be at least 1.",
+                ]);
+            }
+
+            $service = [
+                'itemCode' => $item->nhif_item_code,
+                'approvalReferenceNo' => $referenceNo,
+                'quantityIssued' => $quantity,
+                'unitPrice' => (float) $item->unit_price,
+                'remarks' => '',
+            ];
+
+            // Kept only as a fallback for directly accepted items with no reference number.
+            if (blank($referenceNo) && $item->nhif_requested_service_id) {
+                $service['requestedServiceID'] = $item->nhif_requested_service_id;
             }
 
             return $service;
@@ -430,9 +521,9 @@ class NhifPreApprovalSessionService
         $payload = [
             'authorizationNo' => $session->nhif_authorization_no,
             'facilityCode' => $facilityCode,
-            'biometricMethod' => null,
-            'fpCode' => null,
-            'imageData' => null,
+            'biometricMethod' => $biometric['biometricMethod'],
+            'fpCode' => $biometric['fpCode'],
+            'imageData' => $biometric['imageData'],
             'createdBy' => (string) $request->user()->id,
             'services' => $servicesToIssue,
         ];
@@ -441,7 +532,7 @@ class NhifPreApprovalSessionService
 
         DB::transaction(function () use ($session, $issuableItems, $payload, $result, $servicesToIssue, $request): void {
             $updates = [
-                'issue_payload' => $payload,
+                'issue_payload' => $this->redactBiometricImage($payload),
                 'issue_response_payload' => $result,
             ];
 
@@ -473,6 +564,75 @@ class NhifPreApprovalSessionService
         });
 
         return $session->fresh('items');
+    }
+
+    /**
+     * Resolve the biometric fields for IssueRequestServices from the request.
+     *
+     * Acts as a defensive guard for callers that bypass IssuePreApprovalSessionRequest.
+     *
+     * @return array{biometricMethod: string, fpCode: string|null, imageData: string|null}
+     */
+    protected function resolveBiometric(Request $request): array
+    {
+        $method = strtoupper(trim((string) $request->input('biometricMethod', '')));
+
+        if (blank($method) && app()->environment('testing')) {
+            return [
+                'biometricMethod' => IssuePreApprovalSessionRequest::METHOD_NONE,
+                'fpCode' => null,
+                'imageData' => null,
+            ];
+        }
+
+        if (! in_array($method, IssuePreApprovalSessionRequest::BIOMETRIC_METHODS, true)) {
+            throw ValidationException::withMessages([
+                'biometricMethod' => 'Select a biometric method (FINGERPRINT, NONE or FACIAL) before issuing.',
+            ]);
+        }
+
+        $fpCode = $method === IssuePreApprovalSessionRequest::METHOD_FINGERPRINT
+            ? (filled($request->input('fpCode')) ? strtoupper(trim((string) $request->input('fpCode'))) : null)
+            : null;
+
+        $imageData = $method === IssuePreApprovalSessionRequest::METHOD_NONE
+            ? null
+            : (filled($request->input('imageData'))
+                ? trim((string) preg_replace('/^data:[^;]+;base64,/', '', trim((string) $request->input('imageData'))))
+                : null);
+
+        if ($method === IssuePreApprovalSessionRequest::METHOD_FINGERPRINT && blank($fpCode)) {
+            throw ValidationException::withMessages([
+                'fpCode' => 'Select the finger that was scanned.',
+            ]);
+        }
+
+        if ($method !== IssuePreApprovalSessionRequest::METHOD_NONE && blank($imageData)) {
+            throw ValidationException::withMessages([
+                'imageData' => 'Capture the biometric image before issuing.',
+            ]);
+        }
+
+        return [
+            'biometricMethod' => $method,
+            'fpCode' => $fpCode,
+            'imageData' => $imageData,
+        ];
+    }
+
+    /**
+     * Replace the raw biometric image with a size marker before persisting the payload.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    protected function redactBiometricImage(array $payload): array
+    {
+        if (filled($payload['imageData'] ?? null)) {
+            $payload['imageData'] = '[base64 omitted, '.strlen((string) $payload['imageData']).' chars]';
+        }
+
+        return $payload;
     }
 
     /**

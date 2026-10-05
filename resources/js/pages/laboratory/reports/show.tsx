@@ -3,9 +3,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { brand } from '@/lib/brand';
 import { laboratoryAbnormalFlagLabel, laboratoryOrderPriorityLabel, laboratorySpecimenTypeLabel } from '@/lib/laboratory-status';
-import { type LaboratoryReport, type LaboratoryReportVersionSummary } from '@/types/laboratory';
+import { type LaboratoryReport, type LaboratoryReportResultValueEntry, type LaboratoryReportVersionSummary } from '@/types/laboratory';
 import { Head, Link, router } from '@inertiajs/react';
 import { ArrowLeft, Download, Printer } from 'lucide-react';
+import React from 'react';
 
 interface LaboratoryReportShowProps {
     report: LaboratoryReport;
@@ -55,6 +56,24 @@ export default function LaboratoryReportShow({ report, versions }: LaboratoryRep
         const raw = result.value_numeric ?? result.value_text ?? result.value_code ?? '—';
 
         return result.value_numeric && result.unit ? `${raw} ${result.unit}` : raw;
+    };
+
+    const paramValue = (rv: LaboratoryReportResultValueEntry): string => {
+        const raw = rv.value_numeric ?? rv.value_text ?? rv.value_code ?? '—';
+
+        return rv.value_numeric && rv.unit ? `${raw}` : raw;
+    };
+
+    const formatRefRange = (rv: LaboratoryReportResultValueEntry): string => {
+        const parts: string[] = [];
+        if (rv.reference_low !== null && rv.reference_high !== null) {
+            parts.push(`${rv.reference_low} – ${rv.reference_high}`);
+        }
+        if (rv.reference_critical_low !== null && rv.reference_critical_high !== null) {
+            parts.push(`(crit: ${rv.reference_critical_low} – ${rv.reference_critical_high})`);
+        }
+
+        return parts.join('') || '—';
     };
 
     const allResults = report.results.flatMap((g) => g.results);
@@ -188,29 +207,62 @@ export default function LaboratoryReportShow({ report, versions }: LaboratoryRep
                             <table className="w-full border-collapse text-sm">
                                 <thead>
                                     <tr className="border-b text-left">
-                                        <th className="py-1 pr-2 font-medium">Test</th>
+                                        <th className="py-1 pr-2 font-medium">Parameter</th>
                                         <th className="py-1 pr-2 font-medium">Result</th>
+                                        <th className="py-1 pr-2 font-medium">Unit</th>
                                         <th className="py-1 pr-2 font-medium">Reference Range</th>
                                         <th className="py-1 pr-2 font-medium">Flag</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {group.results.map((result) => (
-                                        <tr key={result.laboratory_result_id} className="border-b last:border-0">
-                                            <td className="py-2 pr-2">
-                                                {result.test_code} — {result.test_name}
-                                            </td>
-                                            <td className="py-2 pr-2 font-medium">{resultValue(result)}</td>
-                                            <td className="text-muted-foreground py-2 pr-2">{result.reference_range ?? '—'}</td>
-                                            <td className="py-2 pr-2">
-                                                {result.abnormal_flag && result.abnormal_flag !== 'normal' && (
-                                                    <Badge variant={result.abnormal_flag === 'critical' ? 'destructive' : 'default'}>
-                                                        {laboratoryAbnormalFlagLabel[result.abnormal_flag]}
-                                                    </Badge>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {group.results.map((result) => {
+                                        const hasParams = result.result_values && result.result_values.length > 0;
+
+                                        if (hasParams) {
+                                            return (
+                                                <React.Fragment key={result.laboratory_result_id}>
+                                                    <tr className="bg-muted/30 border-b">
+                                                        <td colSpan={5} className="py-2 pr-2 font-semibold">
+                                                            {result.test_code} — {result.test_name}
+                                                        </td>
+                                                    </tr>
+                                                    {result.result_values.map((rv, rvIndex) => (
+                                                        <tr key={`${result.laboratory_result_id}-rv-${rvIndex}`} className="border-b last:border-0">
+                                                            <td className="py-1.5 pl-4 pr-2">{rv.parameter_name ?? rv.parameter_code ?? '—'}</td>
+                                                            <td className="py-1.5 pr-2 font-medium">{paramValue(rv)}</td>
+                                                            <td className="text-muted-foreground py-1.5 pr-2">{rv.unit ?? '—'}</td>
+                                                            <td className="text-muted-foreground py-1.5 pr-2">{formatRefRange(rv)}</td>
+                                                            <td className="py-1.5 pr-2">
+                                                                {rv.abnormal_flag && rv.abnormal_flag !== 'normal' && (
+                                                                    <Badge variant={rv.abnormal_flag === 'critical' ? 'destructive' : 'default'}>
+                                                                        {laboratoryAbnormalFlagLabel[rv.abnormal_flag]}
+                                                                    </Badge>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </React.Fragment>
+                                            );
+                                        }
+
+                                        return (
+                                            <tr key={result.laboratory_result_id} className="border-b last:border-0">
+                                                <td className="py-2 pr-2">
+                                                    {result.test_code} — {result.test_name}
+                                                </td>
+                                                <td className="py-2 pr-2 font-medium">{resultValue(result)}</td>
+                                                <td className="text-muted-foreground py-2 pr-2">{result.unit ?? '—'}</td>
+                                                <td className="text-muted-foreground py-2 pr-2">{result.reference_range ?? '—'}</td>
+                                                <td className="py-2 pr-2">
+                                                    {result.abnormal_flag && result.abnormal_flag !== 'normal' && (
+                                                        <Badge variant={result.abnormal_flag === 'critical' ? 'destructive' : 'default'}>
+                                                            {laboratoryAbnormalFlagLabel[result.abnormal_flag]}
+                                                        </Badge>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                             {group.results.some((r) => r.result_comment) && (

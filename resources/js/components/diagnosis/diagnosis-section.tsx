@@ -1,6 +1,7 @@
 import { CancelDiagnosisDialog } from '@/components/diagnosis/cancel-diagnosis-dialog';
 import { CorrectDiagnosisDialog } from '@/components/diagnosis/correct-diagnosis-dialog';
 import { DiagnosisCodeSearch } from '@/components/diagnosis/diagnosis-code-search';
+import { NhifDiseaseSearch } from '@/components/diagnosis/nhif-disease-search';
 import { SetPrimaryDiagnosisDialog } from '@/components/diagnosis/set-primary-diagnosis-dialog';
 import InputError from '@/components/input-error';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +22,7 @@ import {
     isDiagnosisDraft,
 } from '@/lib/diagnosis-status';
 import { type Consultation } from '@/types/consultation';
-import { type DiagnosisCodeSearchResult, type DiagnosisFormData, type DiagnosisType, type EncounterDiagnosis } from '@/types/diagnosis';
+import { type DiagnosisCodeSearchResult, type DiagnosisFormData, type DiagnosisType, type EncounterDiagnosis, type NhifDiseaseSearchResult } from '@/types/diagnosis';
 import { router, useForm } from '@inertiajs/react';
 import { CheckCircle2, ClipboardPlus, LoaderCircle, PenLine, Star, XCircle } from 'lucide-react';
 import { type FormEventHandler, useState } from 'react';
@@ -30,6 +31,7 @@ interface DiagnosisSectionProps {
     encounterId: number;
     consultation: Consultation | null;
     diagnoses: EncounterDiagnosis[];
+    nhifEligible?: boolean;
 }
 
 function formatDateTime(value: string): string {
@@ -44,7 +46,7 @@ const STATUS_LABELS: Record<string, string> = { confirmed: 'Confirm', resolved: 
  * diagnosis page. Requires the consultation to be in_progress or completed
  * (spec §11); the backend re-validates this independently.
  */
-export function DiagnosisSection({ encounterId, consultation, diagnoses }: DiagnosisSectionProps) {
+export function DiagnosisSection({ encounterId, consultation, diagnoses, nhifEligible = false }: DiagnosisSectionProps) {
     const { can } = usePermissions();
     const consultationEngaged = consultation?.status === 'in_progress' || consultation?.status === 'completed';
     const hasActivePrimary = diagnoses.some((d) => d.diagnosis_type === 'primary' && isDiagnosisActive(d.status));
@@ -157,6 +159,11 @@ export function DiagnosisSection({ encounterId, consultation, diagnoses }: Diagn
                                             <span>Cancelled: {diagnosis.cancellation_reason}</span>
                                         )}
                                         {diagnosis.corrected_at && <span>Corrected {formatDateTime(diagnosis.corrected_at)}</span>}
+                                        {diagnosis.nhif_disease_code && (
+                                            <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+                                                NHIF: {diagnosis.nhif_disease_code} — {diagnosis.nhif_disease_name}
+                                            </span>
+                                        )}
                                     </div>
                                 )}
                             </li>
@@ -166,19 +173,43 @@ export function DiagnosisSection({ encounterId, consultation, diagnoses }: Diagn
                     <p className="text-muted-foreground text-sm">No diagnoses have been recorded for this encounter yet.</p>
                 )}
 
-                {can('diagnosis.create') && <AddDiagnosisForm encounterId={encounterId} hasActivePrimary={hasActivePrimary} />}
+                {can('diagnosis.create') && (
+                    <AddDiagnosisForm encounterId={encounterId} hasActivePrimary={hasActivePrimary} nhifEligible={nhifEligible} />
+                )}
             </CardContent>
         </Card>
     );
 }
 
-function AddDiagnosisForm({ encounterId, hasActivePrimary }: { encounterId: number; hasActivePrimary: boolean }) {
+function AddDiagnosisForm({
+    encounterId,
+    hasActivePrimary,
+    nhifEligible,
+}: {
+    encounterId: number;
+    hasActivePrimary: boolean;
+    nhifEligible: boolean;
+}) {
     const [selectedCode, setSelectedCode] = useState<DiagnosisCodeSearchResult | null>(null);
+    const [selectedNhifDisease, setSelectedNhifDisease] = useState<NhifDiseaseSearchResult | null>(null);
     const { data, setData, post, processing, errors, reset } = useForm<DiagnosisFormData>({
         diagnosis_code_id: '',
         diagnosis_type: hasActivePrimary ? 'secondary' : 'primary',
         clinical_note: '',
+        nhif_disease_code: '',
+        nhif_disease_name: '',
+        nhif_icd_version_code: '',
     });
+
+    const handleNhifDiseaseSelect = (disease: NhifDiseaseSearchResult | null) => {
+        setSelectedNhifDisease(disease);
+        setData((prev) => ({
+            ...prev,
+            nhif_disease_code: disease?.disease_code ?? '',
+            nhif_disease_name: disease?.disease_name ?? '',
+            nhif_icd_version_code: disease?.icd_version_code ?? '',
+        }));
+    };
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -187,6 +218,7 @@ function AddDiagnosisForm({ encounterId, hasActivePrimary }: { encounterId: numb
             onSuccess: () => {
                 reset();
                 setSelectedCode(null);
+                setSelectedNhifDisease(null);
             },
         });
     };
@@ -206,6 +238,17 @@ function AddDiagnosisForm({ encounterId, hasActivePrimary }: { encounterId: numb
                 />
                 <InputError message={errors.diagnosis_code_id} />
             </div>
+
+            {nhifEligible && (
+                <div className="grid gap-1.5">
+                    <Label>
+                        NHIF Disease{' '}
+                        <span className="text-muted-foreground font-normal">(optional)</span>
+                    </Label>
+                    <NhifDiseaseSearch selected={selectedNhifDisease} onSelect={handleNhifDiseaseSelect} />
+                    <InputError message={errors.nhif_disease_code} />
+                </div>
+            )}
 
             <div className="grid gap-1.5">
                 <Label>Classification</Label>

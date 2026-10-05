@@ -9,11 +9,16 @@ use App\Models\Appointment;
 use App\Models\Charge;
 use App\Models\Department;
 use App\Models\NhifPreApprovalSessionItem;
+use App\Models\NhifSchemeService;
+use App\Models\NhifServiceMapping;
+use App\Models\Patient;
 use App\Models\PatientAccount;
+use App\Models\PatientInsurance;
 use App\Models\Practitioner;
 use App\Models\ReceptionVisit;
 use App\Models\Service;
 use App\Services\FinancialAuthorizationService;
+use App\Services\NHIF\NhifHttpClient;
 use App\Services\ReceptionVisitService;
 use App\Services\ServicePriceResolver;
 use Illuminate\Http\JsonResponse;
@@ -72,23 +77,25 @@ class ReceptionVisitController extends Controller
             ])
             ->latest('created_at')
             ->paginate(15)
-            ->through(function (ReceptionVisit $visit) use ($financialAuth) {
-                $financialStatus = $financialAuth->statusForSource(ReceptionVisit::class, $visit->id, FinancialAuthorizationService::STATUS_AUTHORIZED);
-
-                $patientAccountId = null;
-                if ($visit->department?->hospital_id && $visit->patient_id) {
-                    $patientAccountId = PatientAccount::query()
-                        ->where('patient_id', $visit->patient_id)
-                        ->where('hospital_id', $visit->department->hospital_id)
-                        ->value('id');
-                }
-
-                $visit->financial_status = $financialStatus;
-                $visit->patient_account_id = $patientAccountId;
-
-                return $visit;
-            })
             ->withQueryString();
+
+        $visitIds = $visits->getCollection()->pluck('id')->all();
+        $accessStatuses = app(ReceptionVisitService::class)->consultationAccessStatuses($visitIds);
+
+        $visits->through(function (ReceptionVisit $visit) use ($accessStatuses) {
+            $patientAccountId = null;
+            if ($visit->department?->hospital_id && $visit->patient_id) {
+                $patientAccountId = PatientAccount::query()
+                    ->where('patient_id', $visit->patient_id)
+                    ->where('hospital_id', $visit->department->hospital_id)
+                    ->value('id');
+            }
+
+            $visit->financial_status = $accessStatuses[$visit->id] ?? FinancialAuthorizationService::STATUS_AUTHORIZED;
+            $visit->patient_account_id = $patientAccountId;
+
+            return $visit;
+        });
 
         return Inertia::render('reception/visits/index', [
             'visits' => $visits,
@@ -100,7 +107,7 @@ class ReceptionVisitController extends Controller
     /**
      * Display the specified reception visit.
      */
-    public function show(ReceptionVisit $visit, FinancialAuthorizationService $financialAuth): Response
+    public function show(ReceptionVisit $visit, ReceptionVisitService $visitService): Response
     {
         $this->authorize('view', $visit);
 
@@ -115,7 +122,7 @@ class ReceptionVisitController extends Controller
             'practitioner.staff:id,first_name,last_name',
         ]);
 
-        $consultationFinancialStatus = $financialAuth->statusForSource(ReceptionVisit::class, $visit->id, FinancialAuthorizationService::STATUS_AUTHORIZED);
+        $consultationFinancialStatus = $visitService->consultationAccessStatus($visit->id);
 
         $consultationCharge = Charge::query()
             ->where('source_type', ReceptionVisit::class)
@@ -160,7 +167,7 @@ class ReceptionVisitController extends Controller
             'practitioners' => Practitioner::query()
                 ->where('status', Practitioner::STATUS_ACTIVE)
                 ->with('staff:id,first_name,last_name')
-                ->get(['id', 'practitioner_number', 'staff_id', 'consultation_service_id', 'practitioner_type']),
+                ->get(['id', 'practitioner_number', 'staff_id', 'consultation_service_id', 'practitioner_type', 'nhif_practitioner_no']),
         ]);
     }
 
@@ -180,6 +187,87 @@ class ReceptionVisitController extends Controller
         }
 
         return $redirect;
+    }
+
+    /**
+     * Return NHIF scheme consultation services for a given patient.
+     * Called from the walk-in form when a patient is selected.
+     * Returns an empty array for cash/non-NHIF patients.
+     */
+    public function nhifConsultationServices(Request $request): JsonResponse
+    {
+        $this->authorize('createWalkIn', ReceptionVisit::class);
+
+        $emptyResponse = ['services' => [], 'insurance' => null];
+
+        $patientId = (int) $request->query('patient_id');
+        if (! $patientId) {
+            return response()->json($emptyResponse);
+        }
+
+        $patient = Patient::find($patientId);
+        $insurance = $patient?->activeNhifInsurance();
+
+        if (! $insurance) {
+            return response()->json($emptyResponse);
+        }
+
+        $insuranceData = [
+            'scheme_id' => $insurance->nhif_scheme_id,
+            'scheme_name' => $insurance->insuranceScheme?->name,
+            'nhif_authorization_no' => $insurance->nhif_authorization_no,
+            'card_number' => $insurance->card_number,
+            'verification_status' => $insurance->verification_status,
+            'nhif_pf_number' => $insurance->nhif_pf_number,
+        ];
+
+        if (! $insurance->nhif_scheme_id) {
+            return response()->json(['services' => [], 'insurance' => $insuranceData]);
+        }
+
+        $typeKeywords = config('nhif.consultation_type_name_keywords', []);
+        $typeIds = config('nhif.consultation_item_type_ids', []);
+
+        $applyTypeFilter = function ($query) use ($typeKeywords, $typeIds) {
+            $query->when(! empty($typeKeywords), function ($q) use ($typeKeywords) {
+                $q->where(function ($inner) use ($typeKeywords) {
+                    foreach ($typeKeywords as $keyword) {
+                        $inner->orWhere('type_name', 'like', '%'.trim($keyword).'%');
+                    }
+                });
+            })->when(empty($typeKeywords) && ! empty($typeIds), fn ($q) => $q->whereIn('item_type_id', $typeIds));
+        };
+
+        $columns = ['id', 'item_code', 'item_name', 'item_type_id', 'type_name'];
+
+        $castItemCode = fn ($svc) => $svc->setAttribute('item_code', (string) $svc->item_code);
+
+        $services = null;
+        try {
+            $services = NhifSchemeService::active()
+                ->where('scheme_id', $insurance->nhif_scheme_id)
+                ->tap($applyTypeFilter)
+                ->orderBy('item_name')
+                ->get([...$columns, 'unit_price'])
+                ->map($castItemCode);
+
+            if ($services->isEmpty()) {
+                $services = NhifSchemeService::catalog()
+                    ->where('scheme_id', $insurance->nhif_scheme_id)
+                    ->tap($applyTypeFilter)
+                    ->orderBy('item_name')
+                    ->get($columns)
+                    ->unique('item_code')
+                    ->values()
+                    ->map($castItemCode);
+            }
+        } catch (\Exception $e) {
+            // Log the exception if needed
+            // logger()->error('Failed to fetch NHIF services', ['exception' => $e]);
+            $services = collect();
+        }
+
+        return response()->json(['services' => $services, 'insurance' => $insuranceData]);
     }
 
     /**
@@ -245,12 +333,12 @@ class ReceptionVisitController extends Controller
      * by the frontend to decide whether to show the "Send to Service" button
      * or the "Payment Required" block.
      */
-    public function financialStatus(ReceptionVisit $visit, FinancialAuthorizationService $financialAuth): JsonResponse
+    public function financialStatus(ReceptionVisit $visit, ReceptionVisitService $visitService): JsonResponse
     {
         $this->authorize('view', $visit);
 
         return response()->json([
-            'status' => $financialAuth->statusForSource(ReceptionVisit::class, $visit->id, FinancialAuthorizationService::STATUS_AUTHORIZED),
+            'status' => $visitService->consultationAccessStatus($visit->id),
         ]);
     }
 
@@ -270,10 +358,23 @@ class ReceptionVisitController extends Controller
         $practitioner = $practitionerId ? Practitioner::find($practitionerId) : null;
 
         if (! $department) {
-            return response()->json(['price' => null]);
+            return response()->json(['price' => null, 'nhif_unit_price' => null]);
         }
 
         $serviceId = $practitioner?->consultation_service_id;
+
+        // NHIF scheme path: resolve HMS service via NhifServiceMapping
+        $nhifItemCode = $request->query('nhif_item_code');
+        if ($nhifItemCode && $department) {
+            $mapping = NhifServiceMapping::query()
+                ->where('hospital_id', $department->hospital_id)
+                ->where('nhif_item_code', $nhifItemCode)
+                ->where('coverage_status', NhifServiceMapping::COVERAGE_COVERED)
+                ->first();
+            if ($mapping?->service_id) {
+                $serviceId = $mapping->service_id;
+            }
+        }
 
         if (! $serviceId) {
             $practitionerType = $practitioner?->practitioner_type;
@@ -293,24 +394,50 @@ class ReceptionVisitController extends Controller
         }
 
         if (! $serviceId) {
-            return response()->json(['price' => null]);
+            return response()->json(['price' => null, 'nhif_unit_price' => null]);
         }
 
         $service = Service::find($serviceId);
 
         if (! $service) {
-            return response()->json(['price' => null]);
+            return response()->json(['price' => null, 'nhif_unit_price' => null]);
         }
 
         try {
             $servicePrice = $resolver->resolvePrice($service, $department->hospital_id);
 
+            $nhifUnitPrice = null;
+            if ($nhifItemCode) {
+                $patientId = (int) $request->query('patient_id');
+                $insurance = $patientId
+                    ? PatientInsurance::where('patient_id', $patientId)
+                        ->where('status', PatientInsurance::STATUS_ACTIVE)
+                        ->where('verification_status', PatientInsurance::VERIFICATION_VERIFIED)
+                        ->whereNotNull('nhif_facility_code')
+                        ->first(['nhif_facility_code'])
+                    : null;
+
+                $facilityCode = $insurance?->nhif_facility_code;
+                if ($facilityCode) {
+                    $nhifResult = app(NhifHttpClient::class)
+                        ->getPricePackageByItemCode($facilityCode, $nhifItemCode);
+                    if ($nhifResult['success']) {
+                        $apiData = $nhifResult['data'];
+                        if (isset($apiData[0]) && is_array($apiData[0])) {
+                            $apiData = $apiData[0];
+                        }
+                        $nhifUnitPrice = $apiData['UnitPrice'] ?? null;
+                    }
+                }
+            }
+
             return response()->json([
                 'price' => (float) $servicePrice->amount,
                 'currency' => $servicePrice->currency ?? config('billing.currency', 'TZS'),
+                'nhif_unit_price' => $nhifUnitPrice !== null ? (float) $nhifUnitPrice : null,
             ]);
         } catch (\Throwable) {
-            return response()->json(['price' => null]);
+            return response()->json(['price' => null, 'nhif_unit_price' => null]);
         }
     }
 

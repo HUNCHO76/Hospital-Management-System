@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\Laboratory\StoreLaboratoryTestRequest;
 use App\Http\Requests\Laboratory\UpdateLaboratoryTestRequest;
+use App\Models\ClinicalEncounter;
 use App\Models\Department;
 use App\Models\LaboratoryTest;
 use App\Models\LaboratoryTestCategory;
+use App\Models\NhifSchemeService;
 use App\Services\LaboratoryTestSearchService;
 use App\Services\LaboratoryTestService;
 use Illuminate\Http\JsonResponse;
@@ -42,15 +44,94 @@ class LaboratoryTestController extends Controller
         $search = $request->string('search')->trim()->toString();
 
         if (mb_strlen($search) < 2) {
-            return response()->json(['data' => []]);
+            return response()->json(['data' => [], 'nhif_catalog' => []]);
         }
 
-        $tests = $this->search->query(['search' => $search, 'status' => LaboratoryTest::STATUS_ACTIVE])
+        $nhifSchemeId = $this->resolveNhifSchemeId($request);
+
+        $tests = $this->search->query(['search' => $search, 'status' => LaboratoryTest::STATUS_ACTIVE], $nhifSchemeId)
             ->orderBy('name')
             ->limit(10)
-            ->get(['id', 'code', 'name']);
+            ->get(['id', 'code', 'name', 'nhif_code']);
 
-        return response()->json(['data' => $tests]);
+        $nhifCatalog = [];
+
+        if ($nhifSchemeId !== null) {
+            $catalogItems = NhifSchemeService::catalog()
+                ->where('item_type_id', 5)
+                ->where('scheme_id', $nhifSchemeId)
+                ->where(function ($q) use ($search) {
+                    $q->where('item_name', 'like', "%{$search}%")
+                        ->orWhere('item_code', 'like', "%{$search}%");
+                })
+                ->selectRaw('DISTINCT item_code, item_name')
+                ->orderBy('item_name')
+                ->limit(15)
+                ->get();
+
+            $mappedTests = LaboratoryTest::where('status', LaboratoryTest::STATUS_ACTIVE)
+                ->whereNotNull('nhif_code')
+                ->whereIn('nhif_code', $catalogItems->pluck('item_code'))
+                ->get(['id', 'code', 'name', 'nhif_code'])
+                ->keyBy('nhif_code');
+
+            $nhifCatalog = $catalogItems->map(function ($item) use ($mappedTests) {
+                $localTest = $mappedTests->get($item->item_code);
+
+                return [
+                    'item_code' => $item->item_code,
+                    'item_name' => $item->item_name,
+                    'local_test' => $localTest ? [
+                        'id' => $localTest->id,
+                        'code' => $localTest->code,
+                        'name' => $localTest->name,
+                    ] : null,
+                ];
+            })->values();
+        }
+
+        return response()->json([
+            'data' => $tests,
+            'nhif_catalog' => $nhifCatalog,
+            'nhif_filtered' => $nhifSchemeId !== null,
+        ]);
+    }
+
+    /**
+     * Resolve an NHIF catalog item_code to a local LaboratoryTest. If a
+     * test with that nhif_code already exists it is returned; otherwise a
+     * new active test is created from the catalog item's name and code.
+     */
+    public function resolveNhifItem(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', LaboratoryTest::class);
+
+        $request->validate([
+            'item_code' => ['required', 'string', 'max:50'],
+            'item_name' => ['required', 'string', 'max:255'],
+        ]);
+
+        $itemCode = $request->input('item_code');
+        $itemName = $request->input('item_name');
+
+        $test = LaboratoryTest::where('nhif_code', $itemCode)->first();
+
+        if (! $test) {
+            $test = LaboratoryTest::create([
+                'code' => 'NHIF-'.$itemCode,
+                'name' => $itemName,
+                'nhif_code' => $itemCode,
+                'status' => LaboratoryTest::STATUS_ACTIVE,
+                'result_type' => 'text',
+                'default_priority' => 'routine',
+            ]);
+        }
+
+        return response()->json([
+            'id' => $test->id,
+            'code' => $test->code,
+            'name' => $test->name,
+        ]);
     }
 
     /**
@@ -157,6 +238,29 @@ class LaboratoryTestController extends Controller
         $service->deactivate($laboratoryTest, $request);
 
         return back()->with('success', 'Laboratory test deactivated.');
+    }
+
+    /**
+     * Resolve the NHIF scheme ID from an optional clinical_encounter_id param.
+     * Returns null if no encounter is provided or the patient has no active NHIF.
+     * Only the server-side query param is trusted — never a raw scheme_id from
+     * the client.
+     */
+    private function resolveNhifSchemeId(Request $request): ?int
+    {
+        $encounterId = $request->query('clinical_encounter_id');
+        if (! $encounterId) {
+            return null;
+        }
+
+        $encounter = ClinicalEncounter::find((int) $encounterId);
+        if (! $encounter) {
+            return null;
+        }
+
+        $insurance = $encounter->patient?->activeNhifInsurance();
+
+        return $insurance?->nhif_scheme_id ? (int) $insurance->nhif_scheme_id : null;
     }
 
     /**

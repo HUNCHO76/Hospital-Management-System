@@ -8,6 +8,7 @@ interface LaboratoryOrderTestSelectorProps {
     selected: LaboratoryTestSearchResult[];
     onChange: (tests: LaboratoryTestSearchResult[]) => void;
     disabled?: boolean;
+    clinicalEncounterId?: number | null;
 }
 
 /**
@@ -17,7 +18,7 @@ interface LaboratoryOrderTestSelectorProps {
  * "one order, many tests"). Selecting an already-chosen test is a no-op
  * client-side; the service is the real duplicate guard.
  */
-export function LaboratoryOrderTestSelector({ selected, onChange, disabled }: LaboratoryOrderTestSelectorProps) {
+export function LaboratoryOrderTestSelector({ selected, onChange, disabled, clinicalEncounterId }: LaboratoryOrderTestSelectorProps) {
     const addTest = (test: LaboratoryTestSearchResult) => {
         if (selected.some((t) => t.id === test.id)) {
             return;
@@ -32,7 +33,7 @@ export function LaboratoryOrderTestSelector({ selected, onChange, disabled }: La
 
     return (
         <div className="space-y-2">
-            <LaboratoryTestSearch selected={null} onSelect={addTest} disabled={disabled} />
+            <LaboratoryTestSearch selected={null} onSelect={addTest} disabled={disabled} clinicalEncounterId={clinicalEncounterId} />
 
             {selected.length > 0 && (
                 <ul className="flex flex-wrap gap-2">

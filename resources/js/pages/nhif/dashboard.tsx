@@ -63,9 +63,17 @@ export default function NhifDashboard({ stats, recentClaims }: Props) {
                                 ? new Date(stats.last_sync_at).toLocaleString()
                                 : 'Never synced'}
                         </p>
-                        <Link href={route('nhif.price-sync.index')} className="mt-1 text-xs text-primary underline">
-                            Sync now →
-                        </Link>
+                        <div className="mt-1 flex flex-wrap gap-3">
+                            <Link href={route('nhif.price-sync.index')} className="text-xs text-primary underline">
+                                Price Sync →
+                            </Link>
+                            <Link href={route('nhif.disease-sync.index')} className="text-xs text-primary underline">
+                                Disease Sync →
+                            </Link>
+                            <Link href={route('nhif.item-mapping.index')} className="text-xs text-primary underline">
+                                Item Mapping →
+                            </Link>
+                        </div>
                     </div>
                 </div>
 

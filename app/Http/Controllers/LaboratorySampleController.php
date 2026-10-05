@@ -73,7 +73,7 @@ class LaboratorySampleController extends Controller
 
         $query = $search->query($filters)
             ->whereIn('status', [LaboratoryOrder::STATUS_ORDERED, LaboratoryOrder::STATUS_SAMPLE_PENDING])
-            ->with(['items.laboratoryTest:id,specimen_type', 'clinicalEncounter.patient:id,patient_number,first_name,middle_name,last_name']);
+            ->with(['items.laboratoryTest:id,specimen_type', 'clinicalEncounter.patient:id,patient_number,first_name,middle_name,last_name', 'clinicalEncounter.patient.insurances']);
         $search->scopeToHospital($query, $this->scopedHospitalId($request));
 
         $paginator = $query->latest('ordered_at')->paginate(15)->withQueryString();
@@ -102,28 +102,36 @@ class LaboratorySampleController extends Controller
      */
     private function batchOrderFinancialStatuses(Collection $orders, FinancialAuthorizationService $financialAuth): array
     {
+        $nhifOrderIds = [];
         $itemIdsByOrderId = [];
+
         foreach ($orders as $order) {
+            if ($order->clinicalEncounter?->patient?->activeNhifInsurance() !== null) {
+                $nhifOrderIds[] = $order->id;
+
+                continue;
+            }
+
             $itemIdsByOrderId[$order->id] = $order->items
                 ->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED)
                 ->pluck('id')
                 ->all();
         }
 
+        $result = array_fill_keys($nhifOrderIds, FinancialAuthorizationService::STATUS_AUTHORIZED);
+
         $allItemIds = collect(array_values($itemIdsByOrderId))->flatten()->all();
 
         if (empty($allItemIds)) {
-            return array_fill_keys(array_keys($itemIdsByOrderId), FinancialAuthorizationService::STATUS_AUTHORIZED);
+            return $result + array_fill_keys(array_keys($itemIdsByOrderId), FinancialAuthorizationService::STATUS_AUTHORIZED);
         }
 
-        // Single query: all charges for every active item on this page.
         $chargesByItemId = Charge::query()
             ->where('source_type', LaboratoryOrderItem::class)
             ->whereIn('source_id', $allItemIds)
             ->get()
             ->keyBy('source_id');
 
-        $result = [];
         foreach ($itemIdsByOrderId as $orderId => $itemIds) {
             $status = FinancialAuthorizationService::STATUS_AUTHORIZED;
             foreach ($itemIds as $itemId) {
@@ -160,11 +168,15 @@ class LaboratorySampleController extends Controller
         $financialAuth = app(FinancialAuthorizationService::class);
         $activeItemIds = $laboratoryOrder->items->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED)->pluck('id')->all();
 
+        $isNhifCovered = $laboratoryOrder->clinicalEncounter?->patient?->activeNhifInsurance() !== null;
+
         $orderFinancialStatus = FinancialAuthorizationService::STATUS_AUTHORIZED;
-        foreach ($activeItemIds as $itemId) {
-            if ($financialAuth->statusForSource(LaboratoryOrderItem::class, $itemId) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
-                $orderFinancialStatus = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
-                break;
+        if (! $isNhifCovered) {
+            foreach ($activeItemIds as $itemId) {
+                if ($financialAuth->statusForSource(LaboratoryOrderItem::class, $itemId) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                    $orderFinancialStatus = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
+                    break;
+                }
             }
         }
 

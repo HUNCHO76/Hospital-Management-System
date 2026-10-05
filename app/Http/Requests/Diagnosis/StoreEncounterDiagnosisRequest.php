@@ -33,6 +33,9 @@ class StoreEncounterDiagnosisRequest extends FormRequest
             ],
             'diagnosis_type' => ['required', 'string', Rule::in([EncounterDiagnosis::TYPE_PRIMARY, EncounterDiagnosis::TYPE_SECONDARY])],
             'clinical_note' => ['nullable', 'string', 'max:2000'],
+            'nhif_disease_code' => ['nullable', 'string', 'max:20', 'required_with:nhif_disease_name,nhif_icd_version_code'],
+            'nhif_disease_name' => ['nullable', 'string', 'max:255', 'required_with:nhif_disease_code'],
+            'nhif_icd_version_code' => ['nullable', 'string', 'max:10', 'required_with:nhif_disease_code'],
         ];
     }
 }

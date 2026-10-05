@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Database\Factories\NhifSchemeServiceFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -11,6 +13,9 @@ use Illuminate\Database\Eloquent\Model;
  */
 class NhifSchemeService extends Model
 {
+    /** @use HasFactory<NhifSchemeServiceFactory> */
+    use HasFactory;
+
     /** @var list<string> */
     protected $fillable = [
         'scheme_id',
@@ -44,6 +49,17 @@ class NhifSchemeService extends Model
     public function scopeActive(Builder $query): void
     {
         $query->where('is_active', true)
+            ->where(fn (Builder $q) => $q->whereNull('start_date')->orWhere('start_date', '<=', today()))
+            ->where(fn (Builder $q) => $q->whereNull('end_date')->orWhere('end_date', '>=', today()));
+    }
+
+    /**
+     * Query from the catalog dump table (`schemes_services`), date-filtered.
+     * This table is populated via SQL import and lacks `is_active`/`unit_price`.
+     */
+    public function scopeCatalog(Builder $query): void
+    {
+        $query->from('schemes_services')
             ->where(fn (Builder $q) => $q->whereNull('start_date')->orWhere('start_date', '<=', today()))
             ->where(fn (Builder $q) => $q->whereNull('end_date')->orWhere('end_date', '>=', today()));
     }

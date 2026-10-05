@@ -39,6 +39,8 @@ export interface ClinicalEncounterPractitioner {
     staff_id?: number;
     practitioner_number: string;
     practitioner_type?: string;
+    nhif_practitioner_no?: string | null;
+    name?: string | null;
     staff?: ClinicalEncounterPractitionerStaff;
 }
 

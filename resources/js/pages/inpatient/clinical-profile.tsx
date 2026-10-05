@@ -20,11 +20,16 @@ interface VitalSign {
     id: number;
     recorded_at: string;
     temperature_c: number | null;
-    pulse_rate: number | null;
-    blood_pressure_systolic: number | null;
-    blood_pressure_diastolic: number | null;
-    respiratory_rate: number | null;
-    oxygen_saturation: number | null;
+    pulse_rate?: number | null;
+    pulse_bpm?: number | null;
+    blood_pressure_systolic?: number | null;
+    systolic_mmhg?: number | null;
+    blood_pressure_diastolic?: number | null;
+    diastolic_mmhg?: number | null;
+    respiratory_rate?: number | null;
+    respiratory_rate_bpm?: number | null;
+    oxygen_saturation?: number | null;
+    oxygen_saturation_pct?: number | null;
     weight_kg: number | null;
     height_cm: number | null;
     bmi: number | null;
@@ -507,17 +512,26 @@ export default function ClinicalProfile({
                                 Latest Vitals
                             </div>
                             {latestVital ? (
-                                <div className="mt-1 text-sm">
-                                    {latestVital.pulse_rate !== null && <span className="mr-2">HR {latestVital.pulse_rate}</span>}
-                                    {latestVital.blood_pressure_systolic !== null && (
-                                        <span className="mr-2">
-                                            BP {latestVital.blood_pressure_systolic}/{latestVital.blood_pressure_diastolic}
-                                        </span>
-                                    )}
-                                    {latestVital.oxygen_saturation !== null && (
-                                        <span>SpO₂ {latestVital.oxygen_saturation}%</span>
-                                    )}
-                                </div>
+                                (() => {
+                                    const pulse = latestVital.pulse_bpm ?? latestVital.pulse_rate;
+                                    const sys = latestVital.systolic_mmhg ?? latestVital.blood_pressure_systolic;
+                                    const dia = latestVital.diastolic_mmhg ?? latestVital.blood_pressure_diastolic;
+                                    const spo2 = latestVital.oxygen_saturation_pct ?? latestVital.oxygen_saturation;
+
+                                    return (
+                                        <div className="mt-1 text-sm">
+                                            {pulse != null && <span className="mr-2">HR {pulse}</span>}
+                                            {sys != null && (
+                                                <span className="mr-2">
+                                                    BP {sys}/{dia ?? '—'}
+                                                </span>
+                                            )}
+                                            {spo2 != null && (
+                                                <span>SpO₂ {spo2}%</span>
+                                            )}
+                                        </div>
+                                    );
+                                })()
                             ) : (
                                 <p className="text-muted-foreground mt-1 text-sm">No vitals recorded</p>
                             )}
@@ -632,23 +646,29 @@ export default function ClinicalProfile({
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {vitals.map((vital) => (
-                                        <TableRow key={vital.id}>
-                                            <TableCell className="text-sm">{formatDateTime(vital.recorded_at)}</TableCell>
-                                            <TableCell>{vital.temperature_c ?? '—'}</TableCell>
-                                            <TableCell>{vital.pulse_rate ?? '—'}</TableCell>
-                                            <TableCell>
-                                                {vital.blood_pressure_systolic !== null && vital.blood_pressure_diastolic !== null
-                                                    ? `${vital.blood_pressure_systolic}/${vital.blood_pressure_diastolic}`
-                                                    : '—'}
-                                            </TableCell>
-                                            <TableCell>{vital.respiratory_rate ?? '—'}</TableCell>
-                                            <TableCell>{vital.oxygen_saturation ?? '—'}</TableCell>
-                                            <TableCell>{vital.weight_kg ?? '—'}</TableCell>
-                                            <TableCell>{vital.bmi ?? '—'}</TableCell>
-                                            <TableCell className="text-sm">{vital.recordedBy?.UserName ?? '—'}</TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {vitals.map((vital) => {
+                                        const pulse = vital.pulse_bpm ?? vital.pulse_rate;
+                                        const sys = vital.systolic_mmhg ?? vital.blood_pressure_systolic;
+                                        const dia = vital.diastolic_mmhg ?? vital.blood_pressure_diastolic;
+                                        const resp = vital.respiratory_rate_bpm ?? vital.respiratory_rate;
+                                        const spo2 = vital.oxygen_saturation_pct ?? vital.oxygen_saturation;
+
+                                        return (
+                                            <TableRow key={vital.id}>
+                                                <TableCell className="text-sm">{formatDateTime(vital.recorded_at)}</TableCell>
+                                                <TableCell>{vital.temperature_c ?? '—'}</TableCell>
+                                                <TableCell>{pulse ?? '—'}</TableCell>
+                                                <TableCell>
+                                                    {sys != null && dia != null ? `${sys}/${dia}` : '—'}
+                                                </TableCell>
+                                                <TableCell>{resp ?? '—'}</TableCell>
+                                                <TableCell>{spo2 ?? '—'}</TableCell>
+                                                <TableCell>{vital.weight_kg ?? '—'}</TableCell>
+                                                <TableCell>{vital.bmi ?? '—'}</TableCell>
+                                                <TableCell className="text-sm">{vital.recordedBy?.UserName ?? '—'}</TableCell>
+                                            </TableRow>
+                                        );
+                                    })}
                                 </TableBody>
                             </Table>
                         )}

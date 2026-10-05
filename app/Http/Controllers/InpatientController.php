@@ -89,7 +89,7 @@ class InpatientController extends Controller
         $this->authorize('view', $admission);
 
         $admission->load([
-            'patient:id,patient_number,first_name,middle_name,last_name,date_of_birth,gender,blood_group,allergies',
+            'patient:id,patient_number,first_name,middle_name,last_name,date_of_birth,gender,blood_group',
             'hospital:id,name',
             'department:id,name',
             'practitioner:id,practitioner_number,staff_id',
@@ -113,15 +113,37 @@ class InpatientController extends Controller
                 'clinicalNotes.versions',
                 'laboratoryOrders.items.result',
                 'radiologyOrders.items',
-                'prescriptionOrders.items.medication:id,name',
+                'prescriptionOrders.items.medication:id,generic_name,brand_name',
             ])
             ->orderByDesc('created_at')
             ->get();
 
-        // Inpatient vitals — all vitals recorded against this admission
-        // across all its encounters, newest first.
-        $vitals = VitalSign::query()
+        $admissionEncounterIds = ClinicalEncounter::query()
             ->where('admission_id', $admission->id)
+            ->when($admission->clinical_encounter_id, fn ($q) => $q->orWhere('id', $admission->clinical_encounter_id))
+            ->pluck('id')
+            ->toArray();
+
+        // Ensure any vitals recorded under encounters belonging to this admission have admission_id backfilled
+        if (! empty($admissionEncounterIds)) {
+            VitalSign::query()
+                ->whereNull('admission_id')
+                ->whereIn('clinical_encounter_id', $admissionEncounterIds)
+                ->update(['admission_id' => $admission->id]);
+        }
+
+        // Inpatient vitals — all vitals recorded against this admission
+        // across all its encounters, linked encounters, or for this patient.
+        $vitals = VitalSign::query()
+            ->where(function ($query) use ($admission, $admissionEncounterIds) {
+                $query->where('admission_id', $admission->id);
+                if (! empty($admissionEncounterIds)) {
+                    $query->orWhereIn('clinical_encounter_id', $admissionEncounterIds);
+                }
+                $query->orWhereHas('clinicalEncounter', function ($q) use ($admission) {
+                    $q->where('patient_id', $admission->patient_id);
+                });
+            })
             ->with('recordedBy:id,UserName')
             ->orderByDesc('recorded_at')
             ->get();

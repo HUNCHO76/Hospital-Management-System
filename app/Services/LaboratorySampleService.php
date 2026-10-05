@@ -73,11 +73,16 @@ class LaboratorySampleService
 
             // Step 62: financial authorization gate — no-charge rule: tests
             // with no billing mapping (capture skipped) never block sampling.
-            $this->financialAuth->assertAuthorizedForSources(
-                LaboratoryOrderItem::class,
-                $itemIds,
-                FinancialAuthorizationService::STATUS_AUTHORIZED,
-            );
+            // NHIF patients are exempt: NHIF covers the cost, so specimen
+            // collection proceeds without upfront payment.
+            $isNhifCovered = $order->clinicalEncounter?->patient?->activeNhifInsurance() !== null;
+            if (! $isNhifCovered) {
+                $this->financialAuth->assertAuthorizedForSources(
+                    LaboratoryOrderItem::class,
+                    $itemIds,
+                    FinancialAuthorizationService::STATUS_AUTHORIZED,
+                );
+            }
 
             $containerType = $data['container_type'] ?? null;
             $this->assertSpecimenMatchesCatalog($items, $data['specimen_type'], $containerType);

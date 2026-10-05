@@ -1411,3 +1411,47 @@ function cashierSessionFor(Hospital $hospital, ?User $cashier = null, array $ove
         'notes' => null,
     ], $overrides), requestAs($cashier));
 }
+
+/**
+ * Build a self-contained admission with a priced inpatient service and its
+ * auto-captured pending charge (Phase 9, Step 83). Does NOT reuse an
+ * existing $ctx to avoid a second admission for the same patient when a test
+ * also calls activeAdmission().
+ *
+ * @param  array<string, mixed>  $overrides  Supports: amount, service (array)
+ * @return array{hospital: Hospital, patient: Patient, practitioner: Practitioner, actor: User, admission: Admission, charge: Charge, service: Service}
+ */
+function chargedAdmission(array $overrides = []): array
+{
+    $hospital = Hospital::factory()->create();
+    $department = Department::factory()->create(['hospital_id' => $hospital->id]);
+    $staffMember = Staff::factory()->create(['hospital_id' => $hospital->id]);
+    $practitioner = Practitioner::factory()->create(['staff_id' => $staffMember->id]);
+    $patient = Patient::factory()->create();
+
+    $service = serviceFor(array_merge([
+        'category' => 'inpatient',
+        'name' => 'General Ward',
+    ], $overrides['service'] ?? []));
+    priceFor($service, $hospital, ['amount' => $overrides['amount'] ?? 10000]);
+
+    $actor = userWithRole('accountant');
+    Staff::factory()->create(['user_id' => $actor->id, 'hospital_id' => $hospital->id]);
+
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $hospital->id,
+        'patient_id' => $patient->id,
+        'department_id' => $department->id,
+        'practitioner_id' => $practitioner->id,
+        'admission_type' => 'elective',
+        'ward_type' => 'General',
+        'service_id' => $service->id,
+    ], requestAs($actor));
+
+    $charge = Charge::query()
+        ->where('source_type', Admission::class)
+        ->where('source_id', $admission->id)
+        ->firstOrFail();
+
+    return compact('hospital', 'patient', 'practitioner', 'actor', 'admission', 'charge', 'service');
+}

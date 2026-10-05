@@ -48,6 +48,10 @@ export interface NhifAdmissionRecord {
     id: number;
     nhif_status: string;
     nhif_admission_no: string | null;
+    nhif_authorization_no?: string | null;
+    nhif_facility_code?: string | null;
+    nhif_practitioner_no?: string | null;
+    retry_count?: number;
     error_message: string | null;
     submitted_at: string | null;
     resolved_at: string | null;
@@ -112,7 +116,12 @@ export interface AdmissionFormData {
     room_type: string;
     diagnosis_at_admission: string;
     notes: string;
-    [key: string]: string;
+    nhif_authorization_no?: string;
+    nhif_ward_type_id?: string;
+    nhif_room_type_id?: string;
+    nhif_admission_type_id?: string;
+    patient_insurance_id?: string;
+    [key: string]: string | undefined;
 }
 
 export interface DischargeFormData {

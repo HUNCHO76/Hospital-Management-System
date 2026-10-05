@@ -511,3 +511,204 @@ test('creating an admission never creates a new patient or clinical encounter re
         ->and($admission->clinical_encounter_id)->toBe($encounter->id)
         ->and($admission->patient_id)->toBe($ctx['patient']->id);
 });
+
+test('creating an admission automatically resolves nhif_authorization_no from patient insurance if not specified', function () {
+    $ctx = admissionReadyContext();
+    $user = userWithRole('nurse');
+
+    \App\Models\PatientInsurance::factory()->create([
+        'patient_id' => $ctx['patient']->id,
+        'nhif_authorization_no' => 'AUTH-AUTO-12345',
+        'status' => \App\Models\PatientInsurance::STATUS_ACTIVE,
+        'verification_status' => \App\Models\PatientInsurance::VERIFICATION_VERIFIED,
+    ]);
+
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'nhif_ward_type_id' => 21,
+    ], requestAs($user));
+
+    $nhifAdm = \App\Models\NhifAdmission::where('admission_id', $admission->id)->first();
+    expect($nhifAdm)->not->toBeNull()
+        ->and($nhifAdm->nhif_authorization_no)->toBe('AUTH-AUTO-12345');
+});
+
+test('submitNhif records nhif_admission_no and allows resubmitting an already submitted admission', function () {
+    $ctx = admissionReadyContext();
+    $user = userWithRole('nurse');
+
+    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient->shouldReceive('admitPatient')->andReturn([
+        'success' => true,
+        'http_status' => 200,
+        'data' => [
+            'AdmissionNo' => '901627800505',
+            'AdmissionID' => '579ac53f-3a2a-48a1-8d30-1b0507ef788c',
+            'FullName' => 'Ivy Smith',
+        ],
+        'error' => null,
+    ]);
+    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'nhif_authorization_no' => '201627864221',
+        'nhif_ward_type_id' => 21,
+    ], requestAs($user));
+
+    // First submission
+    $admission = app(AdmissionService::class)->submitNhif($admission, requestAs($user));
+    expect($admission->nhifAdmission->nhif_status)->toBe(\App\Models\NhifAdmission::STATUS_SUBMITTED)
+        ->and($admission->nhifAdmission->nhif_admission_no)->toBe('901627800505');
+
+    // Resubmission should be allowed and increment retry count
+    $admission = app(AdmissionService::class)->submitNhif($admission, requestAs($user));
+    expect($admission->nhifAdmission->nhif_status)->toBe(\App\Models\NhifAdmission::STATUS_SUBMITTED)
+        ->and($admission->nhifAdmission->nhif_admission_no)->toBe('901627800505')
+        ->and($admission->nhifAdmission->retry_count)->toBeGreaterThan(0);
+});
+
+test('NhifAdmissionController lookup retrieves details using GetAdmissionDetailsByAuthorizationNo endpoint and accepts authorizationNo parameter', function () {
+    $user = userWithRole('nurse');
+
+    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient->shouldReceive('getAdmissionDetailsByAuthorizationNo')
+        ->with('201627864221')
+        ->once()
+        ->andReturn([
+            'success' => true,
+            'http_status' => 200,
+            'data' => [
+                'AdmissionID' => '579ac53f-3a2a-48a1-8d30-1b0507ef788c',
+                'AdmissionNo' => '901627800505',
+                'CardNo' => 'CARD-0010',
+                'AuthorizationNo' => '201627864221',
+                'FullName' => 'Ivy Smith',
+                'Gender' => 'Female',
+                'DateAdmitted' => '2026-10-05T12:55:36',
+                'DiagnosisAtAdmission' => 'Acute Appendicitis',
+                'FacilityCode' => '01141',
+                'AdmittingPractitionerNo' => 'MCT20240997',
+                'IsDischarged' => false,
+            ],
+            'error' => null,
+        ]);
+    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+
+    $response = $this->actingAs($user)->getJson(route('nhif.admissions.lookup', ['authorizationNo' => '201627864221']));
+
+    $response->assertOk()
+        ->assertJson([
+            'AdmissionNo' => '901627800505',
+            'FullName' => 'Ivy Smith',
+            'AuthorizationNo' => '201627864221',
+            'DiagnosisAtAdmission' => 'Acute Appendicitis',
+        ]);
+});
+
+test('NhifAdmissionController sync updates local NhifAdmission record with live data', function () {
+    $ctx = admissionReadyContext();
+    $user = userWithRole('nurse');
+
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'nhif_authorization_no' => '201627864221',
+        'nhif_ward_type_id' => 21,
+    ], requestAs($user));
+
+    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient->shouldReceive('getAdmissionDetailsByAuthorizationNo')
+        ->with('201627864221')
+        ->once()
+        ->andReturn([
+            'success' => true,
+            'http_status' => 200,
+            'data' => [
+                'AdmissionID' => '579ac53f-3a2a-48a1-8d30-1b0507ef788c',
+                'AdmissionNo' => '901627800505',
+                'FullName' => 'Ivy Smith',
+                'FacilityCode' => '01141',
+                'AdmittingPractitionerNo' => 'MCT20240997',
+                'DateAdmitted' => '2026-10-05T12:55:36',
+                'DiagnosisAtAdmission' => 'test',
+            ],
+            'error' => null,
+        ]);
+    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+
+    $response = $this->actingAs($user)->postJson(route('nhif.admissions.sync'), [
+        'admission_id' => $admission->id,
+        'authorization_no' => '201627864221',
+    ]);
+
+    $response->assertOk()
+        ->assertJson([
+            'success' => true,
+            'message' => 'Admission details successfully synchronized with NHIF.',
+        ]);
+
+    $admission->refresh();
+    expect($admission->nhifAdmission->nhif_admission_no)->toBe('901627800505')
+        ->and($admission->nhifAdmission->nhif_status)->toBe(\App\Models\NhifAdmission::STATUS_SUBMITTED)
+        ->and($admission->nhifAdmission->nhif_facility_code)->toBe('01141')
+        ->and($admission->nhifAdmission->nhif_practitioner_no)->toBe('MCT20240997');
+});
+
+test('an approved admission with an NHIF admission number can be confirmed without cash payment', function () {
+    $ctx = admissionReadyContext();
+    $nurse = userWithRole('nurse');
+    $admin = userWithRole('hospital-admin');
+
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'practitioner_id' => $ctx['practitioner']->id,
+        'service_id' => $ctx['service']->id,
+        'admission_type' => 'emergency',
+        'nhif_authorization_no' => '201627864221',
+        'nhif_ward_type_id' => 21,
+    ], requestAs($nurse));
+
+    // Stamped with NHIF Admission Number
+    $admission->nhifAdmission->update([
+        'nhif_admission_no' => '901627800505',
+        'nhif_status' => \App\Models\NhifAdmission::STATUS_SUBMITTED,
+    ]);
+
+    $admission = approvedAdmission($admission, $admin);
+
+    // Confirm should succeed with NO cash payment
+    $confirmed = app(AdmissionService::class)->confirm($admission, requestAs($nurse));
+
+    expect($confirmed->status)->toBe(Admission::STATUS_ACTIVE)
+        ->and($confirmed->admitted_at)->not->toBeNull();
+});
+
+test('an un-authorized cash admission still requires payment before confirmation', function () {
+    $ctx = admissionReadyContext();
+    $nurse = userWithRole('nurse');
+    $admin = userWithRole('hospital-admin');
+
+    // Create admission with priced service, no NHIF
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'practitioner_id' => $ctx['practitioner']->id,
+        'service_id' => $ctx['service']->id,
+        'admission_type' => 'emergency',
+    ], requestAs($nurse));
+
+    $admission = approvedAdmission($admission, $admin);
+
+    // Confirm should be blocked by payment
+    expect(fn () => app(AdmissionService::class)->confirm($admission, requestAs($nurse)))
+        ->toThrow(ValidationException::class);
+});
+
+
+

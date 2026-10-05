@@ -41,6 +41,13 @@ export interface LaboratoryTestSearchResult {
     id: number;
     code: string;
     name: string;
+    nhif_code?: string | null;
+}
+
+export interface NhifCatalogItem {
+    item_code: string;
+    item_name: string;
+    local_test: { id: number; code: string; name: string } | null;
 }
 
 export interface LaboratoryOrderUser {
@@ -611,6 +618,21 @@ export interface LaboratoryResultFilters {
     date_to: string;
 }
 
+export interface LaboratoryReportResultValueEntry {
+    parameter_name: string | null;
+    parameter_code: string | null;
+    value_numeric: string | null;
+    value_text: string | null;
+    value_code: string | null;
+    unit: string | null;
+    reference_low: string | null;
+    reference_high: string | null;
+    reference_critical_low: string | null;
+    reference_critical_high: string | null;
+    abnormal_flag: LaboratoryAbnormalFlag | null;
+    result_comment: string | null;
+}
+
 export interface LaboratoryReportResultEntry {
     laboratory_result_id: number;
     sample_number: string | null;
@@ -625,6 +647,7 @@ export interface LaboratoryReportResultEntry {
     reference_range: string | null;
     abnormal_flag: LaboratoryAbnormalFlag | null;
     result_comment: string | null;
+    result_values: LaboratoryReportResultValueEntry[];
     entered_by: string | null;
     verified_by: string | null;
     verified_at: string | null;

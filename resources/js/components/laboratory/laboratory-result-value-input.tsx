@@ -18,6 +18,7 @@ interface LaboratoryResultValueInputProps {
     onChangeCode: (value: string) => void;
     errors: { value_numeric?: string; value_text?: string; value_code?: string };
     disabled?: boolean;
+    hideLabel?: boolean;
 }
 
 const DEFAULT_OPTIONS: Record<string, string[]> = {
@@ -51,11 +52,14 @@ export function LaboratoryResultValueInput({
     onChangeCode,
     errors,
     disabled,
+    hideLabel = false,
 }: LaboratoryResultValueInputProps) {
+    const inputAnimationClass = "transition-all duration-300 focus:scale-[1.02] focus:shadow-md focus-visible:ring-primary/50";
+
     if (resultType === 'numeric') {
         return (
             <div className="grid gap-2">
-                <Label htmlFor="value_numeric">Result {unit && `(${unit})`}</Label>
+                {!hideLabel && <Label htmlFor="value_numeric">Result {unit && `(${unit})`}</Label>}
                 <Input
                     id="value_numeric"
                     type="number"
@@ -63,7 +67,7 @@ export function LaboratoryResultValueInput({
                     value={valueNumeric}
                     onChange={(e) => onChangeNumeric(e.target.value)}
                     disabled={disabled}
-                    className="max-w-xs"
+                    className={`max-w-xs ${inputAnimationClass}`}
                 />
                 <InputError message={errors.value_numeric} />
             </div>
@@ -73,21 +77,28 @@ export function LaboratoryResultValueInput({
     if (resultType === 'text') {
         return (
             <div className="grid gap-2">
-                <Label htmlFor="value_text">Result</Label>
-                <Textarea id="value_text" rows={4} value={valueText} onChange={(e) => onChangeText(e.target.value)} disabled={disabled} />
+                {!hideLabel && <Label htmlFor="value_text">Result</Label>}
+                <Textarea 
+                    id="value_text" 
+                    rows={hideLabel ? 1 : 4} 
+                    value={valueText} 
+                    onChange={(e) => onChangeText(e.target.value)} 
+                    disabled={disabled} 
+                    className={inputAnimationClass}
+                />
                 <InputError message={errors.value_text} />
             </div>
         );
     }
 
-    if (resultType === 'enum') {
+    if (resultType === 'enum' || resultType === 'option') {
         const options = resultOptions ?? [];
 
         return (
             <div className="grid gap-2">
-                <Label>Result</Label>
+                {!hideLabel && <Label>Result</Label>}
                 <Select value={valueCode} onValueChange={onChangeCode} disabled={disabled}>
-                    <SelectTrigger className="max-w-xs">
+                    <SelectTrigger className={`max-w-xs ${inputAnimationClass}`}>
                         <SelectValue placeholder="Select a value" />
                     </SelectTrigger>
                     <SelectContent>
@@ -108,7 +119,7 @@ export function LaboratoryResultValueInput({
 
         return (
             <div className="grid gap-2">
-                <Label>Result</Label>
+                {!hideLabel && <Label>Result</Label>}
                 <RadioGroup>
                     {options.map((option) => (
                         <Radio
@@ -129,9 +140,16 @@ export function LaboratoryResultValueInput({
 
     return (
         <div className="grid gap-2">
-            <Label htmlFor="value_text">Result</Label>
-            <p className="text-muted-foreground text-xs">This test has no configured result type — entering free text.</p>
-            <Textarea id="value_text" rows={4} value={valueText} onChange={(e) => onChangeText(e.target.value)} disabled={disabled} />
+            {!hideLabel && <Label htmlFor="value_text">Result</Label>}
+            {!hideLabel && <p className="text-muted-foreground text-xs">This test has no configured result type — entering free text.</p>}
+            <Textarea 
+                id="value_text" 
+                rows={hideLabel ? 1 : 4} 
+                value={valueText} 
+                onChange={(e) => onChangeText(e.target.value)} 
+                disabled={disabled}
+                className={inputAnimationClass}
+            />
             <InputError message={errors.value_text} />
         </div>
     );

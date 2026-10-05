@@ -1,8 +1,10 @@
 import { ApproveAdmissionDialog } from '@/components/admissions/approve-admission-dialog';
 import { CancelAdmissionDialog } from '@/components/admissions/cancel-admission-dialog';
 import { DischargeAdmissionDialog } from '@/components/admissions/discharge-admission-dialog';
+import { NhifLiveAdmissionDetailsDialog } from '@/components/admissions/nhif-live-admission-details-dialog';
 import { RejectAdmissionDialog } from '@/components/admissions/reject-admission-dialog';
 import { ReturnAdmissionDialog } from '@/components/admissions/return-admission-dialog';
+import { SubmitNhifDialog } from '@/components/admissions/submit-nhif-dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,7 +14,7 @@ import { admissionStatusLabel, admissionStatusVariant, admissionTypeLabel, allow
 import { type BreadcrumbItem } from '@/types';
 import { type Admission, type DischargeType } from '@/types/admission';
 import { Head, Link, router } from '@inertiajs/react';
-import { AlertTriangle, CheckCircle2, ClipboardCheck, LogOut, RotateCcw, Send, ShieldCheck, ThumbsDown, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardCheck, LogOut, RotateCcw, ShieldCheck, ThumbsDown, XCircle } from 'lucide-react';
 
 interface AdmissionShowProps {
     admission: Admission;
@@ -64,10 +66,6 @@ export default function AdmissionShow({
 
     const confirmAdmission = () => {
         router.post(route('admissions.confirm', admission.id), {}, { preserveScroll: true });
-    };
-
-    const submitNhif = () => {
-        router.post(route('admissions.nhif-submit', admission.id), {}, { preserveScroll: true });
     };
 
     return (
@@ -160,10 +158,7 @@ export default function AdmissionShow({
                         )}
 
                         {canSubmitNhif && admission.patient_id && (
-                            <Button size="sm" variant="outline" onClick={submitNhif}>
-                                <Send className="h-4 w-4" />
-                                Submit to NHIF
-                            </Button>
+                            <SubmitNhifDialog admission={admission} />
                         )}
                     </div>
                 </div>
@@ -194,10 +189,20 @@ export default function AdmissionShow({
                     <Alert variant="default" className="border-green-500/50 bg-green-500/10 text-green-800 dark:text-green-300">
                         <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
                         <AlertDescription>
-                            <p className="font-semibold">Approved — awaiting admission confirmation</p>
+                            <p className="font-semibold">
+                                {admission.nhifAdmission?.nhif_admission_no
+                                    ? 'Approved & NHIF Authorized — Ready for Immediate Admission'
+                                    : 'Approved — awaiting admission confirmation'}
+                            </p>
                             <p className="text-xs">
-                                Approved by {admission.approvedBy?.UserName ?? '—'} at {formatDateTime(admission.approved_at)}. Nursing staff
-                                must confirm billing/NHIF clearance and admit the patient.
+                                Approved by {admission.approvedBy?.UserName ?? '—'} at {formatDateTime(admission.approved_at)}.{' '}
+                                {admission.nhifAdmission?.nhif_admission_no ? (
+                                    <span className="font-medium text-green-700 dark:text-green-300">
+                                        Cleared under NHIF Admission No: <span className="font-mono font-bold">{admission.nhifAdmission.nhif_admission_no}</span>. No cash payment required. Nursing staff can admit the patient immediately.
+                                    </span>
+                                ) : (
+                                    'Nursing staff must confirm billing/NHIF clearance and admit the patient.'
+                                )}
                             </p>
                         </AlertDescription>
                     </Alert>
@@ -262,6 +267,20 @@ export default function AdmissionShow({
                                         {admission.charges_per_day
                                             ? Number(admission.charges_per_day).toLocaleString(undefined, { minimumFractionDigits: 2 })
                                             : '—'}
+                                    </dd>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-muted-foreground">Payment Requirement</dt>
+                                    <dd>
+                                        {admission.nhifAdmission?.nhif_admission_no ? (
+                                            <Badge variant="outline" className="border-green-500 text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950/40">
+                                                Covered by NHIF (No Payment Required)
+                                            </Badge>
+                                        ) : admission.patient_insurance_id ? (
+                                            <Badge variant="secondary">NHIF Pending</Badge>
+                                        ) : (
+                                            <Badge variant="outline">Cash Payment</Badge>
+                                        )}
                                     </dd>
                                 </div>
                                 <div className="flex justify-between gap-4">
@@ -404,6 +423,94 @@ export default function AdmissionShow({
                             )}
                         </CardContent>
                     </Card>
+
+                    {admission.nhifAdmission && (
+                        <Card className="md:col-span-2 border-primary/20 bg-primary/5">
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-base flex items-center gap-2">
+                                    <ShieldCheck className="h-5 w-5 text-primary" />
+                                    NHIF Inpatient Admission Record
+                                </CardTitle>
+                                <div className="flex items-center gap-2">
+                                    {admission.nhifAdmission.nhif_authorization_no && (
+                                        <NhifLiveAdmissionDetailsDialog
+                                            authorizationNo={admission.nhifAdmission.nhif_authorization_no}
+                                            admissionId={admission.id}
+                                        />
+                                    )}
+                                    {canSubmitNhif && (
+                                        <SubmitNhifDialog admission={admission} />
+                                    )}
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">NHIF Status</p>
+                                        <Badge
+                                            variant={admission.nhifAdmission.nhif_status === 'submitted' ? 'default' : 'secondary'}
+                                            className="capitalize mt-1"
+                                        >
+                                            {admission.nhifAdmission.nhif_status}
+                                        </Badge>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">NHIF Admission No</p>
+                                        <p className="font-mono font-bold text-foreground text-base mt-0.5">
+                                            {admission.nhifAdmission.nhif_admission_no ?? '—'}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Authorization No</p>
+                                        <p className="font-mono text-foreground font-semibold mt-0.5">
+                                            {admission.nhifAdmission.nhif_authorization_no ?? '—'}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Submitted At</p>
+                                        <p className="text-foreground mt-0.5">
+                                            {formatDateTime(admission.nhifAdmission.submitted_at)}
+                                        </p>
+                                    </div>
+                                    {admission.nhifAdmission.nhif_facility_code && (
+                                        <div>
+                                            <p className="text-xs text-muted-foreground">Facility Code</p>
+                                            <p className="font-mono text-foreground mt-0.5">{admission.nhifAdmission.nhif_facility_code}</p>
+                                        </div>
+                                    )}
+                                    {admission.nhifAdmission.nhif_practitioner_no && (
+                                        <div>
+                                            <p className="text-xs text-muted-foreground">Practitioner No</p>
+                                            <p className="font-mono text-foreground mt-0.5">{admission.nhifAdmission.nhif_practitioner_no}</p>
+                                        </div>
+                                    )}
+                                    {admission.nhifAdmission.retry_count && admission.nhifAdmission.retry_count > 0 ? (
+                                        <div>
+                                            <p className="text-xs text-muted-foreground">Submissions / Retries</p>
+                                            <p className="text-foreground mt-0.5">{admission.nhifAdmission.retry_count + 1} times</p>
+                                        </div>
+                                    ) : null}
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Payment Clearance</p>
+                                        <p className="mt-1">
+                                            {admission.nhifAdmission.nhif_admission_no ? (
+                                                <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs">
+                                                    100% NHIF Covered
+                                                </Badge>
+                                            ) : (
+                                                <span className="text-xs text-muted-foreground">Awaiting Admission No</span>
+                                            )}
+                                        </p>
+                                    </div>
+                                </div>
+                                {admission.nhifAdmission.error_message && (
+                                    <div className="mt-4 p-3 text-xs rounded-md bg-destructive/10 text-destructive border border-destructive/20">
+                                        <span className="font-semibold">Last Error: </span>{admission.nhifAdmission.error_message}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
                 </div>
             </div>
         </AppLayout>

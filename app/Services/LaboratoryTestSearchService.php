@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\LaboratoryTest;
+use App\Models\NhifSchemeService;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 
 /**
@@ -28,10 +29,13 @@ class LaboratoryTestSearchService
      * Supported keys: search (free text across code/name/short_name),
      * category_id, department_id, specimen_type, result_type, status.
      *
+     * When $nhifSchemeId is set, only tests whose nhif_code appears in the
+     * scheme's active allowed items are returned (NHIF UX filter).
+     *
      * @param  array<string, mixed>  $filters
      * @return Builder<LaboratoryTest>
      */
-    public function query(array $filters): Builder
+    public function query(array $filters, ?int $nhifSchemeId = null): Builder
     {
         $query = LaboratoryTest::query();
 
@@ -63,6 +67,17 @@ class LaboratoryTestSearchService
                     ->orWhere('name', 'like', "%{$search}%")
                     ->orWhere('short_name', 'like', "%{$search}%");
             });
+        }
+
+        if ($nhifSchemeId !== null && LaboratoryTest::whereNotNull('nhif_code')->exists()) {
+            $base = NhifSchemeService::query()->exists()
+                ? NhifSchemeService::active()
+                : NhifSchemeService::catalog();
+            $allowedCodes = $base->where('scheme_id', $nhifSchemeId)->pluck('item_code');
+
+            if ($allowedCodes->isNotEmpty()) {
+                $query->whereIn('nhif_code', $allowedCodes);
+            }
         }
 
         return $query;

@@ -49,6 +49,7 @@ export interface NhifPriceSyncLog {
     total_records: number | null;
     new_records: number | null;
     updated_records: number | null;
+    skipped_records: number | null;
     error_message: string | null;
     started_at: string;
     completed_at: string | null;
@@ -79,4 +80,53 @@ export interface NhifDashboardStats {
     last_sync_at: string | null;
     today_verifications: number;
     today_eligibility_checks: number;
+}
+
+export interface NhifPreApprovalSession {
+    id: number;
+    status: string;
+    nhif_authorization_no: string;
+    nhif_request_no: string | null;
+    nhif_request_id: string | null;
+    created_at: string;
+    items: NhifPreApprovalSessionItem[];
+}
+
+export interface NhifPreApprovalSessionItem {
+    id: number;
+    nhif_item_code: string;
+    nhif_item_name: string | null;
+    source_type: 'lab' | 'medication' | 'consultation';
+    source_id: number | null;
+    quantity: number;
+    unit_price: number;
+    approval_status: string;
+    nhif_approval_ref_no: string | null;
+    rejection_reason: string | null;
+}
+
+export interface NhifPendingItem {
+    source_type: 'lab' | 'medication';
+    source_id: number;
+    nhif_item_code: string;
+    nhif_item_name: string;
+    quantity: number;
+    unit_price: number | null;
+    needs_mapping?: boolean;
+    medication_id?: number;
+}
+
+export interface NhifPendingItems {
+    lab_items: NhifPendingItem[];
+    medication_items: NhifPendingItem[];
+}
+
+export interface NhifInsuranceSummary {
+    id: number;
+    card_number: string;
+    nhif_authorization_no: string;
+    nhif_scheme_id: number | null;
+    nhif_scheme_name: string | null;
+    nhif_facility_code: string | null;
+    nhif_pf_number: string | null;
 }
