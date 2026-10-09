@@ -49,7 +49,8 @@ export default function UtilizationsIndex({ utilizations, filters, statuses, mod
     const [search, setSearch] = useState(filters.search ?? '');
 
     const applyFilter = (key: string, value: string) => {
-        router.get(route('nhif.utilization.index'), { ...filters, [key]: value || undefined, search }, { preserveState: true, replace: true });
+        const val = value === 'all' ? undefined : (value || undefined);
+        router.get(route('nhif.utilization.index'), { ...filters, [key]: val, search }, { preserveState: true, replace: true });
     };
 
     const submitSearch: FormEventHandler = (e) => {
@@ -65,17 +66,17 @@ export default function UtilizationsIndex({ utilizations, filters, statuses, mod
                 <h1 className="text-xl font-semibold">NHIF Utilizations</h1>
 
                 <div className="flex flex-wrap gap-2">
-                    <Select value={filters.status ?? ''} onValueChange={(v) => applyFilter('status', v)}>
+                    <Select value={filters.status || 'all'} onValueChange={(v) => applyFilter('status', v)}>
                         <SelectTrigger className="w-36"><SelectValue placeholder="All statuses" /></SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="">All statuses</SelectItem>
+                            <SelectItem value="all">All statuses</SelectItem>
                             {statuses.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                         </SelectContent>
                     </Select>
-                    <Select value={filters.module ?? ''} onValueChange={(v) => applyFilter('module', v)}>
+                    <Select value={filters.module || 'all'} onValueChange={(v) => applyFilter('module', v)}>
                         <SelectTrigger className="w-36"><SelectValue placeholder="All modules" /></SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="">All modules</SelectItem>
+                            <SelectItem value="all">All modules</SelectItem>
                             {modules.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
                         </SelectContent>
                     </Select>

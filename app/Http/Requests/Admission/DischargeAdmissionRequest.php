@@ -27,6 +27,8 @@ class DischargeAdmissionRequest extends FormRequest
         return [
             'discharge_type' => ['required', Rule::in(Admission::DISCHARGE_TYPES)],
             'discharge_reason' => ['required', 'string', 'max:2000'],
+            'diagnosis_at_discharge' => ['nullable', 'string', 'max:2000'],
+            'referred_to_facility_code' => ['nullable', 'required_if:discharge_type,transferred_out', 'string', 'max:60'],
         ];
     }
 }

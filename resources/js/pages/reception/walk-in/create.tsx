@@ -51,6 +51,13 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
     const [specialtyFilter, setSpecialtyFilter] = useState<'' | 'dental' | 'eye'>('');
     const [nhifConsultationServices, setNhifConsultationServices] = useState<NhifConsultationService[]>([]);
     const [nhifInsurance, setNhifInsurance] = useState<NhifInsuranceSummary | null>(null);
+    const [nhifAuthExpiredInfo, setNhifAuthExpiredInfo] = useState<{
+        auth_expired: boolean;
+        previous_auth_no?: string;
+        verified_at?: string;
+        expires_at?: string;
+        patient_insurance_id?: number;
+    } | null>(null);
     const [nhifServicesLoading, setNhifServicesLoading] = useState(false);
     const [nhifFetchError, setNhifFetchError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
@@ -97,6 +104,7 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
         if (!data.patient_id) {
             setNhifConsultationServices([]);
             setNhifInsurance(null);
+            setNhifAuthExpiredInfo(null);
             setData('nhif_item_code', '');
             return;
         }
@@ -105,6 +113,7 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
         nhifAbortRef.current = ctrl;
         setNhifServicesLoading(true);
         setNhifFetchError(null);
+        setNhifAuthExpiredInfo(null);
 
         fetch(route('reception.nhif-consultation-services') + '?patient_id=' + data.patient_id, {
             signal: ctrl.signal,
@@ -114,10 +123,29 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 return r.json();
             })
-            .then((json: { services?: NhifConsultationService[]; insurance?: NhifInsuranceSummary | null }) => {
+            .then((json: {
+                services?: NhifConsultationService[];
+                insurance?: NhifInsuranceSummary | null;
+                auth_expired?: boolean;
+                previous_auth_no?: string;
+                verified_at?: string;
+                expires_at?: string;
+                patient_insurance_id?: number;
+            }) => {
                 if (ctrl.signal.aborted) return;
                 setNhifConsultationServices(Array.isArray(json.services) ? json.services : []);
                 setNhifInsurance(json.insurance ?? null);
+                if (json.auth_expired) {
+                    setNhifAuthExpiredInfo({
+                        auth_expired: true,
+                        previous_auth_no: json.previous_auth_no,
+                        verified_at: json.verified_at,
+                        expires_at: json.expires_at,
+                        patient_insurance_id: json.patient_insurance_id,
+                    });
+                } else {
+                    setNhifAuthExpiredInfo(null);
+                }
                 setNhifServicesLoading(false);
             })
             .catch((err) => {
@@ -125,6 +153,7 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
                     console.error('NHIF services fetch failed:', err);
                     setNhifConsultationServices([]);
                     setNhifInsurance(null);
+                    setNhifAuthExpiredInfo(null);
                     setNhifServicesLoading(false);
                     setNhifFetchError('Failed to check NHIF coverage. Please reload the page.');
                 }
@@ -242,12 +271,48 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
                                 </div>
                             )}
 
+                            {/* NHIF Auth Expired Warning */}
+                            {!nhifServicesLoading && selectedPatient && nhifAuthExpiredInfo?.auth_expired && (
+                                <div className="rounded-md border border-amber-300 bg-amber-50 p-3.5 text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200">
+                                    <div className="flex items-start gap-2.5">
+                                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                                        <div className="flex-1 space-y-1 text-sm">
+                                            <p className="font-semibold">NHIF 24-Hour Authorization Expired</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                The patient's authorization number ({nhifAuthExpiredInfo.previous_auth_no}) was verified on{' '}
+                                                {nhifAuthExpiredInfo.verified_at ?? 'more than 24h ago'} and has expired. NHIF authorizations are strictly valid for 24 hours.
+                                            </p>
+                                            {nhifAuthExpiredInfo.patient_insurance_id && (
+                                                <div className="pt-1.5">
+                                                    <a
+                                                        href={`/patients/${data.patient_id}/insurance/${nhifAuthExpiredInfo.patient_insurance_id}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline hover:text-primary/80"
+                                                    >
+                                                        Re-verify card on insurance page
+                                                        <ExternalLink className="h-3 w-3" />
+                                                    </a>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* NHIF Verified panel */}
                             {!nhifServicesLoading && isNhifPatient && selectedPatient && (
                                 <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-950/30">
-                                    <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
-                                        <ShieldCheck className="h-3.5 w-3.5" /> NHIF Verified
-                                    </p>
+                                    <div className="mb-2 flex items-center justify-between">
+                                        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                                            <ShieldCheck className="h-3.5 w-3.5" /> NHIF Verified
+                                        </p>
+                                        {nhifInsurance.hours_remaining !== undefined && nhifInsurance.hours_remaining !== null && (
+                                            <Badge variant="outline" className="border-emerald-300 text-[11px] text-emerald-800 dark:text-emerald-300">
+                                                ~{nhifInsurance.hours_remaining}h validity remaining
+                                            </Badge>
+                                        )}
+                                    </div>
                                     <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
                                         <div className="flex gap-2">
                                             <dt className="shrink-0 text-muted-foreground">Scheme</dt>
@@ -276,7 +341,7 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
                             )}
 
                             {/* Cash patient indicator */}
-                            {!nhifServicesLoading && selectedPatient && !isNhifPatient && (
+                            {!nhifServicesLoading && selectedPatient && !isNhifPatient && !nhifAuthExpiredInfo?.auth_expired && (
                                 <div className="rounded-md border bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
                                     No active verified NHIF — <strong>CASH</strong> billing will apply.
                                 </div>

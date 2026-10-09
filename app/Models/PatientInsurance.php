@@ -3,16 +3,23 @@
 namespace App\Models;
 
 use Database\Factories\PatientInsuranceFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 
 class PatientInsurance extends Model
 {
     /** @use HasFactory<PatientInsuranceFactory> */
     use HasFactory;
+
+    /**
+     * NHIF authorization numbers are valid for 24 hours from verification.
+     */
+    public const AUTH_EXPIRATION_HOURS = 24;
 
     /**
      * Status values recognized for a patient insurance record.
@@ -86,6 +93,17 @@ class PatientInsurance extends Model
     ];
 
     /**
+     * The accessors to append to the model's array form.
+     *
+     * @var list<string>
+     */
+    protected $appends = [
+        'is_authorization_expired',
+        'authorization_expires_at',
+        'authorization_hours_remaining',
+    ];
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -100,6 +118,21 @@ class PatientInsurance extends Model
             'nhif_coverage_percent' => 'decimal:2',
             'nhif_eligibility_checked_at' => 'datetime',
         ];
+    }
+
+    public function getIsAuthorizationExpiredAttribute(): bool
+    {
+        return $this->isAuthorizationExpired();
+    }
+
+    public function getAuthorizationExpiresAtAttribute(): ?Carbon
+    {
+        return $this->authorizationExpiresAt();
+    }
+
+    public function getAuthorizationHoursRemainingAttribute(): ?float
+    {
+        return $this->authorizationHoursRemaining();
     }
 
     /**
@@ -135,6 +168,14 @@ class PatientInsurance extends Model
     }
 
     /**
+     * All NHIF member/card verification attempts (append-only).
+     */
+    public function nhifMemberVerifications(): HasMany
+    {
+        return $this->hasMany(NhifMemberVerification::class)->latest();
+    }
+
+    /**
      * The most-recent NHIF eligibility check for this insurance record.
      */
     public function latestNhifEligibility(): HasOne
@@ -163,4 +204,104 @@ class PatientInsurance extends Model
             && $this->nhif_coverage_percent !== null
             && (float) $this->nhif_coverage_percent >= 100.0;
     }
+
+    public function hasMeaningfulAuthorizationNo(): bool
+    {
+        $no = strtoupper(trim((string) $this->nhif_authorization_no));
+
+        return filled($no) && ! in_array($no, ['N/A', 'NULL', 'NONE', '']);
+    }
+
+    /**
+     * Scope query to active records with a verified NHIF authorization within 24 hours.
+     */
+    public function scopeWithValidAuthorization(Builder $query): Builder
+    {
+        $cutoff = now()->subHours(self::AUTH_EXPIRATION_HOURS);
+
+        return $query->where('status', self::STATUS_ACTIVE)
+            ->where('verification_status', self::VERIFICATION_VERIFIED)
+            ->whereNotNull('nhif_authorization_no')
+            ->whereNotIn('nhif_authorization_no', ['N/A', 'NULL', 'NONE', ''])
+            ->where(function (Builder $q) use ($cutoff) {
+                $q->where('verified_at', '>=', $cutoff)
+                    ->orWhere(function (Builder $sub) use ($cutoff) {
+                        $sub->whereNull('verified_at')
+                            ->where('created_at', '>=', $cutoff);
+                    });
+            });
+    }
+
+    /**
+     * Whether this insurance has a valid, non-expired NHIF authorization (within 24 hours).
+     */
+    public function hasValidAuthorization(): bool
+    {
+        if ($this->status !== self::STATUS_ACTIVE || $this->verification_status !== self::VERIFICATION_VERIFIED) {
+            return false;
+        }
+
+        if (! $this->hasMeaningfulAuthorizationNo()) {
+            return false;
+        }
+
+        $timestamp = $this->verified_at ?? $this->created_at;
+
+        return $timestamp !== null
+            && $timestamp->greaterThanOrEqualTo(now()->subHours(self::AUTH_EXPIRATION_HOURS));
+    }
+
+    /**
+     * Whether the NHIF authorization has expired (issued more than 24 hours ago, or verification failed).
+     */
+    public function isAuthorizationExpired(): bool
+    {
+        if (! $this->hasMeaningfulAuthorizationNo()) {
+            return false;
+        }
+
+        if ($this->verification_status === self::VERIFICATION_EXPIRED || $this->verification_status === self::VERIFICATION_FAILED) {
+            return true;
+        }
+
+        $timestamp = $this->verified_at ?? $this->created_at;
+
+        if ($timestamp === null) {
+            return true;
+        }
+
+        return $timestamp->lessThan(now()->subHours(self::AUTH_EXPIRATION_HOURS));
+    }
+
+    /**
+     * The timestamp when the 24-hour authorization expires.
+     */
+    public function authorizationExpiresAt(): ?Carbon
+    {
+        if (! $this->hasValidAuthorization()) {
+            return null;
+        }
+
+        $timestamp = $this->verified_at ?? $this->created_at;
+
+        return $timestamp?->copy()->addHours(self::AUTH_EXPIRATION_HOURS);
+    }
+
+    /**
+     * Approximate hours remaining before authorization expires.
+     */
+    public function authorizationHoursRemaining(): ?float
+    {
+        if (! $this->hasValidAuthorization()) {
+            return null;
+        }
+
+        $expiresAt = $this->authorizationExpiresAt();
+        if (! $expiresAt || $expiresAt->isPast()) {
+            return 0.0;
+        }
+
+        return round(now()->diffInMinutes($expiresAt, false) / 60.0, 1);
+    }
 }
+

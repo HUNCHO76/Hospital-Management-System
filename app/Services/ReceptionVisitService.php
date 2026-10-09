@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Appointment;
 use App\Models\Charge;
+use App\Models\ClinicalEncounter;
 use App\Models\Department;
 use App\Models\NhifPreApprovalSession;
 use App\Models\NhifPreApprovalSessionItem;
@@ -434,10 +435,36 @@ class ReceptionVisitService
      */
     public function findActiveVisit(int $patientId): ?ReceptionVisit
     {
-        return ReceptionVisit::query()
+        $visit = ReceptionVisit::query()
             ->where('patient_id', $patientId)
             ->whereIn('status', ReceptionVisit::ACTIVE_STATUSES)
             ->first();
+
+        if (! $visit) {
+            return null;
+        }
+
+        // If the visit already has a completed clinical encounter (either directly linked or created during/after this visit),
+        // auto-complete the visit so it does not block subsequent visits.
+        $hasCompletedEncounter = ClinicalEncounter::query()
+            ->where('patient_id', $patientId)
+            ->where(function ($q) use ($visit) {
+                $q->where('reception_visit_id', $visit->id)
+                    ->orWhere('created_at', '>=', $visit->created_at);
+            })
+            ->where('status', ClinicalEncounter::STATUS_COMPLETED)
+            ->exists();
+
+        if ($hasCompletedEncounter) {
+            $visit->update([
+                'status' => ReceptionVisit::STATUS_COMPLETED,
+                'completed_at' => now(),
+            ]);
+
+            return null;
+        }
+
+        return $visit;
     }
 
     /**

@@ -244,3 +244,172 @@ test('store() rolls back patient and insurance when VerifyCard fails', function 
     expect(Patient::count())->toBe($patientCountBefore);
     $response->assertSessionHasErrors('nhif_verification');
 });
+
+test('re-verification refreshes expired authorization with new authorization number and resets 24-hour validity', function () {
+    $ctx = nhifVerifyCardSetup();
+    $insurance = $ctx['insurance'];
+
+    // Initially expired authorization from 2 days ago
+    $insurance->update([
+        'verification_status' => PatientInsurance::VERIFICATION_VERIFIED,
+        'nhif_authorization_no' => 'OLD-AUTH-999',
+        'verified_at' => now()->subHours(48),
+    ]);
+
+    expect($insurance->isAuthorizationExpired())->toBeTrue()
+        ->and($insurance->hasValidAuthorization())->toBeFalse();
+
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByCard')->once()->andReturn(cardDetailsResponse());
+        $mock->shouldReceive('getVisitTypes')->once()->andReturn(['success' => true, 'data' => [], 'error' => null]);
+        $mock->shouldReceive('getCardVerifiers')->once()->andReturn(['success' => true, 'data' => [['verifierID' => 'V1']], 'error' => null]);
+        $mock->shouldReceive('verifyCard')->once()->andReturn(verifyCardSuccessResponse('NEW-AUTH-888'));
+    });
+
+    $actor = userWithRole('receptionist');
+    $request = requestAs($actor);
+
+    $record = app(NhifMemberVerificationService::class)
+        ->verify($insurance, NhifMemberVerification::TYPE_CARD_NUMBER, 'CARD-001', $request);
+
+    $insurance->refresh();
+
+    expect($record->verification_status)->toBe(NhifMemberVerification::STATUS_VERIFIED)
+        ->and($insurance->nhif_authorization_no)->toBe('NEW-AUTH-888')
+        ->and($insurance->isAuthorizationExpired())->toBeFalse()
+        ->and($insurance->hasValidAuthorization())->toBeTrue()
+        ->and($insurance->authorizationHoursRemaining())->toBeGreaterThan(23.0);
+});
+
+test('verify() resolves cardTypeId from verifier cardTypes when cardTypeId is omitted', function () {
+    $ctx = nhifVerifyCardSetup();
+
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByCard')->once()->andReturn(cardDetailsResponse());
+        $mock->shouldReceive('getVisitTypes')->once()->andReturn(['success' => true, 'data' => [], 'error' => null]);
+        $mock->shouldReceive('getCardVerifiers')->once()->andReturn([
+            'success' => true,
+            'data' => [
+                [
+                    'verifierID' => 'NHIF',
+                    'cardTypes' => [
+                        ['cardTypeID' => '100000001', 'cardTypeName' => 'ZAN ID'],
+                    ],
+                ],
+            ],
+            'error' => null,
+        ]);
+        $mock->shouldReceive('verifyCard')
+            ->once()
+            ->withArgs(function (array $payload) {
+                return $payload['verifierID'] === 'NHIF'
+                    && $payload['cardTypeID'] === '100000001';
+            })
+            ->andReturn(verifyCardSuccessResponse('AUTH-RESOLVED-1'));
+    });
+
+    $actor = userWithRole('receptionist');
+    $request = requestAs($actor);
+
+    $record = app(NhifMemberVerificationService::class)
+        ->verify($ctx['insurance'], NhifMemberVerification::TYPE_CARD_NUMBER, 'CARD-001', $request);
+
+    expect($record->isSuccessful())->toBeTrue()
+        ->and($record->verify_card_request['cardTypeID'])->toBe('100000001')
+        ->and($record->verify_card_request['verifierID'])->toBe('NHIF');
+});
+
+test('verify() reuses cardTypeId and verifierID from prior successful verification', function () {
+    $ctx = nhifVerifyCardSetup();
+    $insurance = $ctx['insurance'];
+
+    // Seed prior successful verification
+    NhifMemberVerification::create([
+        'patient_insurance_id' => $insurance->id,
+        'identifier_type' => NhifMemberVerification::TYPE_CARD_NUMBER,
+        'identifier_value' => 'CARD-001',
+        'nhif_operation' => 'VerifyCard',
+        'verification_status' => NhifMemberVerification::STATUS_VERIFIED,
+        'nhif_card_no' => 'CARD-001',
+        'nhif_authorization_no' => 'PREV-AUTH-001',
+        'verified_at' => now()->subHours(25),
+        'verify_card_request' => [
+            'verifierID' => 'NHIF',
+            'cardTypeID' => 'NHIFCard',
+            'visitTypeID' => 2,
+            'remarks' => 'amezidiwa sana',
+        ],
+    ]);
+
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByCard')->once()->andReturn(cardDetailsResponse());
+        $mock->shouldReceive('getVisitTypes')->once()->andReturn(['success' => true, 'data' => [], 'error' => null]);
+        $mock->shouldReceive('verifyCard')
+            ->once()
+            ->withArgs(function (array $payload) {
+                return $payload['verifierID'] === 'NHIF'
+                    && $payload['cardTypeID'] === 'NHIFCard'
+                    && $payload['remarks'] === 'amezidiwa sana';
+            })
+            ->andReturn(verifyCardSuccessResponse('NEW-AUTH-FROM-PREV'));
+    });
+
+    $actor = userWithRole('receptionist');
+    $request = requestAs($actor);
+
+    $record = app(NhifMemberVerificationService::class)
+        ->verify($insurance, NhifMemberVerification::TYPE_CARD_NUMBER, 'CARD-001', $request, visitTypeId: 2);
+
+    expect($record->isSuccessful())->toBeTrue()
+        ->and($record->verify_card_request['cardTypeID'])->toBe('NHIFCard')
+        ->and($record->verify_card_request['verifierID'])->toBe('NHIF')
+        ->and($record->verify_card_request['remarks'])->toBe('amezidiwa sana');
+});
+
+test('patients.insurance.nhif-verify endpoint accepts explicit verifier_id, card_type_id, and remarks', function () {
+    $ctx = nhifVerifyCardSetup();
+    $actor = userWithRole('receptionist');
+
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByCard')->once()->andReturn(cardDetailsResponse());
+        $mock->shouldReceive('getVisitTypes')->once()->andReturn(['success' => true, 'data' => [], 'error' => null]);
+        $mock->shouldReceive('verifyCard')
+            ->once()
+            ->withArgs(function (array $payload) {
+                return $payload['cardNo'] === 'CARD-001'
+                    && $payload['verifierID'] === 'NHIF'
+                    && $payload['cardTypeID'] === '100000001'
+                    && $payload['visitTypeID'] === 2
+                    && $payload['remarks'] === 'mgonjwa amekuja akiwa maututi';
+            })
+            ->andReturn(verifyCardSuccessResponse('AUTH-EMERGENCY-123'));
+        $mock->shouldReceive('checkEligibility')->andReturn([
+            'success' => true,
+            'data' => ['EligibilityStatus' => 'Eligible'],
+            'http_status' => 200,
+            'error' => null,
+            'correlation_id' => 'corr-elig-1',
+            'operation' => 'CheckEligibility',
+        ]);
+    });
+
+    $response = $this->actingAs($actor)->post(route('patients.insurance.nhif-verify', [
+        'patient' => $ctx['patient'],
+        'patientInsurance' => $ctx['insurance'],
+    ]), [
+        'identifier_type' => 'CardNo',
+        'identifier_value' => 'CARD-001',
+        'verifier_id' => 'NHIF',
+        'card_type_id' => '100000001',
+        'visit_type_id' => 2,
+        'remarks' => 'mgonjwa amekuja akiwa maututi',
+    ]);
+
+    $response->assertRedirect(route('patients.insurance.show', [$ctx['patient'], $ctx['insurance']]));
+    $response->assertSessionHas('success', 'NHIF member verified successfully.');
+
+    $ctx['insurance']->refresh();
+    expect($ctx['insurance']->nhif_authorization_no)->toBe('AUTH-EMERGENCY-123');
+});
+
+

@@ -11,9 +11,18 @@ interface StaffEditProps {
     hospitals: DepartmentHospital[];
     departments: { id: number; hospital_id: number; name: string; code: string }[];
     employmentTypes: string[];
+    roles?: string[];
+    account?: {
+        id: number;
+        username: string;
+        email: string;
+        phone: string | null;
+        status: string;
+        role?: string;
+    } | null;
 }
 
-export default function StaffEdit({ staff, hospitals, departments, employmentTypes }: StaffEditProps) {
+export default function StaffEdit({ staff, hospitals, departments, employmentTypes, roles, account }: StaffEditProps) {
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Staff', href: '/staff' },
         { title: `${staff.first_name} ${staff.last_name}`, href: `/staff/${staff.id}` },
@@ -30,7 +39,14 @@ export default function StaffEdit({ staff, hospitals, departments, employmentTyp
                         <CardTitle>Edit Staff</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <StaffForm staff={staff} hospitals={hospitals} departments={departments} employmentTypes={employmentTypes} />
+                        <StaffForm
+                            staff={staff}
+                            hospitals={hospitals}
+                            departments={departments}
+                            employmentTypes={employmentTypes}
+                            roles={roles}
+                            account={account}
+                        />
                     </CardContent>
                 </Card>
             </div>

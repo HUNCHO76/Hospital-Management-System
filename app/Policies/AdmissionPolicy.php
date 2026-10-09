@@ -138,6 +138,15 @@ class AdmissionPolicy
         return $this->belongsToHospital($user, $admission->hospital_id);
     }
 
+    public function submitDischargeNhif(User $user, Admission $admission): bool
+    {
+        if (! $user->can('admission.nhif-submit')) {
+            return false;
+        }
+
+        return $this->belongsToHospital($user, $admission->hospital_id);
+    }
+
     protected function belongsToHospital(User $user, int $hospitalId): bool
     {
         if (! $user->hasRole('hospital-admin')) {

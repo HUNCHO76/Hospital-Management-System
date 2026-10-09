@@ -79,6 +79,8 @@ export interface PatientSearchResult {
     date_of_birth?: string | null;
     has_active_nhif?: boolean;
     active_nhif_authorization_no?: string | null;
+    is_nhif_auth_expired?: boolean;
+    nhif_auth_expires_at?: string | null;
     patient_insurance_id?: number | null;
 }
 

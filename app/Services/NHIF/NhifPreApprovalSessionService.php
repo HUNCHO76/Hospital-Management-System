@@ -57,6 +57,12 @@ class NhifPreApprovalSessionService
             ]);
         }
 
+        if ($insurance->isAuthorizationExpired()) {
+            throw ValidationException::withMessages([
+                'nhif_authorization_no' => 'Patient NHIF authorization has expired (>24 hours). Please re-verify the patient\'s card before requesting services.',
+            ]);
+        }
+
         if (empty($itemsData)) {
             throw ValidationException::withMessages([
                 'items' => 'At least one service item is required.',

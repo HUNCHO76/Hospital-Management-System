@@ -31,11 +31,15 @@ export function AppSidebar() {
     const { can } = usePermissions();
 
     const mainNavItems: NavItem[] = [
-        {
-            title: 'Dashboard',
-            url: '/dashboard',
-            icon: LayoutGrid,
-        },
+        ...(can('dashboard.view')
+            ? [
+                  {
+                      title: 'Dashboard',
+                      url: '/dashboard',
+                      icon: LayoutGrid,
+                  },
+              ]
+            : []),
         ...(can('hospitals.view') ? [{ title: 'Hospitals', url: '/hospitals', icon: Building2 }] : []),
         ...(can('departments.view') ? [{ title: 'Departments', url: '/departments', icon: Network }] : []),
         ...(can('staff.view') ? [{ title: 'Staff', url: '/staff', icon: Users }] : []),
@@ -48,7 +52,18 @@ export function AppSidebar() {
         ...(can('admission.view') ? [{ title: 'Inpatient Ward', url: '/inpatient', icon: BedDouble }] : []),
         ...(can('laboratory.view') ? [{ title: 'Laboratory', url: '/laboratory', icon: FlaskConical }] : []),
         ...(can('radiology.view') ? [{ title: 'Radiology', url: '/radiology', icon: Scan }] : []),
-        ...(can('pharmacy.view') ? [{ title: 'Pharmacy', url: '/pharmacy', icon: Pill }] : []),
+        ...(can('pharmacy.view')
+            ? [
+                  {
+                      title: 'Pharmacy',
+                      url: '/pharmacy',
+                      icon: Pill,
+                      items: [
+                          ...(can('pharmacy-reports.view') ? [{ title: 'Reports', url: '/pharmacy/reports' }] : []),
+                      ],
+                  },
+              ]
+            : []),
         ...(can('billing.view')
             ? [
                   {
@@ -58,6 +73,7 @@ export function AppSidebar() {
                       items: [
                           ...(can('billing-services.view') ? [{ title: 'Services', url: '/billing/services' }] : []),
                           ...(can('billing-pricing.view') ? [{ title: 'Pricing', url: '/billing/pricing' }] : []),
+                          ...(can('billing-reports.view') ? [{ title: 'Reports', url: '/billing/reports' }] : []),
                       ],
                   },
               ]
@@ -68,7 +84,19 @@ export function AppSidebar() {
         ...(can('nhif-dashboard.view') ? [{ title: 'NHIF Dashboard', url: '/nhif/dashboard', icon: LineChart }] : []),
         ...(can('admission.view') ? [{ title: 'NHIF Admissions', url: '/nhif/admissions', icon: BedDouble }] : []),
         ...(can('nhif-utilization.view') ? [{ title: 'NHIF Utilization', url: '/nhif/utilizations', icon: Activity }] : []),
-        ...(can('nhif-claims.view') ? [{ title: 'NHIF Claims', url: '/nhif/claims', icon: FileText }] : []),
+        ...(can('nhif-claims.view')
+            ? [
+                  {
+                      title: 'NHIF Claims',
+                      url: '/nhif/claims',
+                      icon: FileText,
+                      items: [
+                          { title: 'Individual Claims', url: '/nhif/claims' },
+                          ...(can('nhif-claims.monthly-view') ? [{ title: 'Monthly Claims', url: '/nhif/claims/monthly' }] : []),
+                      ],
+                  },
+              ]
+            : []),
         ...(can('nhif-claims.view-reconciliation') ? [{ title: 'NHIF Reconciliation', url: '/nhif/reconciliation', icon: ClipboardCheck }] : []),
         ...(can('audit-logs.view') ? [{ title: 'Audit Logs', url: '/audit-logs', icon: ScrollText }] : []),
     ];

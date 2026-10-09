@@ -51,6 +51,10 @@ export interface NhifAdmissionRecord {
     nhif_authorization_no?: string | null;
     nhif_facility_code?: string | null;
     nhif_practitioner_no?: string | null;
+    nhif_discharge_type_id?: number | null;
+    nhif_discharge_status?: string | null;
+    nhif_discharge_error?: string | null;
+    nhif_discharged_at?: string | null;
     retry_count?: number;
     error_message: string | null;
     submitted_at: string | null;
@@ -76,6 +80,8 @@ export interface Admission {
     discharged_at: string | null;
     discharge_type: DischargeType | null;
     discharge_reason: string | null;
+    diagnosis_at_discharge?: string | null;
+    referred_to_facility_code?: string | null;
     cancellation_reason: string | null;
     patient?: AdmissionPatient;
     hospital?: AdmissionHospital;
@@ -127,7 +133,9 @@ export interface AdmissionFormData {
 export interface DischargeFormData {
     discharge_type: DischargeType | '';
     discharge_reason: string;
-    [key: string]: string;
+    diagnosis_at_discharge?: string;
+    referred_to_facility_code?: string;
+    [key: string]: string | undefined;
 }
 
 export interface CancelAdmissionFormData {

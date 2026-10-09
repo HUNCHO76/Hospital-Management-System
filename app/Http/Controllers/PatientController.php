@@ -110,24 +110,28 @@ class PatientController extends Controller
             ->withExists(['insurances as has_active_nhif' => function ($query): void {
                 $query->where('status', PatientInsurance::STATUS_ACTIVE)
                     ->where('verification_status', PatientInsurance::VERIFICATION_VERIFIED)
-                    ->whereNotNull('nhif_authorization_no');
+                    ->whereNotNull('nhif_authorization_no')
+                    ->where('verified_at', '>=', now()->subHours(PatientInsurance::AUTH_EXPIRATION_HOURS));
             }])
             ->with(['insurances' => function ($query): void {
                 $query->where('status', PatientInsurance::STATUS_ACTIVE)
-                    ->where('verification_status', PatientInsurance::VERIFICATION_VERIFIED)
                     ->whereNotNull('nhif_authorization_no')
                     ->latest();
             }])
             ->get(['id', 'patient_number', 'first_name', 'middle_name', 'last_name', 'phone', 'gender', 'date_of_birth'])
             ->map(function (Patient $patient) {
                 $nhifIns = $patient->insurances->first();
+                $isExpired = $nhifIns ? $nhifIns->isAuthorizationExpired() : false;
 
                 return [
                     ...$patient->only(['id', 'patient_number', 'first_name', 'middle_name', 'last_name', 'gender']),
                     'date_of_birth' => $patient->date_of_birth?->toDateString(),
                     'phone' => PhoneMasker::mask($patient->phone),
                     'has_active_nhif' => (bool) $patient->has_active_nhif,
-                    'active_nhif_authorization_no' => $nhifIns?->nhif_authorization_no,
+                    'is_nhif_auth_expired' => $isExpired,
+                    'active_nhif_authorization_no' => ($nhifIns && ! $isExpired) ? $nhifIns->nhif_authorization_no : null,
+                    'nhif_authorization_no' => $nhifIns?->nhif_authorization_no,
+                    'nhif_auth_expires_at' => $nhifIns?->authorizationExpiresAt()?->toIso8601String(),
                     'patient_insurance_id' => $nhifIns?->id,
                 ];
             });

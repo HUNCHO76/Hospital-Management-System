@@ -408,6 +408,67 @@ test('nhif verify endpoint triggers verification and redirects', function () {
     expect($insurance->fresh()->verification_status)->toBe(PatientInsurance::VERIFICATION_VERIFIED);
 });
 
+test('nhif verify endpoint auto-resolves identifier from insurance when payload is empty', function () {
+    $user = registrationUser();
+
+    $provider = InsuranceProvider::factory()->create(['api_enabled' => true]);
+    $patient = Patient::factory()->create([
+        'first_name' => 'John',
+        'last_name' => 'Doe',
+        'national_id' => '11111111-11111-11111-1',
+    ]);
+    $insurance = PatientInsurance::factory()->create([
+        'patient_id' => $patient->id,
+        'insurance_provider_id' => $provider->id,
+        'card_number' => 'CARD-12345',
+        'verification_status' => PatientInsurance::VERIFICATION_PENDING,
+    ]);
+
+    $this->mock(NhifHttpClient::class, function ($mock) {
+        $mock->shouldReceive('getMemberByCard')->once()->andReturn([
+            'success' => true,
+            'data' => [
+                'FullName' => 'John Doe',
+                'CardNo' => 'CARD-12345',
+                'IsActive' => true,
+                'IsValidCard' => true,
+            ],
+            'http_status' => 200,
+            'error' => null,
+            'correlation_id' => 'test-empty-payload',
+            'operation' => 'GetCardDetails',
+        ]);
+        $mock->shouldReceive('getVisitTypes')->once()->andReturn(['success' => true, 'data' => [], 'error' => null]);
+        $mock->shouldReceive('getCardVerifiers')->once()->andReturn(['success' => true, 'data' => [['verifierID' => 'V1']], 'error' => null]);
+        $mock->shouldReceive('verifyCard')->once()->andReturn([
+            'success' => true,
+            'data' => ['authorizationNo' => 'AUTH-EMPTY-TEST'],
+            'http_status' => 200,
+            'error' => null,
+        ]);
+        $mock->shouldReceive('checkEligibility')->andReturn([
+            'success' => true,
+            'data' => [
+                'Remarks' => 'Eligible',
+            ],
+            'http_status' => 200,
+            'error' => null,
+            'correlation_id' => 'test-elig',
+            'operation' => 'CheckEligibility',
+        ]);
+    });
+
+    $this->actingAs($user)
+        ->post(route('patients.insurance.nhif-verify', [$patient, $insurance]), [])
+        ->assertRedirect(route('patients.insurance.show', [$patient, $insurance]))
+        ->assertSessionHas('success');
+
+    $fresh = $insurance->fresh();
+    expect($fresh->verification_status)->toBe(PatientInsurance::VERIFICATION_VERIFIED)
+        ->and($fresh->nhif_authorization_no)->toBe('AUTH-EMPTY-TEST')
+        ->and($fresh->hasValidAuthorization())->toBeTrue();
+});
+
 test('nhif verify endpoint is forbidden without permission', function () {
     $user = User::factory()->create();
 

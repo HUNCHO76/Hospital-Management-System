@@ -66,7 +66,7 @@ class ReceptionVisit extends Model
     public const TRANSITIONS = [
         self::STATUS_CHECKED_IN => [self::STATUS_WAITING, self::STATUS_CANCELLED],
         self::STATUS_WAITING => [self::STATUS_READY_FOR_SERVICE, self::STATUS_CANCELLED],
-        self::STATUS_READY_FOR_SERVICE => [self::STATUS_SENT_TO_SERVICE, self::STATUS_CANCELLED],
+        self::STATUS_READY_FOR_SERVICE => [self::STATUS_SENT_TO_SERVICE, self::STATUS_COMPLETED, self::STATUS_CANCELLED],
         self::STATUS_SENT_TO_SERVICE => [self::STATUS_COMPLETED, self::STATUS_CANCELLED],
         self::STATUS_COMPLETED => [],
         self::STATUS_CANCELLED => [],

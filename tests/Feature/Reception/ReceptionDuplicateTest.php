@@ -87,3 +87,32 @@ test('a new visit is allowed once the patient\'s previous visit is cancelled', f
 
     $this->assertDatabaseCount('reception_visits', 2);
 });
+
+test('a new visit is allowed if the patient has a completed clinical encounter even if the visit was left in ready_for_service', function () {
+    $user = userWithRole('receptionist');
+    $ctx = appointmentBookingContext();
+
+    $visit = ReceptionVisit::factory()->create([
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'status' => ReceptionVisit::STATUS_READY_FOR_SERVICE,
+    ]);
+
+    \App\Models\ClinicalEncounter::factory()->create([
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'status' => \App\Models\ClinicalEncounter::STATUS_COMPLETED,
+        'reception_visit_id' => $visit->id,
+        'ended_at' => now(),
+    ]);
+
+    $this->actingAs($user)->post(route('reception.walk-in.store'), [
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'visit_type' => 'walk_in',
+    ])->assertSessionDoesntHaveErrors();
+
+    expect($visit->fresh()->status)->toBe(ReceptionVisit::STATUS_COMPLETED);
+    $this->assertDatabaseCount('reception_visits', 2);
+});
+

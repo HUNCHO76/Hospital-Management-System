@@ -72,7 +72,7 @@ class StaffPolicy
      */
     protected function belongsToUsersHospital(User $user, Staff $staff): bool
     {
-        if (! $user->hasRole('hospital-admin')) {
+        if (! $user->hasAnyRole(['hospital-admin', 'Manager', 'manager'])) {
             return true;
         }
 

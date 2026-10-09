@@ -54,7 +54,8 @@ export function NhifLiveAdmissionDetailsDialog({
             const res = await axios.get(route('nhif.admissions.lookup'), {
                 params: { authorization_no: authorizationNo },
             });
-            setDetails(res.data);
+            const payload = Array.isArray(res.data) && res.data.length > 0 ? res.data[0] : res.data;
+            setDetails(payload);
         } catch (err: any) {
             setError(err.response?.data?.error || 'Failed to fetch admission details from NHIF.');
         } finally {
@@ -244,13 +245,21 @@ export function NhifLiveAdmissionDetailsDialog({
                                         </span>
                                     </div>
                                     <div>
-                                        <span className="text-muted-foreground block">Admission Type ID:</span>
-                                        <span className="text-foreground">{details.AdmissionTypeID ?? '—'}</span>
+                                        <span className="text-muted-foreground block">Admission Type:</span>
+                                        <span className="text-foreground">
+                                            {String(details.AdmissionTypeID) === '1'
+                                                ? 'Elective (1)'
+                                                : String(details.AdmissionTypeID) === '2'
+                                                ? 'Emergency (2)'
+                                                : details.AdmissionTypeID ?? '—'}
+                                        </span>
                                     </div>
                                     <div>
-                                        <span className="text-muted-foreground block">Ward / Room Type ID:</span>
+                                        <span className="text-muted-foreground block">Ward / Room Type:</span>
                                         <span className="text-foreground">
-                                            {details.WardTypeID ?? '—'} / {details.RoomTypeID ?? '—'}
+                                            {details.WardTypeID || details.RoomTypeID
+                                                ? `${details.WardTypeID ?? '—'} / ${details.RoomTypeID ?? '—'}`
+                                                : '—'}
                                         </span>
                                     </div>
                                     <div>

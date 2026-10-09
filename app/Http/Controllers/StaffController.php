@@ -76,12 +76,12 @@ class StaffController extends Controller
     /**
      * Show the form for creating a new staff member.
      */
-    public function create(): Response
+    public function create(Request $request): Response
     {
         return Inertia::render('staff/create', [
             'hospitals' => $this->selectableHospitals(),
             'departments' => Department::query()->orderBy('name')->get(['id', 'hospital_id', 'name', 'code']),
-            'roles' => Role::query()->where('name', '!=', 'super-admin')->orderBy('name')->pluck('name'),
+            'roles' => $this->assignableRoles($request->user()),
             'employmentTypes' => Staff::EMPLOYMENT_TYPES,
         ]);
     }
@@ -131,13 +131,24 @@ class StaffController extends Controller
     /**
      * Show the form for editing the specified staff member.
      */
-    public function edit(Staff $staff): Response
+    public function edit(Request $request, Staff $staff): Response
     {
+        $staff->load('user');
+
         return Inertia::render('staff/edit', [
             'staff' => $staff,
             'hospitals' => $this->selectableHospitals($staff->hospital_id),
             'departments' => Department::query()->orderBy('name')->get(['id', 'hospital_id', 'name', 'code']),
             'employmentTypes' => Staff::EMPLOYMENT_TYPES,
+            'roles' => $this->assignableRoles($request->user()),
+            'account' => $staff->user ? [
+                'id' => $staff->user->id,
+                'username' => $staff->user->UserName,
+                'email' => $staff->user->email,
+                'phone' => $staff->user->phone,
+                'status' => $staff->user->status,
+                'role' => $staff->user->roles->first()?->name,
+            ] : null,
         ]);
     }
 
@@ -171,7 +182,7 @@ class StaffController extends Controller
      */
     protected function scopedHospitalId(Request $request): ?int
     {
-        if (! $request->user()->hasRole('hospital-admin')) {
+        if (! $request->user()->hasAnyRole(['hospital-admin', 'Manager', 'manager'])) {
             return null;
         }
 
@@ -196,5 +207,19 @@ class StaffController extends Controller
             })
             ->orderBy('name')
             ->get(['id', 'name', 'code']);
+    }
+
+    /**
+     * Roles an administrator or manager is allowed to assign.
+     * super-admin is excluded unless the current user is a super-admin.
+     */
+    protected function assignableRoles(?\App\Models\User $currentUser = null): \Illuminate\Support\Collection
+    {
+        $query = Role::query()->orderBy('name');
+        if (! $currentUser?->hasRole('super-admin')) {
+            $query->where('name', '!=', 'super-admin');
+        }
+
+        return $query->pluck('name');
     }
 }

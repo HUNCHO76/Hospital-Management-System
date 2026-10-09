@@ -83,10 +83,26 @@ class NhifAuthorizationContextController extends Controller
             }
 
             if ($insurance && ! empty($insurance->nhif_authorization_no)) {
+                if ($insurance->isAuthorizationExpired()) {
+                    return response()->json([
+                        'found' => false,
+                        'auth_expired' => true,
+                        'patient_insurance_id' => $insurance->id,
+                        'previous_auth_no' => $insurance->nhif_authorization_no,
+                        'verified_at' => optional($insurance->verified_at)->toDateTimeString(),
+                        'expires_at' => optional($insurance->authorizationExpiresAt())->toDateTimeString(),
+                        'message' => 'NHIF authorization number has expired (>24 hours). Re-verification required.',
+                        'preauthorization' => null,
+                    ]);
+                }
+
                 return response()->json([
                     'found' => true,
                     'authorization_no' => $insurance->nhif_authorization_no,
                     'patient_insurance_id' => $insurance->id,
+                    'auth_expired' => false,
+                    'expires_at' => optional($insurance->authorizationExpiresAt())->toDateTimeString(),
+                    'hours_remaining' => $insurance->authorizationHoursRemaining(),
                     'preauthorization' => [
                         'id' => null,
                         'authorization_no' => $insurance->nhif_authorization_no,

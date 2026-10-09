@@ -20,15 +20,28 @@ class DashboardController extends Controller
      */
     public function __invoke(Request $request): Response
     {
+        $user = $request->user();
+        $hospitalId = $user->hasRole('super-admin') ? null : $user->staff?->hospital_id;
+
+        $staffQuery = Staff::query()->where('status', Staff::STATUS_ACTIVE);
+        $practitionersQuery = Practitioner::query();
+        $auditQuery = AuditLog::query();
+
+        if ($hospitalId) {
+            $staffQuery->where('hospital_id', $hospitalId);
+            $practitionersQuery->whereHas('staff', fn ($q) => $q->where('hospital_id', $hospitalId));
+            $auditQuery->whereHas('user.staff', fn ($q) => $q->where('hospital_id', $hospitalId));
+        }
+
         return Inertia::render('dashboard', [
             'stats' => [
                 'patients' => Patient::query()->count(),
-                'staff' => Staff::query()->where('status', Staff::STATUS_ACTIVE)->count(),
-                'practitioners' => Practitioner::query()->count(),
+                'staff' => $staffQuery->count(),
+                'practitioners' => $practitionersQuery->count(),
                 'activeInsurance' => PatientInsurance::query()->where('status', PatientInsurance::STATUS_ACTIVE)->count(),
             ],
-            'recentActivity' => $request->user()->can('audit-logs.view')
-                ? AuditLog::query()
+            'recentActivity' => $user->can('audit-logs.view')
+                ? $auditQuery
                     ->with('user:id,UserName,email')
                     ->latest('created_at')
                     ->latest('id')

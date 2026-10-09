@@ -174,7 +174,7 @@ class InvoiceController extends Controller
      */
     protected function scopedHospitalId(Request $request): ?int
     {
-        if (! $request->user()->hasRole('hospital-admin')) {
+        if (! $request->user()->hasAnyRole(['hospital-admin', 'Manager', 'manager'])) {
             return null;
         }
 

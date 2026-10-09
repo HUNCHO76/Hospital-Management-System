@@ -24,7 +24,7 @@ class StoreStaffRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        if (! $this->user()->hasRole('hospital-admin')) {
+        if (! $this->user()->hasAnyRole(['hospital-admin', 'Manager', 'manager'])) {
             return true;
         }
 

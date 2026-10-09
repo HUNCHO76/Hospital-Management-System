@@ -60,3 +60,74 @@ test('an insurance provider is soft deleted rather than removed', function () {
     expect(InsuranceProvider::query()->find($provider->id))->toBeNull()
         ->and(InsuranceProvider::withTrashed()->find($provider->id))->not->toBeNull();
 });
+
+test('insurance authorization is valid within 24 hours of verification', function () {
+    $insurance = PatientInsurance::factory()->create([
+        'status' => PatientInsurance::STATUS_ACTIVE,
+        'verification_status' => PatientInsurance::VERIFICATION_VERIFIED,
+        'nhif_authorization_no' => 'AUTH-123456',
+        'verified_at' => now()->subHours(10),
+    ]);
+
+    expect($insurance->hasValidAuthorization())->toBeTrue()
+        ->and($insurance->isAuthorizationExpired())->toBeFalse()
+        ->and($insurance->authorizationHoursRemaining())->toBeGreaterThan(0.0)
+        ->and($insurance->authorizationExpiresAt())->toBeInstanceOf(Carbon::class);
+});
+
+test('insurance authorization expires after 24 hours', function () {
+    $insurance = PatientInsurance::factory()->create([
+        'status' => PatientInsurance::STATUS_ACTIVE,
+        'verification_status' => PatientInsurance::VERIFICATION_VERIFIED,
+        'nhif_authorization_no' => 'AUTH-EXPIRED',
+        'verified_at' => now()->subHours(25),
+    ]);
+
+    expect($insurance->hasValidAuthorization())->toBeFalse()
+        ->and($insurance->isAuthorizationExpired())->toBeTrue()
+        ->and($insurance->authorizationHoursRemaining())->toBe(0.0);
+});
+
+test('scopeWithValidAuthorization filters out records verified more than 24 hours ago', function () {
+    $valid = PatientInsurance::factory()->create([
+        'status' => PatientInsurance::STATUS_ACTIVE,
+        'verification_status' => PatientInsurance::VERIFICATION_VERIFIED,
+        'nhif_authorization_no' => 'AUTH-VALID',
+        'verified_at' => now()->subHours(2),
+    ]);
+
+    $expired = PatientInsurance::factory()->create([
+        'status' => PatientInsurance::STATUS_ACTIVE,
+        'verification_status' => PatientInsurance::VERIFICATION_VERIFIED,
+        'nhif_authorization_no' => 'AUTH-STALE',
+        'verified_at' => now()->subHours(26),
+    ]);
+
+    $results = PatientInsurance::withValidAuthorization()->pluck('id')->all();
+
+    expect($results)->toContain($valid->id)
+        ->and($results)->not->toContain($expired->id);
+});
+
+test('patient activeNhifInsurance returns null when authorization exceeds 24 hours', function () {
+    $patient = Patient::factory()->create();
+    $insurance = PatientInsurance::factory()->create([
+        'patient_id' => $patient->id,
+        'status' => PatientInsurance::STATUS_ACTIVE,
+        'verification_status' => PatientInsurance::VERIFICATION_VERIFIED,
+        'nhif_scheme_id' => 101,
+        'nhif_authorization_no' => 'AUTH-OLD',
+        'verified_at' => now()->subHours(25),
+    ]);
+
+    expect($patient->activeNhifInsurance())->toBeNull()
+        ->and($patient->latestNhifInsurance()?->id)->toBe($insurance->id);
+
+    // After re-verification (within 24 hours):
+    $insurance->update(['verified_at' => now(), 'nhif_authorization_no' => 'AUTH-NEW']);
+    $patient->refresh();
+
+    expect($patient->activeNhifInsurance()?->id)->toBe($insurance->id)
+        ->and($patient->activeNhifInsurance()?->nhif_authorization_no)->toBe('AUTH-NEW');
+});
+

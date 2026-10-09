@@ -20,6 +20,8 @@ class NhifAdmission extends Model
 
     public const STATUS_FAILED = 'failed';
 
+    public const STATUS_DISCHARGED = 'discharged';
+
     /** @var list<string> */
     protected $fillable = [
         'admission_id',
@@ -30,6 +32,14 @@ class NhifAdmission extends Model
         'nhif_ward_type_id',
         'nhif_room_type_id',
         'nhif_admission_no',
+        'nhif_discharge_type_id',
+        'nhif_discharge_status',
+        'nhif_discharge_http_status',
+        'nhif_discharge_raw_request',
+        'nhif_discharge_raw_response',
+        'nhif_discharge_error',
+        'nhif_discharged_at',
+        'nhif_discharge_submitted_by',
         'nhif_status',
         'http_status',
         'raw_request',
@@ -46,6 +56,7 @@ class NhifAdmission extends Model
         return [
             'submitted_at' => 'datetime',
             'resolved_at' => 'datetime',
+            'nhif_discharged_at' => 'datetime',
         ];
     }
 
@@ -57,6 +68,11 @@ class NhifAdmission extends Model
     public function submittedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'submitted_by');
+    }
+
+    public function dischargeSubmittedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'nhif_discharge_submitted_by');
     }
 
     public function isAccepted(): bool

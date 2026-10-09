@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Pagination } from '@/components/pagination';
+import { NhifNewClaimDialog } from '@/components/nhif/nhif-new-claim-dialog';
 import { Plus } from 'lucide-react';
 import { type FormEventHandler, useState } from 'react';
 
@@ -17,9 +18,16 @@ const statusColors: Record<string, string> = {
     draft: 'bg-gray-100 text-gray-700',
     validated: 'bg-blue-100 text-blue-700',
     ready: 'bg-cyan-100 text-cyan-700',
-    submitted: 'bg-yellow-100 text-yellow-700',
+    signed: 'bg-indigo-100 text-indigo-700',
+    submitted: 'bg-amber-100 text-amber-700',
+    bill_confirmation_requested: 'bg-orange-100 text-orange-700',
+    confirmed: 'bg-emerald-100 text-emerald-700',
+    finalized: 'bg-green-100 text-green-700',
     accepted: 'bg-green-100 text-green-700',
     rejected: 'bg-red-100 text-red-700',
+    signing_failed: 'bg-rose-100 text-rose-700',
+    submission_failed: 'bg-red-100 text-red-700',
+    bill_confirmation_failed: 'bg-orange-100 text-orange-700',
     reconciled: 'bg-purple-100 text-purple-700',
     cancelled: 'bg-gray-100 text-gray-500',
 };
@@ -49,7 +57,8 @@ export default function ClaimsIndex({ claims, filters, statuses, claimTypes }: P
     const [search, setSearch] = useState(filters.search ?? '');
 
     const applyFilter = (key: string, value: string) => {
-        router.get(route('nhif.claims.index'), { ...filters, [key]: value || undefined, search }, { preserveState: true, replace: true });
+        const val = value === 'all' ? undefined : (value || undefined);
+        router.get(route('nhif.claims.index'), { ...filters, [key]: val, search }, { preserveState: true, replace: true });
     };
 
     const submitSearch: FormEventHandler = (e) => {
@@ -63,27 +72,33 @@ export default function ClaimsIndex({ claims, filters, statuses, claimTypes }: P
 
             <div className="flex h-full flex-col gap-4 p-4">
                 <div className="flex items-center justify-between">
-                    <h1 className="text-xl font-semibold">NHIF Claims</h1>
-                    <Button asChild>
-                        <Link href="#" onClick={() => alert('Use the patient insurance record to generate a claim.')}>
-                            <Plus className="mr-2 h-4 w-4" />
-                            New Claim
+                    <div>
+                        <h1 className="text-xl font-semibold">NHIF Claims</h1>
+                        <p className="text-xs text-muted-foreground">Manage and finalize patient folios and monthly claim consolidations.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Link href={route('nhif.claims.monthly')}>
+                            <Button variant="outline" size="sm" className="gap-2">
+                                <Plus className="w-4 h-4" />
+                                Monthly Claim Submission
+                            </Button>
                         </Link>
-                    </Button>
+                        <NhifNewClaimDialog />
+                    </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                    <Select value={filters.status ?? ''} onValueChange={(v) => applyFilter('status', v)}>
+                    <Select value={filters.status || 'all'} onValueChange={(v) => applyFilter('status', v)}>
                         <SelectTrigger className="w-36"><SelectValue placeholder="All statuses" /></SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="">All statuses</SelectItem>
+                            <SelectItem value="all">All statuses</SelectItem>
                             {statuses.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                         </SelectContent>
                     </Select>
-                    <Select value={filters.claim_type ?? ''} onValueChange={(v) => applyFilter('claim_type', v)}>
+                    <Select value={filters.claim_type || 'all'} onValueChange={(v) => applyFilter('claim_type', v)}>
                         <SelectTrigger className="w-36"><SelectValue placeholder="All types" /></SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="">All types</SelectItem>
+                            <SelectItem value="all">All types</SelectItem>
                             {claimTypes.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                         </SelectContent>
                     </Select>

@@ -24,8 +24,11 @@ class NhifMonthlySubmission extends Model
         'folios_submitted',
         'total_amount_claimed',
         'submission_remarks',
+        'nhif_request_payload',
         'nhif_response',
+        'error_message',
         'status',
+        'retry_count',
         'submitted_at',
         'submitted_by',
     ];
@@ -37,7 +40,9 @@ class NhifMonthlySubmission extends Model
             'claim_month' => 'integer',
             'folios_submitted' => 'integer',
             'total_amount_claimed' => 'decimal:2',
+            'nhif_request_payload' => 'array',
             'nhif_response' => 'array',
+            'retry_count' => 'integer',
             'submitted_at' => 'datetime',
         ];
     }

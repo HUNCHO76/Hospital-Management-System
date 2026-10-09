@@ -26,7 +26,7 @@ export const receptionStatusVariant: Record<ReceptionVisitStatus, 'default' | 's
 const NEXT_ACTIONS: Record<ReceptionVisitStatus, string[]> = {
     checked_in: ['waiting', 'cancel'],
     waiting: ['ready', 'cancel'],
-    ready_for_service: ['sendToService', 'cancel'],
+    ready_for_service: ['sendToService', 'complete', 'cancel'],
     sent_to_service: ['complete', 'cancel'],
     completed: [],
     cancelled: [],

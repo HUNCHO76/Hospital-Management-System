@@ -121,6 +121,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('{admission}/transfers', [AdmissionController::class, 'storeTransfer'])->name('transfers.store');
         Route::post('{admission}/transfers/{transfer}/complete', [AdmissionController::class, 'completeTransfer'])->name('transfers.complete');
         Route::post('{admission}/nhif-submit', [AdmissionController::class, 'submitNhif'])->name('nhif-submit');
+        Route::post('{admission}/submit-nhif-discharge', [AdmissionController::class, 'submitDischargeNhif'])->name('submit-nhif-discharge');
         Route::post('{admission}/transfers/{transfer}/nhif-submit', [AdmissionController::class, 'submitTransferNhif'])->name('transfers.nhif-submit');
     });
 
@@ -191,29 +192,35 @@ Route::middleware(['auth'])->group(function () {
         Route::post('utilizations/{nhifUtilization}/authorization', [NhifUtilizationController::class, 'attachAuthorization'])->name('utilization.authorization');
         Route::post('utilizations/{nhifUtilization}/reconcile', [NhifUtilizationController::class, 'reconcile'])->name('utilization.reconcile');
 
-        // Phase 8, Step 72 — NHIF claim / folio PREPARATION (up to READY_FOR_SUBMISSION).
-        // There is deliberately no submit route here; submission is Step 73.
+        // OCS & Claim Workflow Endpoints (specific routes before wildcard {nhifClaim})
         Route::get('claims', [NhifClaimController::class, 'index'])->name('claims.index');
         Route::post('claims', [NhifClaimController::class, 'store'])->name('claims.store');
+        Route::get('claims/eligible-visits', [NhifClaimController::class, 'eligibleVisits'])->name('claims.eligible-visits');
+        Route::post('claims/preview', [NhifClaimController::class, 'preview'])->name('claims.preview');
+        Route::post('claims/finalize-from-context', [NhifClaimController::class, 'finalizeFromContext'])->name('claims.finalize-from-context');
+        Route::get('claims/monthly', [NhifClaimController::class, 'monthly'])->name('claims.monthly');
+        Route::get('claims/monthly/calculate', [NhifClaimController::class, 'calculateMonthly'])->name('claims.monthly.calculate');
+        Route::post('claims/monthly/submit', [NhifClaimController::class, 'submitMonthly'])->name('claims.monthly.submit');
+        Route::post('claims/monthly/{nhifMonthlySubmission}/retry', [NhifClaimController::class, 'retryMonthly'])->name('claims.monthly.retry');
+        Route::get('claims/bill-confirmation', [NhifClaimController::class, 'billConfirmation'])->name('claims.bill-confirmation.index');
+        Route::post('claims/bill-confirmation', [NhifClaimController::class, 'requestBillConfirmation'])->name('claims.bill-confirmation.store');
+
+        // Parameterized {nhifClaim} routes
         Route::get('claims/{nhifClaim}', [NhifClaimController::class, 'show'])->name('claims.show');
         Route::post('claims/{nhifClaim}/regenerate', [NhifClaimController::class, 'regenerate'])->name('claims.regenerate');
         Route::post('claims/{nhifClaim}/validate', [NhifClaimController::class, 'validateClaim'])->name('claims.validate');
         Route::post('claims/{nhifClaim}/finalize', [NhifClaimController::class, 'finalize'])->name('claims.finalize');
         Route::post('claims/{nhifClaim}/submit', [NhifClaimController::class, 'submit'])->name('claims.submit');
         Route::post('claims/{nhifClaim}/cancel', [NhifClaimController::class, 'cancel'])->name('claims.cancel');
+        Route::post('claims/{nhifClaim}/reopen', [NhifClaimController::class, 'reopen'])->name('claims.reopen');
         Route::post('claims/{nhifClaim}/items', [NhifClaimController::class, 'addItem'])->name('claims.items.store');
         Route::delete('claims/{nhifClaim}/items/{nhifClaimItem}', [NhifClaimController::class, 'removeItem'])->name('claims.items.destroy');
         Route::post('claims/{nhifClaim}/documents', [NhifClaimController::class, 'uploadDocument'])->name('claims.documents.store');
         Route::get('claims/{nhifClaim}/documents/{nhifClaimDocument}', [NhifClaimController::class, 'downloadDocument'])->name('claims.documents.download');
         Route::delete('claims/{nhifClaim}/documents/{nhifClaimDocument}', [NhifClaimController::class, 'destroyDocument'])->name('claims.documents.destroy');
-
-        // OCS — sign, receipt, monthly submission, bill confirmation
         Route::post('claims/{nhifClaim}/sign', [NhifClaimController::class, 'sign'])->name('claims.sign');
         Route::get('claims/{nhifClaim}/receipt', [NhifClaimController::class, 'receipt'])->name('claims.receipt');
-        Route::get('claims/monthly', [NhifClaimController::class, 'monthly'])->name('claims.monthly');
-        Route::post('claims/monthly/submit', [NhifClaimController::class, 'submitMonthly'])->name('claims.monthly.submit');
-        Route::get('claims/bill-confirmation', [NhifClaimController::class, 'billConfirmation'])->name('claims.bill-confirmation.index');
-        Route::post('claims/bill-confirmation', [NhifClaimController::class, 'requestBillConfirmation'])->name('claims.bill-confirmation.store');
+        Route::post('claims/{nhifClaim}/retry-bill-confirmation', [NhifClaimController::class, 'retryBillConfirmation'])->name('claims.retry-bill-confirmation');
 
         // Phase 8, Step 74 — NHIF claim reconciliation & response handling.
         // Reuses Step 73's submission data; there is no way to hand-set a claim's

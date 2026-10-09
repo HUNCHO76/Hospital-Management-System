@@ -117,6 +117,7 @@ class AdmissionController extends Controller
             'canDischarge' => $request->user()->can('discharge', $admission),
             'canCancel' => $request->user()->can('cancel', $admission),
             'canSubmitNhif' => $request->user()->can('submitNhif', $admission),
+            'canSubmitDischargeNhif' => $request->user()->can('submitDischargeNhif', $admission),
             'dischargeTypes' => Admission::DISCHARGE_TYPES,
         ]);
     }
@@ -191,9 +192,19 @@ class AdmissionController extends Controller
         $this->authorize('discharge', $admission);
 
         try {
-            $service->discharge($admission, $request->validated(), $request);
+            $admission = $service->discharge($admission, $request->validated(), $request);
         } catch (ValidationException $e) {
             return back()->with('error', collect($e->errors())->flatten()->implode(' '));
+        }
+
+        $nhif = $admission->nhifAdmission;
+        if ($nhif && $nhif->nhif_admission_no) {
+            if ($nhif->nhif_discharge_status === 'submitted') {
+                return back()->with('success', 'Patient discharged and NHIF discharge notification submitted.');
+            }
+            if ($nhif->nhif_discharge_status === 'failed') {
+                return back()->with('warning', 'Patient discharged locally, but NHIF discharge notification failed: ' . ($nhif->nhif_discharge_error ?? 'Check connection'));
+            }
         }
 
         return back()->with('success', 'Patient discharged.');
@@ -270,13 +281,27 @@ class AdmissionController extends Controller
         return back()->with('success', 'Transfer submitted to NHIF.');
     }
 
+    public function submitDischargeNhif(Request $request, Admission $admission, AdmissionService $service): RedirectResponse
+    {
+        $this->authorize('submitDischargeNhif', $admission);
+
+        $admission = $service->submitDischargeNhif($admission, $request);
+
+        $nhif = $admission->nhifAdmission;
+        if ($nhif && $nhif->nhif_discharge_status === 'submitted') {
+            return back()->with('success', 'Discharge notification successfully submitted to NHIF.');
+        }
+
+        return back()->with('error', $nhif?->nhif_discharge_error ?? 'NHIF discharge submission failed.');
+    }
+
     /**
      * The hospital a hospital-admin is restricted to, or null when the user
      * is unrestricted (super-admin and any other unscoped role).
      */
     protected function scopedHospitalId(Request $request): ?int
     {
-        if (! $request->user()->hasRole('hospital-admin')) {
+        if (! $request->user()->hasAnyRole(['hospital-admin', 'Manager', 'manager'])) {
             return null;
         }
 

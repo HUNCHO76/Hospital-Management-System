@@ -138,12 +138,16 @@ export interface NhifConsultationService {
 }
 
 export interface NhifInsuranceSummary {
+    id?: number;
     scheme_id: number;
     scheme_name: string | null;
     nhif_authorization_no: string;
     card_number: string | null;
     verification_status: string;
     nhif_pf_number: string | null;
+    verified_at?: string | null;
+    expires_at?: string | null;
+    hours_remaining?: number | null;
 }
 
 export interface WalkInFormData {

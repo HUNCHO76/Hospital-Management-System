@@ -44,7 +44,8 @@ export function NhifAdmissionLookupDialog() {
             const response = await axios.get(route('nhif.admissions.lookup'), {
                 params: { authorization_no: authNo.trim() },
             });
-            setResult(response.data);
+            const payload = Array.isArray(response.data) && response.data.length > 0 ? response.data[0] : response.data;
+            setResult(payload);
         } catch (err: any) {
             setError(err.response?.data?.error || 'Failed to lookup admission details. Please check the authorization number.');
         } finally {

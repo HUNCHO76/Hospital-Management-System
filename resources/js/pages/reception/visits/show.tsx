@@ -185,7 +185,7 @@ export default function VisitShow({ visit, consultationFinancialStatus, consulta
                         )}
 
                         {/* NHIF partial coverage — patient co-payment informational */}
-                        {(nhifStatus === 'accepted' || nhifStatus === 'approved') && nhifPreApprovalItem?.nhif_percent_covered !== null && nhifPreApprovalItem.nhif_percent_covered < 100 && (
+                        {(nhifStatus === 'accepted' || nhifStatus === 'approved') && nhifPreApprovalItem && nhifPreApprovalItem.nhif_percent_covered !== null && nhifPreApprovalItem.nhif_percent_covered < 100 && (
                             <Alert className="border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-300">
                                 <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                                 <AlertDescription className="space-y-1">

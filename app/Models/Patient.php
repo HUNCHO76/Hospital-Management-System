@@ -126,16 +126,31 @@ class Patient extends Model
 
     /**
      * The patient's currently active, NHIF-verified insurance record with a
-     * captured scheme ID. Returns the most recent such record, or null if the
-     * patient has no active NHIF coverage.
+     * captured scheme ID and valid 24-hour authorization. Returns the most
+     * recent such record, or null if the patient has no active, valid NHIF authorization.
      */
     public function activeNhifInsurance(): ?PatientInsurance
     {
         return $this->insurances()
-            ->where('status', PatientInsurance::STATUS_ACTIVE)
-            ->where('verification_status', PatientInsurance::VERIFICATION_VERIFIED)
-            ->whereNotNull('nhif_authorization_no')
+            ->withValidAuthorization()
             ->whereNotNull('nhif_scheme_id')
+            ->with('insuranceScheme:id,name')
+            ->latest()
+            ->first();
+    }
+
+    /**
+     * The patient's most recent active NHIF insurance record, regardless of whether
+     * the 24-hour authorization window has expired.
+     */
+    public function latestNhifInsurance(): ?PatientInsurance
+    {
+        return $this->insurances()
+            ->where('status', PatientInsurance::STATUS_ACTIVE)
+            ->where(function ($q) {
+                $q->whereNotNull('nhif_scheme_id')
+                    ->orWhereNotNull('card_number');
+            })
             ->with('insuranceScheme:id,name')
             ->latest()
             ->first();

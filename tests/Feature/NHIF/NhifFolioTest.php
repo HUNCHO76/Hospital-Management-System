@@ -227,7 +227,7 @@ test('submit does not mark claim as submitted when NHIF returns failure', functi
     $service = app(NhifFolioService::class);
     $result = $service->submit($claim, requestAs($ctx['user']));
 
-    expect($result->status)->toBe(NhifClaim::STATUS_READY)
+    expect($result->status)->toBe(NhifClaim::STATUS_SUBMISSION_FAILED)
         ->and($result->nhif_claim_reference)->toBeNull();
 });
 

@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { dispensingItemStatusLabel, dispensingStatusLabel, dispensingStatusVariant, fulfillmentStatusLabel, fulfillmentStatusVariant } from '@/lib/dispensing-status';
 import { prescriptionDurationUnitLabel, prescriptionFrequencyLabel, prescriptionOrderStatusLabel, prescriptionOrderStatusVariant, prescriptionRouteLabel } from '@/lib/prescription-status';
+import { NhifClaimFinalizeDialog } from '@/components/nhif/nhif-claim-finalize-dialog';
 import { NhifUtilizationStatus } from '@/components/nhif/nhif-utilization-status';
 import { type BreadcrumbItem } from '@/types';
 import { type DispensingItemStatus, type DispensingPrescription } from '@/types/dispensing';
@@ -145,6 +146,12 @@ export default function PharmacyDispensingShow({
                         <Badge variant={fulfillmentStatusVariant[prescription.fulfillment_status]}>
                             {fulfillmentStatusLabel[prescription.fulfillment_status]}
                         </Badge>
+                        {prescription.clinical_encounter_id && (
+                            <NhifClaimFinalizeDialog
+                                clinicalEncounterId={prescription.clinical_encounter_id}
+                                patientName={patientName}
+                            />
+                        )}
                         {!inProgress && canStart && prescription.fulfillment_status !== 'dispensed' && (
                             <Button onClick={startDispensing} disabled={isPaymentRequired} title={isPaymentRequired ? 'Payment required before dispensing' : undefined}>
                                 <PlayCircle className="h-4 w-4" />

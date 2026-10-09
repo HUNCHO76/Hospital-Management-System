@@ -710,5 +710,165 @@ test('an un-authorized cash admission still requires payment before confirmation
         ->toThrow(ValidationException::class);
 });
 
+test('discharging an active admission with an NHIF admission number automatically submits discharge to NHIF', function () {
+    $ctx = admissionReadyContext();
+    $nurse = userWithRole('nurse');
+
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'practitioner_id' => $ctx['practitioner']->id,
+        'service_id' => $ctx['service']->id,
+        'admission_type' => 'emergency',
+        'nhif_authorization_no' => '201627864221',
+        'diagnosis_at_admission' => 'Acute Appendicitis',
+    ], requestAs($nurse));
+
+    $admission->nhifAdmission->update([
+        'nhif_admission_no' => '901627800505',
+        'nhif_status' => \App\Models\NhifAdmission::STATUS_SUBMITTED,
+    ]);
+
+    $admission->update([
+        'status' => Admission::STATUS_ACTIVE,
+        'admitted_at' => now(),
+    ]);
+
+    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient->shouldReceive('dischargePatient')
+        ->once()
+        ->with(Mockery::on(function ($payload) {
+            return $payload['admissionNo'] === '901627800505'
+                && $payload['dischargeTypeID'] === 1
+                && $payload['diagnosisAtDischarge'] === 'Acute Appendicitis - Resolved'
+                && $payload['practitionersRemarks'] === 'Patient recovered well'
+                && ! empty($payload['dateDischarged']);
+        }))
+        ->andReturn([
+            'success' => true,
+            'http_status' => 200,
+            'data' => ['success' => true],
+            'error' => null,
+        ]);
+    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+
+    $response = $this->actingAs($nurse)->post(route('admissions.discharge', $admission->id), [
+        'discharge_type' => 'routine',
+        'discharge_reason' => 'Patient recovered well',
+        'diagnosis_at_discharge' => 'Acute Appendicitis - Resolved',
+    ]);
+
+    $response->assertRedirect();
+
+    $admission->refresh();
+    expect($admission->status)->toBe(Admission::STATUS_DISCHARGED)
+        ->and($admission->diagnosis_at_discharge)->toBe('Acute Appendicitis - Resolved')
+        ->and($admission->nhifAdmission->nhif_discharge_status)->toBe('submitted')
+        ->and($admission->nhifAdmission->nhif_discharge_type_id)->toBe(1)
+        ->and($admission->nhifAdmission->nhif_discharged_at)->not->toBeNull();
+});
+
+test('discharging an active admission when NHIF fails still discharges locally and records failure', function () {
+    $ctx = admissionReadyContext();
+    $nurse = userWithRole('nurse');
+
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'practitioner_id' => $ctx['practitioner']->id,
+        'admission_type' => 'elective',
+        'nhif_authorization_no' => '201627864221',
+    ], requestAs($nurse));
+
+    $admission->nhifAdmission->update([
+        'nhif_admission_no' => '901627800505',
+        'nhif_status' => \App\Models\NhifAdmission::STATUS_SUBMITTED,
+    ]);
+
+    $admission->update([
+        'status' => Admission::STATUS_ACTIVE,
+        'admitted_at' => now(),
+    ]);
+
+    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient->shouldReceive('dischargePatient')
+        ->once()
+        ->andReturn([
+            'success' => false,
+            'http_status' => 500,
+            'data' => [],
+            'error' => 'NHIF ServiceHub timeout',
+        ]);
+    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+
+    $response = $this->actingAs($nurse)->post(route('admissions.discharge', $admission->id), [
+        'discharge_type' => 'routine',
+        'discharge_reason' => 'Discharged home',
+    ]);
+
+    $response->assertRedirect();
+
+    $admission->refresh();
+    expect($admission->status)->toBe(Admission::STATUS_DISCHARGED)
+        ->and($admission->nhifAdmission->nhif_discharge_status)->toBe('failed')
+        ->and($admission->nhifAdmission->nhif_discharge_error)->toBe('NHIF ServiceHub timeout');
+});
+
+test('submitDischargeNhif route retries NHIF discharge submission', function () {
+    $ctx = admissionReadyContext();
+    $nurse = userWithRole('nurse');
+    $admin = User::factory()->create();
+    $admin->assignRole('hospital-admin');
+    Staff::factory()->create(['user_id' => $admin->id, 'hospital_id' => $ctx['hospital']->id]);
+
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'practitioner_id' => $ctx['practitioner']->id,
+        'admission_type' => 'emergency',
+        'nhif_authorization_no' => '201627864221',
+    ], requestAs($nurse));
+
+    $admission->nhifAdmission->update([
+        'nhif_admission_no' => '901627800505',
+        'nhif_status' => \App\Models\NhifAdmission::STATUS_SUBMITTED,
+        'nhif_discharge_status' => 'failed',
+        'nhif_discharge_error' => 'Previous error',
+    ]);
+
+    $admission->update([
+        'status' => Admission::STATUS_DISCHARGED,
+        'discharged_at' => now(),
+        'discharge_type' => 'against_medical_advice',
+        'discharge_reason' => 'Left against advice',
+    ]);
+
+    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient->shouldReceive('dischargePatient')
+        ->once()
+        ->with(Mockery::on(function ($payload) {
+            return $payload['admissionNo'] === '901627800505'
+                && $payload['dischargeTypeID'] === 2; // AMA
+        }))
+        ->andReturn([
+            'success' => true,
+            'http_status' => 200,
+            'data' => ['success' => true],
+            'error' => null,
+        ]);
+    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+
+    $response = $this->actingAs($admin)->post(route('admissions.submit-nhif-discharge', $admission->id));
+
+    $response->assertRedirect();
+
+    $admission->refresh();
+    expect($admission->nhifAdmission->nhif_discharge_status)->toBe('submitted')
+        ->and($admission->nhifAdmission->nhif_discharge_type_id)->toBe(2);
+});
+
 
 

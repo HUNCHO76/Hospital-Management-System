@@ -60,7 +60,8 @@ export interface StaffFormData {
     create_account: boolean;
     password: string;
     role: string;
-    [key: string]: string | boolean;
+    user_status?: string;
+    [key: string]: string | boolean | undefined;
 }
 
 export interface StaffFilters {

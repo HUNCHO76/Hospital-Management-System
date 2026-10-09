@@ -58,9 +58,54 @@ class StaffService
      */
     public function update(Staff $staff, array $data, Request $request): Staff
     {
+        $role = $data['role'] ?? null;
+        $userStatus = $data['user_status'] ?? null;
+        $password = $data['password'] ?? null;
+        $createAccount = $data['create_account'] ?? false;
+        unset($data['role'], $data['user_status'], $data['password'], $data['create_account']);
+
         $oldValues = $staff->only(array_keys($data));
 
-        $staff->update($data);
+        DB::transaction(function () use ($staff, $data, $role, $userStatus, $password, $createAccount, $request) {
+            $staff->update($data);
+
+            if ($staff->user) {
+                $user = $staff->user;
+                $userUpdates = [
+                    'UserName' => $staff->full_name,
+                    'phone' => $staff->phone,
+                ];
+                if (filled($staff->email)) {
+                    $userUpdates['email'] = $staff->email;
+                }
+                if (filled($userStatus)) {
+                    $userUpdates['status'] = $userStatus;
+                }
+                if (filled($password)) {
+                    $userUpdates['password'] = $password;
+                }
+                $user->update($userUpdates);
+
+                if (filled($role)) {
+                    $oldRoles = $user->getRoleNames()->all();
+                    $user->syncRoles([$role]);
+                    $this->auditLog->record('user_roles_synced', $user, ['roles' => $oldRoles], ['roles' => [$role]], $request);
+                }
+            } elseif ($createAccount && filled($staff->email) && filled($role)) {
+                $user = User::create([
+                    'UserName' => $staff->full_name,
+                    'email' => $staff->email,
+                    'phone' => $staff->phone,
+                    'password' => $password ?: 'password',
+                    'status' => $userStatus ?: User::STATUS_ACTIVE,
+                ]);
+
+                $user->assignRole($role);
+                $staff->update(['user_id' => $user->id]);
+
+                $this->auditLog->record('user_account_created', $user, null, ['roles' => [$role]], $request);
+            }
+        });
 
         $this->auditLog->record('staff_updated', $staff, $oldValues, $staff->only(array_keys($data)), $request);
 

@@ -64,9 +64,7 @@ class NhifMedicationAuthorizationService
     {
         return PatientInsurance::query()
             ->where('patient_id', $patientId)
-            ->where('status', PatientInsurance::STATUS_ACTIVE)
-            ->where('verification_status', PatientInsurance::VERIFICATION_VERIFIED)
-            ->whereNotNull('nhif_authorization_no')
+            ->withValidAuthorization()
             ->orderByDesc('is_primary')
             ->orderByDesc('id')
             ->first();

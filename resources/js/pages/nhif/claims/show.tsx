@@ -16,11 +16,17 @@ const statusColors: Record<string, string> = {
     draft: 'bg-gray-100 text-gray-700',
     validated: 'bg-blue-100 text-blue-700',
     ready: 'bg-cyan-100 text-cyan-700',
+    signed: 'bg-indigo-100 text-indigo-700',
     submitted: 'bg-yellow-100 text-yellow-700',
+    confirmed: 'bg-teal-100 text-teal-700',
+    finalized: 'bg-emerald-100 text-emerald-700',
     accepted: 'bg-green-100 text-green-700',
     rejected: 'bg-red-100 text-red-700',
     reconciled: 'bg-purple-100 text-purple-700',
     cancelled: 'bg-gray-100 text-gray-500',
+    signing_failed: 'bg-rose-100 text-rose-700',
+    submission_failed: 'bg-rose-100 text-rose-700',
+    bill_confirmation_failed: 'bg-amber-100 text-amber-700',
 };
 
 interface ClaimItem { id: number; line_no: number; module: string; nhif_item_code: string; service_date: string | null; quantity: number; hms_amount: number | null; nhif_allowable_amount: number | null; utilization_number: string | null }
@@ -42,6 +48,8 @@ interface Claim {
     nhif_rejected_total: number | null;
     validation_summary: Record<string, unknown> | null;
     validated_at: string | null;
+    signed_at: string | null;
+    confirmation_code: string | null;
     cancellation_reason: string | null;
     cancelled_at: string | null;
     is_submittable: boolean;
@@ -68,6 +76,8 @@ export default function ClaimShow({ claim }: Props) {
 
     const validate = () => router.post(route('nhif.claims.validate', claim.id));
     const finalize = () => router.post(route('nhif.claims.finalize', claim.id));
+    const sign = () => router.post(route('nhif.claims.sign', claim.id), { signature_method: 'Manual' });
+    const retryBillConfirmation = () => router.post(route('nhif.claims.retry-bill-confirmation', claim.id));
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -86,7 +96,15 @@ export default function ClaimShow({ claim }: Props) {
                     <div className="flex flex-wrap gap-2">
                         {claim.status === 'draft' && <Button size="sm" onClick={validate}>Validate</Button>}
                         {claim.status === 'validated' && <Button size="sm" onClick={finalize}>Finalize</Button>}
+                        {(claim.status === 'ready' || claim.status === 'signing_failed') && (
+                            <Button size="sm" variant="outline" onClick={sign}>Sign Folio</Button>
+                        )}
                         {claim.is_submittable && <Button size="sm" onClick={submit}>Submit to NHIF</Button>}
+                        {(claim.status === 'submitted' || claim.status === 'bill_confirmation_failed') && (
+                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={retryBillConfirmation}>
+                                Request Bill Confirmation
+                            </Button>
+                        )}
                         {!claim.is_cancelled && (
                             <Button size="sm" variant="destructive" onClick={() => {
                                 const reason = prompt('Cancellation reason:');

@@ -13,8 +13,9 @@ import {
     type PatientInsurance,
     type PatientInsurancePatient,
 } from '@/types/patient-insurance';
+import { NhifVerificationDialog } from '@/components/patients/nhif-verification-dialog';
 import { Head, Link, router } from '@inertiajs/react';
-import { Pencil, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Pencil, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 
 interface InsuranceShowProps {
@@ -26,6 +27,8 @@ interface InsuranceShowProps {
 
 const nhifVerifStatusLabel: Record<NhifVerificationStatus, string> = {
     verified: 'Verified',
+    lookup_found: 'Lookup Found',
+    verification_failed: 'Verification Failed',
     not_found: 'Not Found',
     invalid: 'Invalid',
     expired: 'Expired',
@@ -188,7 +191,7 @@ function NhifEligibilityCard({ eligibility }: { eligibility: NhifEligibilityReco
 // ---- Main page ----
 
 export default function InsuranceShow({ patient, insurance }: InsuranceShowProps) {
-    const [verifying, setVerifying] = useState(false);
+    const [verificationDialogOpen, setVerificationDialogOpen] = useState(false);
     const [checkingEligibility, setCheckingEligibility] = useState(false);
 
     const fullName = [patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ');
@@ -207,10 +210,7 @@ export default function InsuranceShow({ patient, insurance }: InsuranceShowProps
     ];
 
     function handleNhifVerify() {
-        setVerifying(true);
-        router.post(route('patients.insurance.nhif-verify', [patient.id, insurance.id]), {}, {
-            onFinish: () => setVerifying(false),
-        });
+        setVerificationDialogOpen(true);
     }
 
     function handleNhifEligibility() {
@@ -245,9 +245,9 @@ export default function InsuranceShow({ patient, insurance }: InsuranceShowProps
 
                         {canLiveVerify && (
                             <Can permission="patient-insurance.verify">
-                                <Button variant="outline" onClick={handleNhifVerify} disabled={verifying}>
+                                <Button variant="outline" onClick={handleNhifVerify}>
                                     <ShieldCheck className="h-4 w-4" />
-                                    {verifying ? 'Verifying…' : 'Verify with NHIF'}
+                                    Verify with NHIF
                                 </Button>
                             </Can>
                         )}
@@ -262,6 +262,34 @@ export default function InsuranceShow({ patient, insurance }: InsuranceShowProps
                         </Can>
                     </div>
                 </div>
+
+                {((insurance.nhif_authorization_no && insurance.is_authorization_expired) || insurance.verification_status === 'failed') && (
+                    <div className="max-w-2xl rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-amber-900 dark:text-amber-200">
+                        <div className="flex items-start gap-3">
+                            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                            <div className="flex-1">
+                                <h3 className="font-semibold text-sm">
+                                    {insurance.verification_status === 'failed' ? 'NHIF Card Verification Required' : 'NHIF 24-Hour Authorization Expired'}
+                                </h3>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    {insurance.verification_status === 'failed'
+                                        ? 'The latest NHIF card verification failed or was rejected by NHIF. A valid authorization must be obtained by re-verifying the patient card before creating visits, admissions, or requesting services.'
+                                        : `The NHIF authorization number (${insurance.nhif_authorization_no}) was verified on ${insurance.verified_at ? new Date(insurance.verified_at).toLocaleString() : 'N/A'}. NHIF authorizations are only valid for 24 hours. A new authorization number must be obtained by re-verifying the patient's card before creating visits, admissions, or requesting services.`}
+                                </p>
+                                {canLiveVerify && (
+                                    <div className="mt-3">
+                                        <Can permission="patient-insurance.verify">
+                                            <Button size="sm" variant="default" onClick={handleNhifVerify}>
+                                                <ShieldCheck className="h-4 w-4 mr-1.5" />
+                                                Re-verify Card with NHIF
+                                            </Button>
+                                        </Can>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <Card className="max-w-2xl">
                     <CardHeader>
@@ -315,6 +343,35 @@ export default function InsuranceShow({ patient, insurance }: InsuranceShowProps
                                 <dt className="text-muted-foreground">Verification</dt>
                                 <dd className="capitalize">{insurance.verification_status}</dd>
                             </div>
+                            {insurance.nhif_authorization_no && insurance.nhif_authorization_no !== 'N/A' && (
+                                <>
+                                    <div className="flex justify-between gap-4">
+                                        <dt className="text-muted-foreground">NHIF Authorization No.</dt>
+                                        <dd className="font-mono font-medium">{insurance.nhif_authorization_no}</dd>
+                                    </div>
+                                    <div className="flex justify-between gap-4">
+                                        <dt className="text-muted-foreground">Authorization Validity</dt>
+                                        <dd>
+                                            {insurance.verification_status === 'verified' && !insurance.is_authorization_expired ? (
+                                                <div className="flex items-center gap-2">
+                                                    <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-700">
+                                                        Valid (24h Window)
+                                                    </Badge>
+                                                    {insurance.authorization_hours_remaining !== null && insurance.authorization_hours_remaining !== undefined && (
+                                                        <span className="text-xs text-muted-foreground">
+                                                            (~{insurance.authorization_hours_remaining}h remaining)
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <Badge variant="destructive">
+                                                    {insurance.verification_status === 'failed' ? 'Verification Failed' : 'Expired (>24 Hours)'}
+                                                </Badge>
+                                            )}
+                                        </dd>
+                                    </div>
+                                </>
+                            )}
                             {insurance.nhif_eligibility_status && (
                                 <div className="flex justify-between gap-4">
                                     <dt className="text-muted-foreground">NHIF Eligibility</dt>
@@ -345,6 +402,14 @@ export default function InsuranceShow({ patient, insurance }: InsuranceShowProps
                 {insurance.latest_nhif_verification && (
                     <NhifVerificationCard verification={insurance.latest_nhif_verification} />
                 )}
+
+                <NhifVerificationDialog
+                    open={verificationDialogOpen}
+                    onOpenChange={setVerificationDialogOpen}
+                    patient={patient as any}
+                    insurance={insurance}
+                    latestVerification={insurance.latest_nhif_verification}
+                />
             </div>
         </AppLayout>
     );

@@ -17,15 +17,25 @@ interface StaffFormDepartment {
     code: string;
 }
 
+export interface StaffAccountInfo {
+    id: number;
+    username: string;
+    email: string;
+    phone: string | null;
+    status: string;
+    role?: string;
+}
+
 interface StaffFormProps {
     staff?: Staff;
     hospitals: DepartmentHospital[];
     departments: StaffFormDepartment[];
     roles?: string[];
     employmentTypes: string[];
+    account?: StaffAccountInfo | null;
 }
 
-export function StaffForm({ staff, hospitals, departments, roles, employmentTypes }: StaffFormProps) {
+export function StaffForm({ staff, hospitals, departments, roles, employmentTypes, account }: StaffFormProps) {
     const isEditing = Boolean(staff);
 
     const { data, setData, post, put, processing, errors } = useForm<StaffFormData>({
@@ -45,7 +55,8 @@ export function StaffForm({ staff, hospitals, departments, roles, employmentType
         hired_at: staff?.hired_at ?? '',
         create_account: false,
         password: '',
-        role: '',
+        role: account?.role ?? '',
+        user_status: account?.status ?? 'active',
     });
 
     const departmentsForHospital = useMemo(
@@ -221,6 +232,113 @@ export function StaffForm({ staff, hospitals, departments, roles, employmentType
             </div>
 
             {!isEditing && roles && (
+                <div className="space-y-4 rounded-lg border p-4">
+                    <div className="flex items-center gap-3">
+                        <Checkbox
+                            id="create_account"
+                            checked={data.create_account}
+                            onCheckedChange={(checked) => setData('create_account', checked === true)}
+                        />
+                        <Label htmlFor="create_account">Create a system login account for this staff member</Label>
+                    </div>
+
+                    {data.create_account && (
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <p className="text-muted-foreground text-sm sm:col-span-2">
+                                The account's login email will be the email address entered above.
+                            </p>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="password">Password *</Label>
+                                <Input
+                                    id="password"
+                                    type="password"
+                                    value={data.password}
+                                    onChange={(e) => setData('password', e.target.value)}
+                                    required={data.create_account}
+                                />
+                                <InputError message={errors.password} />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="role">Role *</Label>
+                                <Select value={data.role} onValueChange={(value) => setData('role', value)}>
+                                    <SelectTrigger id="role">
+                                        <SelectValue placeholder="Select a role" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {roles.map((role) => (
+                                            <SelectItem key={role} value={role}>
+                                                {role}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <InputError message={errors.role} />
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {isEditing && roles && (staff?.user_id || account) && (
+                <div className="space-y-4 rounded-lg border p-4">
+                    <div>
+                        <h3 className="text-sm font-semibold text-foreground">User Login Account & Role</h3>
+                        <p className="text-xs text-muted-foreground">
+                            Account: <span className="font-medium text-foreground">{account?.username ?? staff?.user?.UserName ?? 'Connected'}</span> ({account?.email ?? staff?.email})
+                        </p>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="grid gap-2">
+                            <Label htmlFor="role">Role</Label>
+                            <Select value={data.role} onValueChange={(value) => setData('role', value)}>
+                                <SelectTrigger id="role">
+                                    <SelectValue placeholder="Select a role" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {roles.map((role) => (
+                                        <SelectItem key={role} value={role}>
+                                            {role}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <InputError message={errors.role} />
+                        </div>
+
+                        <div className="grid gap-2">
+                            <Label htmlFor="user_status">Account Status</Label>
+                            <Select value={data.user_status} onValueChange={(value) => setData('user_status', value)}>
+                                <SelectTrigger id="user_status">
+                                    <SelectValue placeholder="Select account status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="active">Active</SelectItem>
+                                    <SelectItem value="inactive">Inactive</SelectItem>
+                                    <SelectItem value="suspended">Suspended</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <InputError message={errors.user_status} />
+                        </div>
+
+                        <div className="grid gap-2 sm:col-span-2">
+                            <Label htmlFor="password">Change Password (leave blank to keep existing)</Label>
+                            <Input
+                                id="password"
+                                type="password"
+                                value={data.password}
+                                placeholder="Enter new password if updating"
+                                onChange={(e) => setData('password', e.target.value)}
+                            />
+                            <InputError message={errors.password} />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isEditing && roles && !staff?.user_id && !account && (
                 <div className="space-y-4 rounded-lg border p-4">
                     <div className="flex items-center gap-3">
                         <Checkbox

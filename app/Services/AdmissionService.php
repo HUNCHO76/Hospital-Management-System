@@ -282,13 +282,13 @@ class AdmissionService
     }
 
     /**
-     * @param  array{discharge_type: string, discharge_reason: string}  $data
+     * @param  array{discharge_type: string, discharge_reason: string, diagnosis_at_discharge?: string|null, referred_to_facility_code?: string|null}  $data
      *
      * @throws ValidationException
      */
     public function discharge(Admission $admission, array $data, Request $request): Admission
     {
-        return DB::transaction(function () use ($admission, $data, $request) {
+        $admission = DB::transaction(function () use ($admission, $data, $request) {
             $admission = Admission::query()->whereKey($admission->id)->lockForUpdate()->firstOrFail();
 
             if (! $admission->isActive()) {
@@ -305,12 +305,75 @@ class AdmissionService
                 'discharged_by' => $request->user()->id,
                 'discharge_type' => $data['discharge_type'],
                 'discharge_reason' => $data['discharge_reason'],
+                'diagnosis_at_discharge' => $data['diagnosis_at_discharge'] ?? null,
+                'referred_to_facility_code' => $data['referred_to_facility_code'] ?? null,
             ]);
 
             $this->auditLog->record('admission_discharged', $admission, ['status' => $oldStatus], ['status' => $admission->status], $request);
 
             return $admission;
         });
+
+        $admission->loadMissing('nhifAdmission');
+        if (! empty($admission->nhifAdmission?->nhif_admission_no)) {
+            $this->submitDischargeNhif($admission, $request);
+        }
+
+        return $admission->fresh(['nhifAdmission']);
+    }
+
+    /**
+     * Submits a patient discharge notification to NHIF via /api/Admissions/DishargePatient.
+     * Never throws on NHIF error — failures are recorded on the NhifAdmission row and audit log.
+     */
+    public function submitDischargeNhif(Admission $admission, Request $request): Admission
+    {
+        $admission->loadMissing(['hospital', 'practitioner', 'patient', 'nhifAdmission']);
+
+        $nhifAdmission = $admission->nhifAdmission;
+        $admissionNo = $nhifAdmission?->nhif_admission_no;
+
+        if (empty($admissionNo)) {
+            return $admission;
+        }
+
+        $dischargeTypeId = Admission::NHIF_DISCHARGE_TYPE_MAP[$admission->discharge_type] ?? 1;
+        $practitionerNo = $admission->practitioner?->nhif_practitioner_no
+            ?: ($nhifAdmission->nhif_practitioner_no ?: 'UNKNOWN');
+
+        $payload = [
+            'admissionNo' => (string) $admissionNo,
+            'practitionerNo' => (string) $practitionerNo,
+            'practitionersRemarks' => (string) ($admission->discharge_reason ?: 'None provided'),
+            'dischargeTypeID' => (int) $dischargeTypeId,
+            'dateDischarged' => optional($admission->discharged_at)->toIso8601String() ?: now()->toIso8601String(),
+            'diagnosisAtDischarge' => (string) ($admission->diagnosis_at_discharge ?: ($admission->diagnosis_at_admission ?: 'None provided')),
+            'referredToFacilityCode' => $admission->referred_to_facility_code ?: null,
+            'createdBy' => (string) ($request->user()->UserName ?? $request->user()->name ?? 'SYSTEM'),
+        ];
+
+        $result = $this->nhifClient->dischargePatient($payload);
+
+        $nhifAdmission->update([
+            'nhif_discharge_type_id' => $dischargeTypeId,
+            'nhif_discharge_status' => $result['success'] ? 'submitted' : 'failed',
+            'nhif_discharge_http_status' => $result['http_status'] ?? null,
+            'nhif_discharge_raw_request' => json_encode($payload),
+            'nhif_discharge_raw_response' => json_encode($result['data'] ?? []),
+            'nhif_discharge_error' => $result['error'] ?? null,
+            'nhif_discharged_at' => now(),
+            'nhif_discharge_submitted_by' => $request->user()->id,
+        ]);
+
+        $this->auditLog->record(
+            $result['success'] ? 'admission_nhif_discharged' : 'admission_nhif_discharge_failed',
+            $admission,
+            null,
+            ['success' => $result['success'], 'error' => $result['error'] ?? null, 'admission_no' => $admissionNo],
+            $request,
+        );
+
+        return $admission->fresh(['nhifAdmission']);
     }
 
     /**

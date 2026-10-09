@@ -144,7 +144,10 @@ class NhifMemberVerificationController extends Controller
      */
     public function getVerifiers(Request $request, NhifMemberVerificationService $verifier): JsonResponse
     {
-        $this->authorize('create', Patient::class);
+        abort_unless(
+            $request->user()?->can('patients.create') || $request->user()?->can('patient-insurance.verify'),
+            403
+        );
 
         $validated = $request->validate([
             'card_no' => ['required', 'string', 'max:50'],
@@ -167,7 +170,10 @@ class NhifMemberVerificationController extends Controller
      */
     public function getVisitTypes(Request $request, NhifMemberVerificationService $verifier): JsonResponse
     {
-        $this->authorize('create', Patient::class);
+        abort_unless(
+            $request->user()?->can('patients.create') || $request->user()?->can('patient-insurance.verify'),
+            403
+        );
 
         $result = $verifier->fetchVisitTypes($request);
 
@@ -221,6 +227,26 @@ class NhifMemberVerificationController extends Controller
 
         $this->authorize('verify', $patientInsurance);
 
+        if (! $request->filled('identifier_type') || ! $request->filled('identifier_value')) {
+            $identifierValue = $patientInsurance->card_number 
+                ?: $patientInsurance->membership_number;
+            $identifierType = NhifMemberVerification::TYPE_CARD_NUMBER;
+
+            if (blank($identifierValue) && filled($patient->national_id)) {
+                $identifierType = NhifMemberVerification::TYPE_NIN;
+                $identifierValue = $patient->national_id;
+            }
+
+            if (blank($identifierValue)) {
+                return back()->with('error', 'Cannot verify: No card number, membership number, or NIN found on file for this patient.');
+            }
+
+            $request->merge([
+                'identifier_type' => $identifierType,
+                'identifier_value' => $identifierValue,
+            ]);
+        }
+
         $validated = $request->validate([
             'identifier_type' => ['required', Rule::in([NhifMemberVerification::TYPE_NIN, NhifMemberVerification::TYPE_CARD_NUMBER])],
             'identifier_value' => ['required', 'string', 'max:50'],
@@ -259,6 +285,10 @@ class NhifMemberVerificationController extends Controller
             NhifMemberVerification::STATUS_VERIFICATION_FAILED => 'NHIF card verification (VerifyCard) failed. Please check the verifier and visit type.',
             default => 'NHIF verification failed. Please try again or contact NHIF.',
         };
+
+        if (! $record->isSuccessful() && filled($record->error_message)) {
+            $message .= ' Reason: '.$record->error_message;
+        }
 
         $flashKey = $record->isSuccessful() ? 'success' : 'error';
 

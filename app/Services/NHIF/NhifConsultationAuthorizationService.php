@@ -112,6 +112,10 @@ class NhifConsultationAuthorizationService
             return $this->preAuthResult('not_covered', null, 'Patient has no active, verified NHIF insurance on file. Please verify the patient\'s NHIF card first.', null, null, $nhifItemCode, null, null, null);
         }
 
+        if ($insurance->isAuthorizationExpired()) {
+            return $this->preAuthResult('not_covered', null, 'Patient NHIF visit authorization has expired (>24 hours). Please re-verify the patient\'s card.', null, $insurance->id, $nhifItemCode, null, null, 'Authorization expired (>24h).');
+        }
+
         // Resolve item name: prefer NhifServiceMapping, fall back to the NHIF catalog
         $mapping = NhifServiceMapping::query()
             ->where('hospital_id', $hospitalId)
@@ -318,6 +322,10 @@ class NhifConsultationAuthorizationService
 
         if (! $insurance) {
             return $this->result('not_covered', null, null, (float) $charge->net_amount, null);
+        }
+
+        if ($insurance->isAuthorizationExpired()) {
+            return $this->result('not_covered', null, 'Patient NHIF visit authorization has expired (>24 hours). Please re-verify the patient\'s card.', (float) $charge->net_amount, null);
         }
 
         // 2. Service mapping: must have an active, non-excluded mapping.

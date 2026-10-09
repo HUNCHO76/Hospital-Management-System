@@ -74,6 +74,20 @@ class Admission extends Model
     public const DISCHARGE_TYPES = ['routine', 'against_medical_advice', 'transferred_out', 'deceased', 'other'];
 
     /**
+     * Map internal discharge types to NHIF discharge type IDs.
+     * 1 = Routine, 2 = AMA, 3 = Transfer, 4 = Abscond, 5 = Referral, 6 = Death
+     *
+     * @var array<string, int>
+     */
+    public const NHIF_DISCHARGE_TYPE_MAP = [
+        'routine' => 1,
+        'against_medical_advice' => 2,
+        'transferred_out' => 3,
+        'deceased' => 6,
+        'other' => 1,
+    ];
+
+    /**
      * Possible clinical status values recorded by nursing/clinical staff
      * during an active admission — distinct from the administrative status
      * column (pending/active/discharged).
@@ -112,6 +126,8 @@ class Admission extends Model
         'discharged_at',
         'discharge_type',
         'discharge_reason',
+        'diagnosis_at_discharge',
+        'referred_to_facility_code',
         'cancellation_reason',
         'admitted_by',
         'discharged_by',

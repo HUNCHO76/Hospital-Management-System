@@ -19,6 +19,8 @@ class RoleSeeder extends Seeder
         'super-admin' => '*',
 
         'hospital-admin' => [
+            'dashboard.view',
+            'reports.view', 'reports.export',
             'users.view', 'users.create',
             'hospitals.view', 'hospitals.update',
             'departments.view', 'departments.create', 'departments.update', 'departments.delete',
@@ -94,11 +96,102 @@ class RoleSeeder extends Seeder
             'nhif-claims.submit', 'nhif-claims.view-submission', 'nhif-claims.retry-submission',
             'nhif-claims.view-reconciliation', 'nhif-claims.reconcile', 'nhif-claims.refresh-status', 'nhif-claims.resolve-discrepancy',
             // OCS: sign folio, retrieve receipt, monthly claim, bill confirmation
-            'nhif-claims.sign', 'nhif-claims.receipt', 'nhif-claims.monthly-submit', 'nhif-claims.bill-confirmation',
+            'nhif-claims.sign', 'nhif-claims.receipt', 'nhif-claims.monthly-view', 'nhif-claims.monthly-calculate', 'nhif-claims.monthly-submit', 'nhif-claims.bill-confirmation',
             'nhif-dashboard.view',
+            'dashboard.view',
+            'reports.view', 'reports.export',
+        ],
+
+        'Manager' => [
+            'dashboard.view',
+            'reports.view', 'reports.export',
+            // Users / Staff management (create, update, view — NO delete)
+            'users.view', 'users.create', 'users.update',
+            'staff.view', 'staff.create', 'staff.update',
+            'practitioners.view',
+            // Roles & Permissions (read-only)
+            'roles.view',
+            'permissions.view',
+            // Facilities & Departments (read-only)
+            'hospitals.view',
+            'departments.view',
+            // Patients & Insurance (create, update, view — NO delete)
+            'patients.view', 'patients.create', 'patients.update',
+            'insurance-providers.view',
+            'insurance-schemes.view',
+            'patient-insurance.view', 'patient-insurance.create', 'patient-insurance.update', 'patient-insurance.verify',
+            // Appointments & Reception
+            'appointments.view', 'appointments.create', 'appointments.update', 'appointments.confirm', 'appointments.reschedule', 'appointments.cancel', 'appointments.checkin', 'appointments.complete', 'appointments.no_show',
+            'reception.view', 'reception.dashboard', 'reception.checkin', 'reception.create_walkin', 'reception.update', 'reception.cancel', 'reception.complete',
+            // Clinical Encounters & Care (read-only monitoring)
+            'clinical-encounters.view',
+            'triage.view',
+            'vital-signs.view',
+            'consultation.view',
+            'diagnosis.view',
+            'diagnosis-codes.view',
+            'treatment.view',
+            'prescription.view',
+            'prescription-orders.view',
+            'medications.view',
+            'clinical-notes.view',
+            'clinical-history.view',
+            // Laboratory (view, tests, results & reports)
+            'laboratory.view', 'laboratory-orders.view', 'laboratory-tests.view',
+            'laboratory-samples.view',
+            'laboratory-processing.view',
+            'laboratory-benches.view',
+            'laboratory-results.view',
+            'laboratory-reports.view', 'laboratory-reports.print', 'laboratory-reports.download',
+            'laboratory-categories.view',
+            // Radiology (view, orders, results & procedures)
+            'radiology.view', 'radiology-orders.view', 'radiology-procedures.view',
+            'radiology-scheduling.view',
+            'radiology-reception.view',
+            'radiology-examination.view',
+            'radiology-results.view',
+            // Pharmacy (view, orders, stock monitoring & reports)
+            'pharmacy.view', 'pharmacy-prescriptions.view',
+            'pharmacy-verification.view',
+            'pharmacy-dispensing.view',
+            'pharmacy-stock.view', 'pharmacy-stock.view_transactions',
+            'pharmacy-reports.view', 'pharmacy-reports.export',
+            // Billing & Payments (oversight, invoices, payments, sessions & reports)
+            'billing.view', 'billing-accounts.view', 'billing-charges.view',
+            'billing-services.view',
+            'billing-pricing.view',
+            'billing-invoices.view',
+            'billing-insurance.view',
+            'billing-insurance-rules.view',
+            'billing-payments.view',
+            'billing-reversals.view',
+            'billing-refunds.view',
+            'billing-adjustments.view',
+            'billing-cashier.view',
+            'billing-reports.view', 'billing-reports.export',
+            // Admissions (read-only & reports)
+            'admission.view',
+            'inpatient.medications.view',
+            'discharge-document.view', 'discharge-document.print',
+            // NHIF Claims & Monthly Claims (full operational claims authority)
+            'nhif-dashboard.view',
+            'nhif-service-mappings.view',
+            'nhif-price-sync.view',
+            'nhif-package-prices.view',
+            'nhif-preauthorization.view',
+            'nhif-authorization-context.lookup',
+            'nhif-preapproval.view',
+            'nhif-utilization.view',
+            'nhif-claims.view', 'nhif-claims.create', 'nhif-claims.update', 'nhif-claims.validate', 'nhif-claims.finalize',
+            'nhif-claims.sign', 'nhif-claims.submit', 'nhif-claims.receipt', 'nhif-claims.view-submission',
+            'nhif-claims.monthly-view', 'nhif-claims.monthly-calculate', 'nhif-claims.monthly-submit', 'nhif-claims.bill-confirmation',
+            'nhif-claims.view-reconciliation',
+            // Audit Logs
+            'audit-logs.view',
         ],
 
         'doctor' => [
+            'dashboard.view',
             'practitioners.view', 'practitioners.nhif-login',
             'patients.view', 'patients.update',
             'patient-insurance.view',
@@ -132,6 +225,7 @@ class RoleSeeder extends Seeder
         ],
 
         'nurse' => [
+            'dashboard.view',
             'practitioners.view', 'practitioners.nhif-login',
             'patients.view', 'patients.update',
             'patient-insurance.view',
@@ -155,6 +249,7 @@ class RoleSeeder extends Seeder
         // (Step 49) permissions will extend this role the same incremental
         // way 'radiology-technician' grew across Steps 39-41.
         'pharmacist' => [
+            'dashboard.view',
             'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'medications.view',
@@ -182,6 +277,8 @@ class RoleSeeder extends Seeder
             // Phase 6, Step 50: reporting/analytics over the pharmacy data
             // this role already produces day to day.
             'pharmacy-reports.view', 'pharmacy-reports.export',
+            // NHIF Claim Finalization workflow for completed pharmacy/dispensing services
+            'nhif-claims.view', 'nhif-claims.create', 'nhif-claims.finalize', 'nhif-claims.sign', 'nhif-claims.submit', 'nhif-claims.bill-confirmation',
         ],
 
         // View access to the radiology worklist/orders (Step 36) plus full
@@ -191,6 +288,7 @@ class RoleSeeder extends Seeder
         // operational/technical work; interpreting the resulting images
         // (Step 42) is a distinct clinical role — see 'radiologist' below.
         'radiology-technician' => [
+            'dashboard.view',
             'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'radiology.view', 'radiology-orders.view', 'radiology-procedures.view',
@@ -212,6 +310,7 @@ class RoleSeeder extends Seeder
         // from verifying their own report if they also happen to have
         // authored it themselves.
         'radiologist' => [
+            'dashboard.view',
             'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'radiology.view', 'radiology-orders.view', 'radiology-procedures.view',
@@ -225,6 +324,7 @@ class RoleSeeder extends Seeder
         // (mirrors 'laboratory-supervisor' holding every
         // 'laboratory-technician' ability plus its own verification set).
         'radiology-supervisor' => [
+            'dashboard.view',
             'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'radiology.view', 'radiology-orders.view', 'radiology-procedures.view',
@@ -233,6 +333,7 @@ class RoleSeeder extends Seeder
         ],
 
         'laboratory-technician' => [
+            'dashboard.view',
             'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'laboratory.view', 'laboratory-orders.view', 'laboratory-tests.view',
@@ -244,6 +345,7 @@ class RoleSeeder extends Seeder
         ],
 
         'laboratory-supervisor' => [
+            'dashboard.view',
             'practitioners.view', 'practitioners.nhif-login',
             'patients.view',
             'laboratory.view', 'laboratory-orders.view', 'laboratory-tests.view',
@@ -257,6 +359,7 @@ class RoleSeeder extends Seeder
         ],
 
         'receptionist' => [
+            'dashboard.view',
             'patients.view', 'patients.create', 'patients.update',
             'patient-insurance.view', 'patient-insurance.create', 'patient-insurance.update', 'patient-insurance.verify',
             'appointments.view', 'appointments.create', 'appointments.update', 'appointments.confirm', 'appointments.reschedule', 'appointments.cancel', 'appointments.checkin', 'appointments.no_show',
@@ -274,6 +377,8 @@ class RoleSeeder extends Seeder
         // patients when recording a manual charge (reuses the existing
         // patients.search-json endpoint, mirroring MedicationSearch).
         'accountant' => [
+            'dashboard.view',
+            'reports.view', 'reports.export',
             'patients.view',
             'patient-insurance.view',
             // Phase 9, Step 83: accountant must be able to view admissions to

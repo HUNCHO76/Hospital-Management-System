@@ -13,6 +13,8 @@ class PermissionSeeder extends Seeder
      * @var array<string, list<string>>
      */
     protected array $permissions = [
+        'dashboard' => ['view'],
+        'reports' => ['view', 'export'],
         'users' => ['view', 'create', 'update', 'delete'],
         'roles' => ['view', 'create', 'update', 'delete'],
         'permissions' => ['view', 'assign'],
@@ -259,7 +261,7 @@ class PermissionSeeder extends Seeder
             'submit', 'view-submission', 'retry-submission',
             'view-reconciliation', 'reconcile', 'refresh-status', 'resolve-discrepancy',
             // OCS: sign folio, retrieve receipt, monthly claim, bill confirmation
-            'sign', 'receipt', 'monthly-submit', 'bill-confirmation',
+            'sign', 'receipt', 'monthly-view', 'monthly-calculate', 'monthly-submit', 'bill-confirmation',
         ],
         // Phase 8, Step 75: NHIF operational dashboard (read-only aggregate view).
         'nhif-dashboard' => ['view'],

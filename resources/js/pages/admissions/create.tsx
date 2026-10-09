@@ -50,6 +50,11 @@ export default function AdmissionCreate({ hospitals, departments, practitioners,
     const [selectedPatient, setSelectedPatient] = useState<PatientSearchResult | null>(null);
     const [authChecking, setAuthChecking] = useState(false);
     const [activeAuth, setActiveAuth] = useState<string | null>(null);
+    const [authExpiredInfo, setAuthExpiredInfo] = useState<{
+        expired: boolean;
+        previous_auth_no?: string;
+        patient_insurance_id?: number;
+    } | null>(null);
     const [existingNhifAdmission, setExistingNhifAdmission] = useState<{
         admissionNo?: string;
         dateAdmitted?: string;
@@ -64,11 +69,12 @@ export default function AdmissionCreate({ hospitals, departments, practitioners,
 
         axios.get(route('nhif.admissions.lookup'), { params: { authorization_no: authNumber.trim() } })
             .then((res) => {
-                if (res.data?.AdmissionNo) {
+                const payload = Array.isArray(res.data) && res.data.length > 0 ? res.data[0] : res.data;
+                if (payload?.AdmissionNo) {
                     setExistingNhifAdmission({
-                        admissionNo: res.data.AdmissionNo,
-                        dateAdmitted: res.data.DateAdmitted,
-                        diagnosis: res.data.DiagnosisAtAdmission || res.data.Diagnosis,
+                        admissionNo: payload.AdmissionNo,
+                        dateAdmitted: payload.DateAdmitted,
+                        diagnosis: payload.DiagnosisAtAdmission || payload.Diagnosis,
                     });
                 } else {
                     setExistingNhifAdmission(null);
@@ -129,13 +135,24 @@ export default function AdmissionCreate({ hospitals, departments, practitioners,
                                         setData((prev) => ({
                                             ...prev,
                                             patient_id: String(patient.id),
-                                            nhif_authorization_no: initialAuth || prev.nhif_authorization_no,
+                                            nhif_authorization_no: patient.is_nhif_auth_expired ? '' : (initialAuth || prev.nhif_authorization_no),
                                             patient_insurance_id: initialInsId || prev.patient_insurance_id,
                                         }));
 
-                                        if (initialAuth) {
+                                        if (patient.is_nhif_auth_expired) {
+                                            setActiveAuth(null);
+                                            setAuthExpiredInfo({
+                                                expired: true,
+                                                previous_auth_no: initialAuth,
+                                                patient_insurance_id: patient.patient_insurance_id ?? undefined,
+                                            });
+                                        } else if (initialAuth) {
                                             setActiveAuth(initialAuth);
+                                            setAuthExpiredInfo(null);
                                             checkExistingNhifAdmission(initialAuth);
+                                        } else {
+                                            setActiveAuth(null);
+                                            setAuthExpiredInfo(null);
                                         }
 
                                         setAuthChecking(true);
@@ -146,12 +163,20 @@ export default function AdmissionCreate({ hospitals, departments, practitioners,
                                                 const insId = res.data?.patient_insurance_id ? String(res.data.patient_insurance_id) : '';
                                                 if (res.data?.found && authNo) {
                                                     setActiveAuth(authNo);
+                                                    setAuthExpiredInfo(null);
                                                     setData((prev) => ({
                                                         ...prev,
                                                         nhif_authorization_no: authNo,
                                                         patient_insurance_id: insId || prev.patient_insurance_id,
                                                     }));
                                                     checkExistingNhifAdmission(authNo);
+                                                } else if (res.data?.auth_expired) {
+                                                    setActiveAuth(null);
+                                                    setAuthExpiredInfo({
+                                                        expired: true,
+                                                        previous_auth_no: res.data.previous_auth_no,
+                                                        patient_insurance_id: res.data.patient_insurance_id ? Number(res.data.patient_insurance_id) : undefined,
+                                                    });
                                                 }
                                             })
                                             .catch(() => {})
@@ -177,6 +202,30 @@ export default function AdmissionCreate({ hospitals, departments, practitioners,
                                         <LoaderCircle className="h-4 w-4 animate-spin" />
                                         Checking NHIF authorization...
                                     </div>
+                                )}
+                                {authExpiredInfo?.expired && (
+                                    <Alert className="mt-2 border-amber-500/50 bg-amber-500/10 text-amber-900 dark:text-amber-200">
+                                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                        <AlertDescription className="text-xs space-y-1">
+                                            <div>
+                                                <span className="font-semibold">NHIF 24-Hour Authorization Expired: </span>
+                                                Authorization ({authExpiredInfo.previous_auth_no}) has expired. NHIF authorizations are strictly valid for 24 hours.
+                                            </div>
+                                            {authExpiredInfo.patient_insurance_id && (
+                                                <div>
+                                                    <a
+                                                        href={`/patients/${data.patient_id}/insurance/${authExpiredInfo.patient_insurance_id}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-primary inline-flex items-center gap-1 font-semibold underline hover:text-primary/80"
+                                                    >
+                                                        Re-verify card with NHIF
+                                                        <ExternalLink className="h-3 w-3" />
+                                                    </a>
+                                                </div>
+                                            )}
+                                        </AlertDescription>
+                                    </Alert>
                                 )}
                                 {activeAuth && (
                                     <div className="mt-2">

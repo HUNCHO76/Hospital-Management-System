@@ -188,6 +188,7 @@ class ClinicalEncounter extends Model
         return $this->belongsTo(Admission::class);
     }
 
+
     /**
      * The department responsible for this encounter.
      */

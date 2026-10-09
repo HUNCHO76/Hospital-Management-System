@@ -172,6 +172,10 @@ export interface PatientInsurance {
     nhif_eligibility_status?: NhifEligibilityStatus | null;
     nhif_coverage_percent?: string | null;
     nhif_eligibility_checked_at?: string | null;
+    nhif_authorization_no?: string | null;
+    is_authorization_expired?: boolean;
+    authorization_expires_at?: string | null;
+    authorization_hours_remaining?: number | null;
     created_at: string;
     updated_at: string;
 }

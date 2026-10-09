@@ -20,7 +20,7 @@ class UpdateStaffRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        if (! $this->user()->hasRole('hospital-admin')) {
+        if (! $this->user()->hasAnyRole(['hospital-admin', 'Manager', 'manager'])) {
             return true;
         }
 
@@ -53,6 +53,28 @@ class UpdateStaffRequest extends FormRequest
             'employment_type' => ['required', Rule::in(Staff::EMPLOYMENT_TYPES)],
             'status' => ['required', Rule::in([Staff::STATUS_ACTIVE, Staff::STATUS_INACTIVE, Staff::STATUS_SUSPENDED])],
             'hired_at' => ['nullable', 'date'],
+
+            // Linked User Account Management
+            'role' => ['nullable', 'string', Rule::in($this->assignableRoles())],
+            'user_status' => ['nullable', 'string', Rule::in([\App\Models\User::STATUS_ACTIVE, \App\Models\User::STATUS_INACTIVE, \App\Models\User::STATUS_SUSPENDED])],
+            'password' => ['nullable', 'string', \Illuminate\Validation\Rules\Password::defaults()],
+            'create_account' => ['nullable', 'boolean'],
         ];
+    }
+
+    /**
+     * Roles an administrator or manager is allowed to assign to a staff account.
+     * super-admin is excluded unless the authenticated user is super-admin.
+     *
+     * @return list<string>
+     */
+    protected function assignableRoles(): array
+    {
+        $query = \Spatie\Permission\Models\Role::query();
+        if (! $this->user()->hasRole('super-admin')) {
+            $query->where('name', '!=', 'super-admin');
+        }
+
+        return $query->pluck('name')->all();
     }
 }

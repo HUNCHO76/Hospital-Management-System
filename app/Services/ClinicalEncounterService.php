@@ -42,6 +42,17 @@ class ClinicalEncounterService
 
             $this->assertNoActiveEncounter($data['patient_id']);
 
+            if (empty($data['reception_visit_id'])) {
+                $activeVisit = ReceptionVisit::query()
+                    ->where('patient_id', $data['patient_id'])
+                    ->whereIn('status', ReceptionVisit::ACTIVE_STATUSES)
+                    ->latest()
+                    ->first();
+                if ($activeVisit) {
+                    $data['reception_visit_id'] = $activeVisit->id;
+                }
+            }
+
             // Step 62 fix: when the encounter is being created from a reception
             // visit, enforce the financial gate — defense-in-depth for direct
             // URL bypass. Uses the same no-charge rule as sendToService(): if
@@ -75,6 +86,9 @@ class ClinicalEncounterService
 
                 if ($visit) {
                     $this->chargeCapture->releaseReceptionVisitChargeToEncounter($visit, $encounter);
+                    if (in_array($visit->status, [ReceptionVisit::STATUS_WAITING, ReceptionVisit::STATUS_READY_FOR_SERVICE], true)) {
+                        $visit->update(['status' => ReceptionVisit::STATUS_SENT_TO_SERVICE]);
+                    }
                 }
                 // Skip direct re-capture — the charge (now on the encounter)
                 // was already captured at reception time.
@@ -166,6 +180,30 @@ class ClinicalEncounterService
             $encounter->only(['status', 'ended_at', 'closed_by', 'disposition', 'disposition_notes']),
             $request,
         );
+
+        // Auto-complete any active/linked reception visit for this patient
+        $activeVisit = $encounter->reception_visit_id
+            ? ReceptionVisit::find($encounter->reception_visit_id)
+            : ReceptionVisit::query()
+                ->where('patient_id', $encounter->patient_id)
+                ->whereIn('status', ReceptionVisit::ACTIVE_STATUSES)
+                ->latest()
+                ->first();
+
+        if ($activeVisit && in_array($activeVisit->status, ReceptionVisit::ACTIVE_STATUSES, true)) {
+            $activeVisitOld = $activeVisit->only(['status', 'completed_at']);
+            $activeVisit->update([
+                'status' => ReceptionVisit::STATUS_COMPLETED,
+                'completed_at' => now(),
+            ]);
+            $this->auditLog->record(
+                'reception_visit_completed',
+                $activeVisit,
+                $activeVisitOld,
+                $activeVisit->only(['status', 'completed_at']),
+                $request,
+            );
+        }
 
         return $encounter;
     }

@@ -65,7 +65,10 @@ class NhifMemberVerificationService
         }
 
         $nhifCardNo = $memberData['CardNo'] ?? $memberData['CardNumber'] ?? null;
-        $nhifAuthorizationNo = $memberData['AuthorizationNo'] ?? $memberData['authorizationNo'] ?? $memberData['AuthNo'] ?? null;
+        $rawAuthNo = $memberData['AuthorizationNo'] ?? $memberData['authorizationNo'] ?? $memberData['AuthNo'] ?? null;
+        $nhifAuthorizationNo = (filled($rawAuthNo) && ! in_array(strtoupper(trim((string) $rawAuthNo)), ['N/A', 'NULL', 'NONE']))
+            ? $rawAuthNo
+            : null;
 
         $record = NhifMemberVerification::create([
             'patient_insurance_id' => $insurance->id,
@@ -89,6 +92,25 @@ class NhifMemberVerificationService
         ]);
 
         if ($status === NhifMemberVerification::STATUS_LOOKUP_FOUND) {
+            $priorVerify = $insurance->nhifMemberVerifications()
+                ->where('verification_status', NhifMemberVerification::STATUS_VERIFIED)
+                ->latest()
+                ->first();
+            $priorReq = $priorVerify?->verify_card_request ?? [];
+
+            $verifierId = $verifierId ?: ($priorReq['verifierID'] ?? null);
+            $cardTypeId = $cardTypeId ?: ($priorReq['cardTypeID'] ?? null);
+            if (blank($remarks) && ! empty($priorReq['remarks'])) {
+                $remarks = $priorReq['remarks'];
+            }
+            if (blank($referralNo) && ! empty($priorReq['referralNo'])) {
+                $referralNo = $priorReq['referralNo'];
+            }
+
+            if (blank($remarks) && $visitTypeId > 1) {
+                $remarks = 'Patient verification';
+            }
+
             $this->validateVisitTypeRequirements($visitTypeId, $remarks, $referralNo);
             $this->performVerifyCard($record, $insurance, $visitTypeId, $request, $verifierId, $cardTypeId, $remarks, $referralNo, $biometricMethod);
             $record->refresh();
@@ -96,18 +118,22 @@ class NhifMemberVerificationService
 
         // Propagate the final verification status (set by performVerifyCard) to PatientInsurance.
         $finalStatus = $record->verification_status;
-        $newVerificationStatus = $finalStatus === NhifMemberVerification::STATUS_VERIFIED
+        $isVerified = ($finalStatus === NhifMemberVerification::STATUS_VERIFIED);
+        $newVerificationStatus = $isVerified
             ? PatientInsurance::VERIFICATION_VERIFIED
             : PatientInsurance::VERIFICATION_FAILED;
 
-        $insuranceUpdates = ['verification_status' => $newVerificationStatus, 'verified_at' => now()];
+        $insuranceUpdates = ['verification_status' => $newVerificationStatus];
+
+        if ($isVerified) {
+            $insuranceUpdates['verified_at'] = now();
+            if ($record->nhif_authorization_no && ! in_array(strtoupper(trim((string) $record->nhif_authorization_no)), ['N/A', 'NULL', 'NONE'])) {
+                $insuranceUpdates['nhif_authorization_no'] = $record->nhif_authorization_no;
+            }
+        }
 
         if ($nhifCardNo && blank($insurance->card_number)) {
             $insuranceUpdates['card_number'] = $nhifCardNo;
-        }
-
-        if ($record->nhif_authorization_no) {
-            $insuranceUpdates['nhif_authorization_no'] = $record->nhif_authorization_no;
         }
 
         if ($record->nhif_scheme_id) {
@@ -488,13 +514,30 @@ class NhifMemberVerificationService
         $cardNo = $record->nhif_card_no ?? $record->identifier_value;
 
         // Fetch verifiers only when the user did not supply a verifierID.
+        $selectedVerifier = null;
         if ($verifierId === null) {
             $verifiersResult = $this->client->getCardVerifiers($cardNo);
             $verifiers = $verifiersResult['data'] ?? [];
-            $verifierId = is_array($verifiers) && ! empty($verifiers)
-                ? ($verifiers[0]['verifierID'] ?? $verifiers[0]['VerifierID'] ?? $facilityCode)
-                : $facilityCode;
+            if (is_array($verifiers) && ! empty($verifiers)) {
+                $selectedVerifier = collect($verifiers)->first(function ($v) {
+                    return strtoupper((string) ($v['verifierID'] ?? $v['VerifierID'] ?? '')) === 'NHIF';
+                }) ?? $verifiers[0];
+                $verifierId = $selectedVerifier['verifierID'] ?? $selectedVerifier['VerifierID'] ?? $facilityCode;
+            } else {
+                $verifierId = $facilityCode;
+            }
         }
+
+        if ($cardTypeId === null) {
+            if ($selectedVerifier) {
+                $cardTypes = $selectedVerifier['cardTypes'] ?? $selectedVerifier['CardTypes'] ?? [];
+                if (! empty($cardTypes) && is_array($cardTypes)) {
+                    $cardTypeId = $cardTypes[0]['cardTypeID'] ?? $cardTypes[0]['CardTypeID'] ?? null;
+                }
+            }
+        }
+
+        $cardTypeId = $cardTypeId ?: '100000001';
 
         $payload = [
             'cardNo' => $cardNo,

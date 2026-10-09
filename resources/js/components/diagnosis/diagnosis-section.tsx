@@ -201,7 +201,7 @@ function AddDiagnosisForm({
         nhif_icd_version_code: '',
     });
 
-    const handleNhifDiseaseSelect = (disease: NhifDiseaseSearchResult | null) => {
+    const handleNhifDiseaseSelect = async (disease: NhifDiseaseSearchResult | null) => {
         setSelectedNhifDisease(disease);
         setData((prev) => ({
             ...prev,
@@ -209,6 +209,53 @@ function AddDiagnosisForm({
             nhif_disease_name: disease?.disease_name ?? '',
             nhif_icd_version_code: disease?.icd_version_code ?? '',
         }));
+
+        if (disease && !selectedCode) {
+            try {
+                const res = await fetch(`/diagnosis-codes/search-json?search=${encodeURIComponent(disease.disease_code)}`);
+                if (res.ok) {
+                    const codes = await res.json();
+                    if (Array.isArray(codes) && codes.length > 0) {
+                        const match = codes.find((c: DiagnosisCodeSearchResult) => c.code.toLowerCase() === disease.disease_code.toLowerCase()) || codes[0];
+                        setSelectedCode(match);
+                        setData((prev) => ({ ...prev, diagnosis_code_id: String(match.id) }));
+                    }
+                }
+            } catch {
+                // Ignore search errors, backend handles fallback
+            }
+        }
+    };
+
+    const handleDiagnosisCodeSelect = async (code: DiagnosisCodeSearchResult | null) => {
+        setSelectedCode(code);
+        setData((prev) => ({
+            ...prev,
+            diagnosis_code_id: code ? String(code.id) : '',
+        }));
+
+        if (code && nhifEligible && !selectedNhifDisease) {
+            try {
+                const res = await fetch(`/nhif/diseases/search-json?q=${encodeURIComponent(code.code)}`);
+                if (res.ok) {
+                    const diseases = await res.json();
+                    if (Array.isArray(diseases) && diseases.length > 0) {
+                        const match = diseases.find((d: NhifDiseaseSearchResult) => d.disease_code.toLowerCase() === code.code.toLowerCase()) || diseases[0];
+                        if (match) {
+                            setSelectedNhifDisease(match);
+                            setData((prev) => ({
+                                ...prev,
+                                nhif_disease_code: match.disease_code,
+                                nhif_disease_name: match.disease_name,
+                                nhif_icd_version_code: match.icd_version_code ?? '',
+                            }));
+                        }
+                    }
+                }
+            } catch {
+                // Ignore search errors
+            }
+        }
     };
 
     const submit: FormEventHandler = (e) => {
@@ -231,10 +278,7 @@ function AddDiagnosisForm({
                 <Label>Diagnosis Code</Label>
                 <DiagnosisCodeSearch
                     selected={selectedCode}
-                    onSelect={(code) => {
-                        setSelectedCode(code);
-                        setData('diagnosis_code_id', String(code.id));
-                    }}
+                    onSelect={handleDiagnosisCodeSelect}
                 />
                 <InputError message={errors.diagnosis_code_id} />
             </div>
@@ -290,7 +334,7 @@ function AddDiagnosisForm({
             </div>
 
             <div className="flex justify-end">
-                <Button type="submit" size="sm" disabled={processing || !data.diagnosis_code_id}>
+                <Button type="submit" size="sm" disabled={processing || (!data.diagnosis_code_id && !data.nhif_disease_code)}>
                     {processing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ClipboardPlus className="h-4 w-4" />}
                     Add Diagnosis
                 </Button>

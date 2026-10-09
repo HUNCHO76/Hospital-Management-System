@@ -216,3 +216,22 @@ test('a cancelled diagnosis cannot be promoted to primary', function () {
 
     expect(fn () => $service->setPrimary($diagnosis->fresh(), $request))->toThrow(ValidationException::class);
 });
+
+test('recording a diagnosis with only NHIF disease code automatically resolves or creates diagnosis code', function () {
+    $ctx = diagnosisReadyEncounter();
+    $service = app(DiagnosisService::class);
+
+    $diagnosis = $service->create($ctx['encounter'], [
+        'diagnosis_type' => EncounterDiagnosis::TYPE_PRIMARY,
+        'nhif_disease_code' => 'A01.0',
+        'nhif_disease_name' => 'Typhoid fever',
+        'nhif_icd_version_code' => 'ICD10',
+    ], requestAs($ctx['doctor']['user']));
+
+    expect($diagnosis->status)->toBe(EncounterDiagnosis::STATUS_PROVISIONAL);
+    expect($diagnosis->nhif_disease_code)->toBe('A01.0');
+    expect($diagnosis->nhif_disease_name)->toBe('Typhoid fever');
+    expect($diagnosis->diagnosis_code_id)->not->toBeNull();
+    expect($diagnosis->diagnosis_code->code)->toBe('A01.0');
+});
+

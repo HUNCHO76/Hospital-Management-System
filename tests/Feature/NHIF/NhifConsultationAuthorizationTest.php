@@ -64,6 +64,7 @@ function consultAuthContext(): array
 
     $practitioner = Practitioner::factory()->create([
         'consultation_service_id' => $service->id,
+        'nhif_practitioner_no' => 'PRAC-001',
     ]);
 
     $visit = ReceptionVisit::factory()->create([
@@ -401,4 +402,30 @@ test('reception visit show page includes nhifPreApprovalItem when NHIF session e
             ->has('nhifPreApprovalItem')
             ->where('nhifPreApprovalItem.approval_status', NhifPreApprovalSessionItem::APPROVAL_STATUS_ACCEPTED)
         );
+});
+
+test('consultation authorization is rejected when NHIF authorization is expired (>24 hours)', function () {
+    $ctx = consultAuthContext();
+    $ctx['insurance']->update([
+        'verified_at' => now()->subHours(25),
+    ]);
+
+    $svc = app(NhifConsultationAuthorizationService::class);
+    $result = $svc->authorizeConsultation($ctx['visit'], $ctx['charge'], requestAs($ctx['user']));
+
+    expect($result['status'])->toBe('not_covered')
+        ->and($result['rejection_reason'])->toContain('expired (>24 hours)');
+
+    // Pre-authorize walk-in registration also rejects:
+    $preAuthResult = $svc->preAuthorize(
+        $ctx['patient']->id,
+        $ctx['hospital']->id,
+        $ctx['service']->id,
+        $ctx['practitioner']->id,
+        '5024',
+        requestAs($ctx['user']),
+    );
+
+    expect($preAuthResult['status'])->toBe('not_covered')
+        ->and($preAuthResult['rejection_reason'])->toContain('expired (>24 hours)');
 });

@@ -58,6 +58,12 @@ class NhifFolioPolicy
         return $user->hasPermissionTo('nhif-claims.monthly-submit');
     }
 
+    public function finalize(User $user, NhifClaim $claim): bool
+    {
+        return ($user->hasPermissionTo('nhif-claims.finalize') || $user->hasPermissionTo('nhif-claims.submit'))
+            && $this->sameHospital($user, $claim);
+    }
+
     public function billConfirmation(User $user): bool
     {
         return $user->hasPermissionTo('nhif-claims.bill-confirmation');

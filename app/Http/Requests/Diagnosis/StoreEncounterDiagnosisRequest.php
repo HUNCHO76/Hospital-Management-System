@@ -27,7 +27,8 @@ class StoreEncounterDiagnosisRequest extends FormRequest
     {
         return [
             'diagnosis_code_id' => [
-                'required',
+                'nullable',
+                'required_without:nhif_disease_code',
                 'integer',
                 Rule::exists(DiagnosisCode::class, 'id')->where('status', DiagnosisCode::STATUS_ACTIVE),
             ],

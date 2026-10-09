@@ -42,10 +42,27 @@ class DiagnosisService
                 ]);
             }
 
+            $diagnosisCodeId = $data['diagnosis_code_id'] ?? null;
+            if (empty($diagnosisCodeId) && ! empty($data['nhif_disease_code'])) {
+                $matchedCode = \App\Models\DiagnosisCode::where('code', $data['nhif_disease_code'])->first();
+                if (! $matchedCode && ! empty($data['nhif_disease_name'])) {
+                    $matchedCode = \App\Models\DiagnosisCode::where('description', $data['nhif_disease_name'])->first();
+                }
+                if (! $matchedCode) {
+                    $matchedCode = \App\Models\DiagnosisCode::create([
+                        'coding_system' => \App\Models\DiagnosisCode::CODING_SYSTEM_ICD10,
+                        'code' => $data['nhif_disease_code'],
+                        'description' => $data['nhif_disease_name'] ?: $data['nhif_disease_code'],
+                        'status' => \App\Models\DiagnosisCode::STATUS_ACTIVE,
+                    ]);
+                }
+                $diagnosisCodeId = $matchedCode->id;
+            }
+
             return EncounterDiagnosis::create([
                 'clinical_encounter_id' => $encounter->id,
                 'consultation_id' => $consultation?->id,
-                'diagnosis_code_id' => $data['diagnosis_code_id'],
+                'diagnosis_code_id' => $diagnosisCodeId,
                 'diagnosis_type' => $data['diagnosis_type'],
                 'status' => EncounterDiagnosis::STATUS_PROVISIONAL,
                 'clinical_note' => $data['clinical_note'] ?? null,

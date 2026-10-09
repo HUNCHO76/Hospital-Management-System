@@ -209,15 +209,32 @@ class ReceptionVisitController extends Controller
         $insurance = $patient?->activeNhifInsurance();
 
         if (! $insurance) {
+            $latestIns = $patient?->latestNhifInsurance();
+            if ($latestIns && $latestIns->isAuthorizationExpired()) {
+                return response()->json([
+                    'services' => [],
+                    'insurance' => null,
+                    'auth_expired' => true,
+                    'previous_auth_no' => $latestIns->nhif_authorization_no,
+                    'verified_at' => $latestIns->verified_at?->toIso8601String(),
+                    'expires_at' => $latestIns->authorizationExpiresAt()?->toIso8601String(),
+                    'patient_insurance_id' => $latestIns->id,
+                ]);
+            }
+
             return response()->json($emptyResponse);
         }
 
         $insuranceData = [
+            'id' => $insurance->id,
             'scheme_id' => $insurance->nhif_scheme_id,
             'scheme_name' => $insurance->insuranceScheme?->name,
             'nhif_authorization_no' => $insurance->nhif_authorization_no,
             'card_number' => $insurance->card_number,
             'verification_status' => $insurance->verification_status,
+            'verified_at' => $insurance->verified_at?->toIso8601String(),
+            'expires_at' => $insurance->authorizationExpiresAt()?->toIso8601String(),
+            'hours_remaining' => $insurance->authorizationHoursRemaining(),
             'nhif_pf_number' => $insurance->nhif_pf_number,
         ];
 
@@ -471,7 +488,7 @@ class ReceptionVisitController extends Controller
      */
     protected function scopedHospitalId(Request $request): ?int
     {
-        if (! $request->user()->hasRole('hospital-admin')) {
+        if (! $request->user()->hasAnyRole(['hospital-admin', 'Manager', 'manager'])) {
             return null;
         }
 

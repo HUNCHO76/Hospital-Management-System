@@ -20,7 +20,15 @@ class NhifClaim extends Model
 
     public const STATUS_READY = 'ready';
 
+    public const STATUS_SIGNED = 'signed';
+
     public const STATUS_SUBMITTED = 'submitted';
+
+    public const STATUS_BILL_CONFIRMATION_REQUESTED = 'bill_confirmation_requested';
+
+    public const STATUS_CONFIRMED = 'confirmed';
+
+    public const STATUS_FINALIZED = 'finalized';
 
     public const STATUS_ACCEPTED = 'accepted';
 
@@ -29,6 +37,12 @@ class NhifClaim extends Model
     public const STATUS_RECONCILED = 'reconciled';
 
     public const STATUS_CANCELLED = 'cancelled';
+
+    public const STATUS_SIGNING_FAILED = 'signing_failed';
+
+    public const STATUS_SUBMISSION_FAILED = 'submission_failed';
+
+    public const STATUS_BILL_CONFIRMATION_FAILED = 'bill_confirmation_failed';
 
     public const TYPE_OUTPATIENT = 'outpatient';
 
@@ -213,12 +227,34 @@ class NhifClaim extends Model
 
     public function isSubmittable(): bool
     {
-        return $this->status === self::STATUS_READY;
+        return in_array($this->status, [self::STATUS_READY, self::STATUS_SIGNED, self::STATUS_SUBMISSION_FAILED], true);
     }
 
     public function isSignable(): bool
     {
-        return in_array($this->status, [self::STATUS_READY], true) && $this->signed_at === null;
+        return in_array($this->status, [self::STATUS_READY, self::STATUS_SIGNING_FAILED], true);
+    }
+
+    public function isSubmitted(): bool
+    {
+        return in_array($this->status, [
+            self::STATUS_SUBMITTED,
+            self::STATUS_BILL_CONFIRMATION_REQUESTED,
+            self::STATUS_CONFIRMED,
+            self::STATUS_FINALIZED,
+            self::STATUS_ACCEPTED,
+            self::STATUS_RECONCILED,
+        ], true);
+    }
+
+    public function isFinalized(): bool
+    {
+        return in_array($this->status, [
+            self::STATUS_FINALIZED,
+            self::STATUS_CONFIRMED,
+            self::STATUS_ACCEPTED,
+            self::STATUS_RECONCILED,
+        ], true);
     }
 
     public function isCancelled(): bool

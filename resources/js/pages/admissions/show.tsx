@@ -14,7 +14,8 @@ import { admissionStatusLabel, admissionStatusVariant, admissionTypeLabel, allow
 import { type BreadcrumbItem } from '@/types';
 import { type Admission, type DischargeType } from '@/types/admission';
 import { Head, Link, router } from '@inertiajs/react';
-import { AlertTriangle, CheckCircle2, ClipboardCheck, LogOut, RotateCcw, ShieldCheck, ThumbsDown, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Loader2, LogOut, RotateCcw, Send, ShieldCheck, ThumbsDown, XCircle } from 'lucide-react';
+import { useState } from 'react';
 
 interface AdmissionShowProps {
     admission: Admission;
@@ -26,6 +27,7 @@ interface AdmissionShowProps {
     canDischarge: boolean;
     canCancel: boolean;
     canSubmitNhif: boolean;
+    canSubmitDischargeNhif?: boolean;
     dischargeTypes: DischargeType[];
 }
 
@@ -47,8 +49,21 @@ export default function AdmissionShow({
     canDischarge,
     canCancel,
     canSubmitNhif,
+    canSubmitDischargeNhif = false,
     dischargeTypes,
 }: AdmissionShowProps) {
+    const [submittingDischarge, setSubmittingDischarge] = useState(false);
+
+    const submitDischargeNhif = () => {
+        setSubmittingDischarge(true);
+        router.post(
+            route('admissions.submit-nhif-discharge', admission.id),
+            {},
+            {
+                onFinish: () => setSubmittingDischarge(false),
+            },
+        );
+    };
     const patientName = admission.patient
         ? [admission.patient.first_name, admission.patient.middle_name, admission.patient.last_name].filter(Boolean).join(' ')
         : '—';
@@ -136,6 +151,8 @@ export default function AdmissionShow({
                             <DischargeAdmissionDialog
                                 admissionId={admission.id}
                                 dischargeTypes={dischargeTypes}
+                                initialDiagnosis={admission.diagnosis_at_admission}
+                                isNhif={Boolean(admission.nhifAdmission?.nhif_admission_no)}
                                 trigger={
                                     <Button size="sm" variant="outline">
                                         <LogOut className="h-4 w-4" />
@@ -362,6 +379,18 @@ export default function AdmissionShow({
                                             <dt className="text-muted-foreground">Discharge Type</dt>
                                             <dd>{admission.discharge_type ? (dischargeTypeLabel[admission.discharge_type] ?? admission.discharge_type) : '—'}</dd>
                                         </div>
+                                        {admission.diagnosis_at_discharge && (
+                                            <div className="flex justify-between gap-4">
+                                                <dt className="text-muted-foreground">Diagnosis at Discharge</dt>
+                                                <dd className="font-medium text-foreground">{admission.diagnosis_at_discharge}</dd>
+                                            </div>
+                                        )}
+                                        {admission.referred_to_facility_code && (
+                                            <div className="flex justify-between gap-4">
+                                                <dt className="text-muted-foreground">Referred to Facility</dt>
+                                                <dd className="font-mono">{admission.referred_to_facility_code}</dd>
+                                            </div>
+                                        )}
                                         <div className="flex justify-between gap-4">
                                             <dt className="text-muted-foreground">Discharge Reason</dt>
                                             <dd>{admission.discharge_reason ?? '—'}</dd>
@@ -438,7 +467,27 @@ export default function AdmissionShow({
                                             admissionId={admission.id}
                                         />
                                     )}
-                                    {canSubmitNhif && (
+                                    {admission.status === 'discharged' &&
+                                        admission.nhifAdmission.nhif_admission_no &&
+                                        admission.nhifAdmission.nhif_discharge_status !== 'submitted' && (
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={submitDischargeNhif}
+                                                disabled={submittingDischarge}
+                                                className="gap-1.5 text-xs h-8"
+                                            >
+                                                {submittingDischarge ? (
+                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                ) : (
+                                                    <Send className="h-3.5 w-3.5 text-primary" />
+                                                )}
+                                                {admission.nhifAdmission.nhif_discharge_status === 'failed'
+                                                    ? 'Retry NHIF Discharge'
+                                                    : 'Submit NHIF Discharge'}
+                                            </Button>
+                                        )}
+                                    {canSubmitNhif && admission.status !== 'discharged' && (
                                         <SubmitNhifDialog admission={admission} />
                                     )}
                                 </div>
@@ -446,7 +495,7 @@ export default function AdmissionShow({
                             <CardContent>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                                     <div>
-                                        <p className="text-xs text-muted-foreground">NHIF Status</p>
+                                        <p className="text-xs text-muted-foreground">NHIF Admission Status</p>
                                         <Badge
                                             variant={admission.nhifAdmission.nhif_status === 'submitted' ? 'default' : 'secondary'}
                                             className="capitalize mt-1"
@@ -484,12 +533,32 @@ export default function AdmissionShow({
                                             <p className="font-mono text-foreground mt-0.5">{admission.nhifAdmission.nhif_practitioner_no}</p>
                                         </div>
                                     )}
-                                    {admission.nhifAdmission.retry_count && admission.nhifAdmission.retry_count > 0 ? (
+                                    {admission.status === 'discharged' && (
                                         <div>
-                                            <p className="text-xs text-muted-foreground">Submissions / Retries</p>
-                                            <p className="text-foreground mt-0.5">{admission.nhifAdmission.retry_count + 1} times</p>
+                                            <p className="text-xs text-muted-foreground">NHIF Discharge</p>
+                                            <div className="mt-1">
+                                                {admission.nhifAdmission.nhif_discharge_status === 'submitted' ? (
+                                                    <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs">
+                                                        Discharge Submitted
+                                                    </Badge>
+                                                ) : admission.nhifAdmission.nhif_discharge_status === 'failed' ? (
+                                                    <Badge variant="destructive" className="text-xs">
+                                                        Discharge Failed
+                                                    </Badge>
+                                                ) : (
+                                                    <span className="text-xs text-muted-foreground">Pending Submission</span>
+                                                )}
+                                            </div>
                                         </div>
-                                    ) : null}
+                                    )}
+                                    {admission.nhifAdmission.nhif_discharged_at && (
+                                        <div>
+                                            <p className="text-xs text-muted-foreground">NHIF Discharged At</p>
+                                            <p className="text-foreground mt-0.5">
+                                                {formatDateTime(admission.nhifAdmission.nhif_discharged_at)}
+                                            </p>
+                                        </div>
+                                    )}
                                     <div>
                                         <p className="text-xs text-muted-foreground">Payment Clearance</p>
                                         <p className="mt-1">
@@ -503,7 +572,24 @@ export default function AdmissionShow({
                                         </p>
                                     </div>
                                 </div>
-                                {admission.nhifAdmission.error_message && (
+                                {admission.nhifAdmission.nhif_discharge_error && (
+                                    <div className="mt-4 p-3 text-xs rounded-md bg-destructive/10 text-destructive border border-destructive/20 flex items-center justify-between gap-2">
+                                        <div>
+                                            <span className="font-semibold">NHIF Discharge Error: </span>{admission.nhifAdmission.nhif_discharge_error}
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={submitDischargeNhif}
+                                            disabled={submittingDischarge}
+                                            className="h-7 text-xs gap-1"
+                                        >
+                                            <RotateCcw className={`h-3 w-3 ${submittingDischarge ? 'animate-spin' : ''}`} />
+                                            Retry
+                                        </Button>
+                                    </div>
+                                )}
+                                {admission.nhifAdmission.error_message && !admission.nhifAdmission.nhif_discharge_error && (
                                     <div className="mt-4 p-3 text-xs rounded-md bg-destructive/10 text-destructive border border-destructive/20">
                                         <span className="font-semibold">Last Error: </span>{admission.nhifAdmission.error_message}
                                     </div>

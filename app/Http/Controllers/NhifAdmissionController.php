@@ -114,7 +114,12 @@ class NhifAdmissionController extends Controller
             ], 400);
         }
 
-        return response()->json($result['data']);
+        $data = $result['data'] ?? [];
+        if (is_array($data) && isset($data[0]) && is_array($data[0])) {
+            $data = $data[0];
+        }
+
+        return response()->json($data);
     }
 
     public function sync(Request $request, NhifHttpClient $client)
@@ -136,6 +141,9 @@ class NhifAdmissionController extends Controller
         }
 
         $data = $result['data'];
+        if (is_array($data) && isset($data[0]) && is_array($data[0])) {
+            $data = $data[0];
+        }
         $admissionNo = $data['AdmissionNo'] ?? $data['admissionNo'] ?? null;
 
         $admission = Admission::with(['hospital', 'practitioner', 'nhifAdmission'])->findOrFail($validated['admission_id']);
