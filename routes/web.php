@@ -261,6 +261,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('{patientInsurance}/primary', [PatientInsuranceController::class, 'makePrimary'])->name('make-primary');
         Route::patch('{patientInsurance}/verify', [PatientInsuranceController::class, 'verify'])->name('verify');
         Route::post('{patientInsurance}/nhif-verify', [NhifMemberVerificationController::class, 'verify'])->name('nhif-verify');
+        Route::post('{patientInsurance}/nhif-update-visit-type', [NhifMemberVerificationController::class, 'updateVisitType'])->name('nhif-update-visit-type');
         Route::post('{patientInsurance}/nhif-eligibility', [NhifEligibilityController::class, 'verify'])->name('nhif-eligibility');
         // Preauthorization creation/listing (patient context required for IDOR protection)
         Route::get('{patientInsurance}/nhif-preauthorizations', [NhifPreauthorizationController::class, 'index'])->name('nhif-preauthorization.index');

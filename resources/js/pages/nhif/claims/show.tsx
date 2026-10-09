@@ -54,6 +54,7 @@ interface Claim {
     cancelled_at: string | null;
     is_submittable: boolean;
     is_cancelled: boolean;
+    is_reopenable?: boolean;
     hospital: { id: number; name: string } | null;
     patient: { id: number; name: string } | null;
     patient_insurance: { id: number; membership_number: string } | null;
@@ -78,6 +79,11 @@ export default function ClaimShow({ claim }: Props) {
     const finalize = () => router.post(route('nhif.claims.finalize', claim.id));
     const sign = () => router.post(route('nhif.claims.sign', claim.id), { signature_method: 'Manual' });
     const retryBillConfirmation = () => router.post(route('nhif.claims.retry-bill-confirmation', claim.id));
+    const reopen = () => {
+        if (confirm('Reopen this cancelled claim back to draft?')) {
+            router.post(route('nhif.claims.reopen', claim.id));
+        }
+    };
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -104,6 +110,9 @@ export default function ClaimShow({ claim }: Props) {
                             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={retryBillConfirmation}>
                                 Request Bill Confirmation
                             </Button>
+                        )}
+                        {claim.is_reopenable && (
+                            <Button size="sm" variant="outline" onClick={reopen}>Reopen Claim</Button>
                         )}
                         {!claim.is_cancelled && (
                             <Button size="sm" variant="destructive" onClick={() => {

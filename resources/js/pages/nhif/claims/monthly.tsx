@@ -509,9 +509,6 @@ export default function MonthlyClaims({
                                         <Send className="w-4 h-4 text-primary" />
                                         Submit Monthly Claim
                                     </CardTitle>
-                                    <CardDescription className="text-xs">
-                                        Sends the consolidated payload directly to NHIF OCS endpoint: <code className="text-[11px] bg-muted px-1 rounded">/ocs/api/Claims/SubmitMonthlyClaim</code>
-                                    </CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
                                     <div>

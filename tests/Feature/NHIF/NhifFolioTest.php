@@ -455,3 +455,58 @@ test('mapDiseases replaces all existing diseases on the claim', function () {
         ->and($codes)->toBe(['A09.0', 'J00.0'])
         ->and($diseases->first(fn ($d) => $d->disease_code === 'A09.0')?->is_main)->toBeTrue();
 });
+
+test('claim cancel action transitions status to cancelled and records audit trail', function () {
+    $ctx = folioContext();
+    $claim = readyClaim($ctx);
+
+    $response = $this->actingAs($ctx['user'])
+        ->postJson(route('nhif.claims.cancel', $claim->id), [
+            'cancellation_reason' => 'Visit type error',
+        ]);
+
+    $response->assertOk()
+        ->assertJson(['success' => true]);
+
+    $claim->refresh();
+    expect($claim->status)->toBe(NhifClaim::STATUS_CANCELLED)
+        ->and($claim->cancellation_reason)->toBe('Visit type error')
+        ->and($claim->cancelled_at)->not->toBeNull()
+        ->and($claim->cancelled_by)->toBe($ctx['user']->id);
+});
+
+test('claim reopen action transitions cancelled claim back to draft', function () {
+    $ctx = folioContext();
+    $claim = readyClaim($ctx);
+    $claim->update([
+        'status' => NhifClaim::STATUS_CANCELLED,
+        'cancellation_reason' => 'Test cancel',
+        'cancelled_at' => now(),
+    ]);
+
+    $response = $this->actingAs($ctx['user'])
+        ->postJson(route('nhif.claims.reopen', $claim->id));
+
+    $response->assertOk()
+        ->assertJson(['success' => true]);
+
+    $claim->refresh();
+    expect($claim->status)->toBe(NhifClaim::STATUS_DRAFT)
+        ->and($claim->cancellation_reason)->toBeNull()
+        ->and($claim->cancelled_at)->toBeNull();
+});
+
+test('finalizeClaim throws ValidationException for same-day VisitTypeID 2 claims', function () {
+    $ctx = folioContext();
+    $claim = readyClaim($ctx);
+    $claim->update([
+        'visit_type_id' => 2,
+        'patient_type_code' => 'IN',
+        'admitted_at' => now()->toDateString(),
+        'discharged_at' => now()->toDateString(), // Same day
+    ]);
+
+    $service = app(NhifFolioService::class);
+    expect(fn () => $service->finalizeClaim($claim, ['signature_method' => 'Manual'], requestAs($ctx['user'])))
+        ->toThrow(ValidationException::class);
+});

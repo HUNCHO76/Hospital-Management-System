@@ -295,4 +295,54 @@ class NhifMemberVerificationController extends Controller
         return to_route('patients.insurance.show', [$patient, $patientInsurance])
             ->with($flashKey, $message);
     }
+
+    public function updateVisitType(
+        Request $request,
+        Patient $patient,
+        PatientInsurance $patientInsurance,
+        NhifMemberVerificationService $verifier,
+    ): RedirectResponse|JsonResponse {
+        $validated = $request->validate([
+            'visit_type_id' => ['required', 'integer'],
+            'authorization_no' => ['nullable', 'string', 'max:50'],
+            'remarks' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $authNo = $validated['authorization_no'] ?? $patientInsurance->nhif_authorization_no;
+        if (blank($authNo)) {
+            $msg = 'No active NHIF authorization found for this patient insurance.';
+            if ($request->wantsJson()) {
+                return response()->json(['error' => $msg], 422);
+            }
+
+            return back()->with('error', $msg);
+        }
+
+        $result = $verifier->updateVisitType(
+            $patientInsurance,
+            $authNo,
+            (int) $validated['visit_type_id'],
+            $validated['remarks'] ?? 'Updated visit type from portal',
+            $request,
+        );
+
+        if (! $result['success']) {
+            $msg = 'Failed to update NHIF visit type: '.($result['error'] ?? 'Unknown error');
+            if ($request->wantsJson()) {
+                return response()->json(['error' => $msg], 422);
+            }
+
+            return back()->with('error', $msg);
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'NHIF authorization visit type updated successfully.',
+                'data' => $result['data'],
+            ]);
+        }
+
+        return back()->with('success', 'NHIF authorization visit type updated successfully.');
+    }
 }

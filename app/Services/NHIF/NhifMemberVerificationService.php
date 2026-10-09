@@ -690,4 +690,52 @@ class NhifMemberVerificationService
             throw new \InvalidArgumentException('Referral number is required for the selected visit type.');
         }
     }
+
+    /**
+     * Update the visit type of an active NHIF authorization.
+     *
+     * @return array{success: bool, data: array<string, mixed>, error: string|null}
+     */
+    public function updateVisitType(
+        PatientInsurance $insurance,
+        string $authorizationNo,
+        int $newVisitTypeId,
+        ?string $remarks = null,
+        ?Request $request = null,
+    ): array {
+        $payload = [
+            'authorizationNo' => $authorizationNo,
+            'visitTypeID' => $newVisitTypeId,
+            'remarks' => $remarks ?? 'Updated visit type',
+            'createdBy' => $request?->user()?->name ?? 'system',
+        ];
+
+        $response = $this->client->updateVisitType($payload);
+
+        if ($response['success']) {
+            $verification = NhifMemberVerification::query()
+                ->where('patient_insurance_id', $insurance->id)
+                ->where('nhif_authorization_no', $authorizationNo)
+                ->latest()
+                ->first();
+
+            if ($verification) {
+                $reqPayload = $verification->verify_card_request ?? [];
+                $reqPayload['visitTypeID'] = $newVisitTypeId;
+                $reqPayload['remarks'] = $payload['remarks'];
+                $verification->update([
+                    'verify_card_request' => $reqPayload,
+                ]);
+            }
+
+            if ($request) {
+                $this->auditLog->record('NHIF_UPDATE_VISIT_TYPE_SUCCESS', $insurance, null, [
+                    'authorization_no' => $authorizationNo,
+                    'new_visit_type_id' => $newVisitTypeId,
+                ], $request);
+            }
+        }
+
+        return $response;
+    }
 }

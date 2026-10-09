@@ -228,7 +228,7 @@ export function NhifClaimFinalizeDialog({
             let errorMessage = data?.error || data?.message || 'Failed to finalize NHIF claim.';
             if (data?.errors && typeof data.errors === 'object') {
                 const details = Object.values(data.errors).flat().join(' ');
-                if (details) {
+                if (details && !errorMessage.includes(details)) {
                     errorMessage = `${errorMessage}: ${details}`;
                 }
             }
@@ -364,6 +364,21 @@ export function NhifClaimFinalizeDialog({
                                             <ul className="list-disc list-inside space-y-0.5">
                                                 <li>Re-verify the patient&apos;s insurance card to generate a fresh 24-hour Authorization Number.</li>
                                                 <li>Or, if the original folio was cancelled by mistake, reopen the original folio instead of creating a new one.</li>
+                                            </ul>
+                                        </div>
+                                    )}
+                                    {(errorResult.error?.toLowerCase().includes('inpatient visit') ||
+                                      errorResult.error?.toLowerCase().includes('visittypeid 2') ||
+                                      errorResult.error?.toLowerCase().includes('same-day visits cannot be claimed')) && (
+                                        <div className="bg-destructive/20 border border-destructive/40 p-2.5 rounded text-destructive-foreground mt-2 space-y-1">
+                                            <p className="font-semibold">🏥 NHIF Inpatient Rule Mismatch:</p>
+                                            <p>
+                                                This authorization was issued as an Inpatient visit (VisitTypeID 2), which requires an admission date and a later discharge date (at least 1 overnight stay). Same-day visits cannot be claimed under an Inpatient authorization.
+                                            </p>
+                                            <p className="font-semibold text-amber-500 dark:text-amber-300">How to Fix:</p>
+                                            <ul className="list-disc list-inside space-y-0.5">
+                                                <li>If the patient was not admitted (outpatient / walk-in): Cancel this draft claim, re-verify the card with Visit Type <strong>&quot;Normal Visit&quot; (1)</strong> to issue a valid OPD authorization, and finalize again.</li>
+                                                <li>If the patient was actually admitted: Submit this claim only after the patient is discharged on a subsequent date.</li>
                                             </ul>
                                         </div>
                                     )}

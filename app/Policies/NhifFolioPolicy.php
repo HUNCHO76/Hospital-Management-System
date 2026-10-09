@@ -69,6 +69,18 @@ class NhifFolioPolicy
         return $user->hasPermissionTo('nhif-claims.bill-confirmation');
     }
 
+    public function cancel(User $user, NhifClaim $claim): bool
+    {
+        return ($user->hasPermissionTo('nhif-claims.update') || $user->hasPermissionTo('nhif-claims.cancel'))
+            && $this->sameHospital($user, $claim);
+    }
+
+    public function reopen(User $user, NhifClaim $claim): bool
+    {
+        return ($user->hasPermissionTo('nhif-claims.update') || $user->hasPermissionTo('nhif-claims.reopen'))
+            && $this->sameHospital($user, $claim);
+    }
+
     protected function sameHospital(User $user, NhifClaim $claim): bool
     {
         if ($user->hasRole('super-admin')) {

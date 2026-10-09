@@ -111,6 +111,7 @@ class NhifClaimController extends Controller
                 'cancelled_at' => $nhifClaim->cancelled_at?->toDateTimeString(),
                 'is_submittable' => $nhifClaim->isSubmittable(),
                 'is_cancelled' => $nhifClaim->isCancelled(),
+                'is_reopenable' => $nhifClaim->isCancelled() && empty($nhifClaim->nhif_submission_no),
                 'hospital' => $nhifClaim->hospital ? ['id' => $nhifClaim->hospital->id, 'name' => $nhifClaim->hospital->name] : null,
                 'patient' => $nhifClaim->patient ? ['id' => $nhifClaim->patient->id, 'name' => $nhifClaim->patient->full_name] : null,
                 'patient_insurance' => $nhifClaim->patientInsurance ? [
@@ -589,15 +590,30 @@ class NhifClaimController extends Controller
         return back()->with('error', 'NHIF bill confirmation request failed.');
     }
 
-    public function cancel(Request $request, NhifClaim $nhifClaim): RedirectResponse
+    public function cancel(Request $request, NhifClaim $nhifClaim): RedirectResponse|JsonResponse
     {
+        $this->authorize('cancel', $nhifClaim);
+
+        if ($nhifClaim->isCancelled()) {
+            if ($request->wantsJson()) {
+                return response()->json(['error' => 'Claim is already cancelled.'], 422);
+            }
+
+            return back()->with('error', 'Claim is already cancelled.');
+        }
+
+        if (in_array($nhifClaim->status, [NhifClaim::STATUS_CONFIRMED, NhifClaim::STATUS_FINALIZED, NhifClaim::STATUS_ACCEPTED, NhifClaim::STATUS_RECONCILED], true)) {
+            $msg = 'Claims that have been accepted or finalized with NHIF cannot be cancelled directly.';
+            if ($request->wantsJson()) {
+                return response()->json(['error' => $msg], 422);
+            }
+
+            return back()->with('error', $msg);
+        }
+
         $data = $request->validate([
             'cancellation_reason' => ['required', 'string', 'max:500'],
         ]);
-
-        if ($nhifClaim->isCancelled()) {
-            return back()->with('error', 'Claim is already cancelled.');
-        }
 
         $nhifClaim->update([
             'status' => NhifClaim::STATUS_CANCELLED,
@@ -607,14 +623,26 @@ class NhifClaimController extends Controller
             'updated_by' => $request->user()->id,
         ]);
 
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Claim cancelled successfully.',
+                'claim' => $nhifClaim->fresh(),
+            ]);
+        }
+
         return back()->with('success', 'Claim cancelled.');
     }
 
-    public function reopen(Request $request, NhifClaim $nhifClaim): RedirectResponse
+    public function reopen(Request $request, NhifClaim $nhifClaim): RedirectResponse|JsonResponse
     {
-        $this->authorize('update', $nhifClaim);
+        $this->authorize('reopen', $nhifClaim);
 
         if (! $nhifClaim->isCancelled()) {
+            if ($request->wantsJson()) {
+                return response()->json(['error' => 'Only cancelled claims can be reopened.'], 422);
+            }
+
             return back()->with('error', 'Only cancelled claims can be reopened.');
         }
 
@@ -629,6 +657,14 @@ class NhifClaimController extends Controller
             'cancelled_by' => null,
             'updated_by' => $request->user()->id,
         ]);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Claim {$nhifClaim->claim_number} reopened successfully (Status: {$newStatus}).",
+                'claim' => $nhifClaim->fresh(),
+            ]);
+        }
 
         return back()->with('success', "Claim {$nhifClaim->claim_number} reopened successfully (Status: {$newStatus}).");
     }
