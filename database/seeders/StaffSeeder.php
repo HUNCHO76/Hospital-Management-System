@@ -31,6 +31,14 @@ class StaffSeeder extends Seeder
         ['first_name' => 'Edith', 'last_name' => 'Massawe', 'gender' => 'female', 'department' => 'OPD', 'job_title' => 'Receptionist', 'employment_type' => 'full_time', 'role' => 'receptionist'],
         ['first_name' => 'Frank', 'last_name' => 'Ngowi', 'gender' => 'male', 'department' => null, 'job_title' => 'Accountant', 'employment_type' => 'full_time', 'role' => 'accountant'],
         ['first_name' => 'Grace', 'last_name' => 'Temba', 'gender' => 'female', 'department' => null, 'job_title' => 'IT Officer', 'employment_type' => 'full_time', 'role' => null],
+        ['first_name' => 'Peter', 'last_name' => 'Kimaro', 'gender' => 'male', 'department' => 'PROCUREMENT', 'job_title' => 'Purchase Officer', 'employment_type' => 'full_time', 'role' => 'purchase-officer'],
+        ['first_name' => 'Patricia', 'last_name' => 'Lyimo', 'gender' => 'female', 'department' => 'PROCUREMENT', 'job_title' => 'Purchase Manager', 'employment_type' => 'full_time', 'role' => 'purchase-manager'],
+        ['first_name' => 'Salim', 'last_name' => 'Bakari', 'gender' => 'male', 'department' => 'STORES', 'job_title' => 'Store Officer', 'employment_type' => 'full_time', 'role' => 'store-officer'],
+        ['first_name' => 'Stella', 'last_name' => 'Mrema', 'gender' => 'female', 'department' => 'STORES', 'job_title' => 'Store Manager', 'employment_type' => 'full_time', 'role' => 'store-manager'],
+        ['first_name' => 'Dennis', 'last_name' => 'Shirima', 'gender' => 'male', 'department' => 'OPD', 'job_title' => 'Department Requisitioner', 'employment_type' => 'full_time', 'role' => 'department-user'],
+        ['first_name' => 'Richard', 'last_name' => 'Swai', 'gender' => 'male', 'department' => 'RADIOLOGY', 'job_title' => 'Radiology Technician', 'employment_type' => 'full_time', 'role' => 'radiology-technician'],
+        ['first_name' => 'Rachel', 'last_name' => 'Tarimo', 'gender' => 'female', 'department' => 'RADIOLOGY', 'job_title' => 'Radiologist', 'employment_type' => 'full_time', 'role' => 'radiologist'],
+        ['first_name' => 'Robert', 'last_name' => 'Moshi', 'gender' => 'male', 'department' => 'RADIOLOGY', 'job_title' => 'Radiology Supervisor', 'employment_type' => 'full_time', 'role' => 'radiology-supervisor'],
     ];
 
     /**

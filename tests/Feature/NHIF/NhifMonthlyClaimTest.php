@@ -20,7 +20,7 @@ beforeEach(function () {
         'code' => '02299',
     ]);
 
-    $this->user = User::factory()->create();
+    $this->user = userWithRole('hospital-admin');
 });
 
 function requestWithUser(User $user): Request

@@ -41,6 +41,8 @@ class StockItem extends Model
      */
     protected $fillable = [
         'hospital_id',
+        'store_id',
+        'procurement_item_id',
         'medication_id',
         'reorder_level',
         'maximum_level',
@@ -68,6 +70,16 @@ class StockItem extends Model
     public function hospital(): BelongsTo
     {
         return $this->belongsTo(Hospital::class);
+    }
+
+    public function store(): BelongsTo
+    {
+        return $this->belongsTo(Store::class);
+    }
+
+    public function procurementItem(): BelongsTo
+    {
+        return $this->belongsTo(ProcurementItem::class);
     }
 
     /**

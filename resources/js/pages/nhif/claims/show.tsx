@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SignFolioDialog } from '@/components/nhif/sign-folio-dialog';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'NHIF', href: '/nhif/dashboard' },
@@ -77,7 +78,6 @@ export default function ClaimShow({ claim }: Props) {
 
     const validate = () => router.post(route('nhif.claims.validate', claim.id));
     const finalize = () => router.post(route('nhif.claims.finalize', claim.id));
-    const sign = () => router.post(route('nhif.claims.sign', claim.id), { signature_method: 'Manual' });
     const retryBillConfirmation = () => router.post(route('nhif.claims.retry-bill-confirmation', claim.id));
     const reopen = () => {
         if (confirm('Reopen this cancelled claim back to draft?')) {
@@ -103,7 +103,15 @@ export default function ClaimShow({ claim }: Props) {
                         {claim.status === 'draft' && <Button size="sm" onClick={validate}>Validate</Button>}
                         {claim.status === 'validated' && <Button size="sm" onClick={finalize}>Finalize</Button>}
                         {(claim.status === 'ready' || claim.status === 'signing_failed') && (
-                            <Button size="sm" variant="outline" onClick={sign}>Sign Folio</Button>
+                            <SignFolioDialog
+                                claimId={claim.id}
+                                patientName={claim.patient?.name}
+                                trigger={
+                                    <Button size="sm" variant="outline">
+                                        Sign Folio
+                                    </Button>
+                                }
+                            />
                         )}
                         {claim.is_submittable && <Button size="sm" onClick={submit}>Submit to NHIF</Button>}
                         {(claim.status === 'submitted' || claim.status === 'bill_confirmation_failed') && (

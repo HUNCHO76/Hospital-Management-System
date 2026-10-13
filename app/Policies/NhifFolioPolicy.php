@@ -53,6 +53,11 @@ class NhifFolioPolicy
             && $this->sameHospital($user, $claim);
     }
 
+    public function monthlyView(User $user): bool
+    {
+        return $user->hasPermissionTo('nhif-claims.monthly-view');
+    }
+
     public function monthlySubmit(User $user): bool
     {
         return $user->hasPermissionTo('nhif-claims.monthly-submit');

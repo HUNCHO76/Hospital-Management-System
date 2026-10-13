@@ -141,15 +141,15 @@ class PermissionSeeder extends Seeder
         // Phase 7, Step 53: the central billing service catalog + pricing.
         // 'billing-services' mirrors 'medications'/'laboratory-tests'/
         // 'radiology-procedures' exactly (view/create/update/activate/
-        // deactivate, no delete). 'billing-pricing' deliberately has no
-        // 'update' — spec §40's own "avoid editing a price that is already
-        // historically used, prefer a new version" is satisfied by making
-        // every price create-or-cancel only, never editable, so there is no
-        // ambiguous "is this specific price still editable" rule to
-        // enforce. Clinical/pharmacy roles are deliberately not granted
-        // either group (spec §43's own "should not modify pricing").
+        // deactivate, no delete). 'billing-pricing' is create-or-cancel only
+        // for historical prices (spec §40's "prefer a new version"); the sole
+        // exception is 'update', which corrects the amount of the CURRENT
+        // open-ended price in place (audit-logged, reason required) so a
+        // price entered by mistake can be fixed without waiting a day.
+        // Clinical/pharmacy roles are deliberately not granted either group
+        // (spec §43's own "should not modify pricing").
         'billing-services' => ['view', 'create', 'update', 'activate', 'deactivate'],
-        'billing-pricing' => ['view', 'create', 'deactivate'],
+        'billing-pricing' => ['view', 'create', 'update', 'deactivate'],
         // Phase 7, Step 56: insurance billing & copayment. 'billing-insurance'
         // (view/calculate) gates the invoice-level coverage breakdown and
         // its one state-changing action; 'billing-insurance-rules'
@@ -265,6 +265,23 @@ class PermissionSeeder extends Seeder
         ],
         // Phase 8, Step 75: NHIF operational dashboard (read-only aggregate view).
         'nhif-dashboard' => ['view'],
+
+        // Procurement and Store Management Module
+        'procurement' => ['view', 'dashboard'],
+        'procurement-indents' => ['view', 'create', 'update', 'submit', 'approve', 'reject', 'cancel'],
+        'procurement-quotations' => ['view', 'create', 'update', 'compare', 'select', 'reject'],
+        'procurement-purchase-orders' => ['view', 'create', 'update', 'submit', 'approve', 'send', 'close', 'reject', 'cancel'],
+        'procurement-vendors' => ['view', 'create', 'update', 'delete'],
+        'procurement-invoices' => ['view', 'create', 'match', 'approve', 'reject'],
+        'procurement-items' => ['view', 'create', 'update', 'activate', 'deactivate'],
+        'stores' => ['view', 'dashboard'],
+        'stores-grn' => ['view', 'create', 'inspect', 'post'],
+        'stores-inventory' => ['view', 'adjust'],
+        'stores-batches' => ['view', 'quarantine', 'release'],
+        'stores-issues' => ['view', 'create', 'issue', 'receive'],
+        'stores-requests' => ['view', 'create', 'submit', 'approve', 'reject', 'cancel'],
+        'stores-transfers' => ['view', 'create', 'submit', 'approve', 'dispatch', 'receive'],
+        'stores-reports' => ['view', 'export'],
     ];
 
     /**

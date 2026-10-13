@@ -58,6 +58,9 @@ class StockBatch extends Model
      */
     protected $fillable = [
         'stock_item_id',
+        'store_id',
+        'vendor_id',
+        'storage_location',
         'batch_number',
         'manufacture_date',
         'expiry_date',
@@ -101,6 +104,16 @@ class StockBatch extends Model
     public function isDispensable(): bool
     {
         return $this->status === self::STATUS_ACTIVE && ! $this->isExpired() && $this->quantity > 0;
+    }
+
+    public function store(): BelongsTo
+    {
+        return $this->belongsTo(Store::class);
+    }
+
+    public function vendor(): BelongsTo
+    {
+        return $this->belongsTo(Vendor::class);
     }
 
     /**

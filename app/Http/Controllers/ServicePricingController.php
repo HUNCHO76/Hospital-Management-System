@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\Billing\CancelServicePriceRequest;
 use App\Http\Requests\Billing\CreateServicePriceRequest;
+use App\Http\Requests\Billing\UpdateServicePriceRequest;
 use App\Http\Resources\ServicePriceResource;
 use App\Models\Hospital;
 use App\Models\Practitioner;
@@ -74,6 +75,17 @@ class ServicePricingController extends Controller
         $price = $pricing->create($data, $request);
 
         return to_route('billing-services.show', $price->service_id)->with('success', 'Price recorded.');
+    }
+
+    public function update(UpdateServicePriceRequest $request, ServicePrice $servicePrice, ServicePricingService $pricing): RedirectResponse
+    {
+        $this->authorize('update', $servicePrice);
+
+        $data = $request->validated();
+
+        $pricing->update($servicePrice, $data['amount'], $data['reason'], $request);
+
+        return back()->with('success', 'Price updated.');
     }
 
     public function cancel(CancelServicePriceRequest $request, ServicePrice $servicePrice, ServicePricingService $pricing): RedirectResponse

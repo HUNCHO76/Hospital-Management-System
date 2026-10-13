@@ -110,6 +110,8 @@ class ServiceCatalogController extends Controller
             'hospitals' => $hospitals,
             'practitioners' => $practitioners,
             'canCreatePrice' => $request->user()->can('billing-pricing.create'),
+            'canUpdatePrice' => $request->user()->can('billing-pricing.update'),
+            'canCancelPrice' => $request->user()->can('billing-pricing.deactivate'),
         ]);
     }
 

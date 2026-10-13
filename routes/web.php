@@ -71,6 +71,13 @@ use App\Http\Controllers\PharmacyController;
 use App\Http\Controllers\PharmacyReportController;
 use App\Http\Controllers\PractitionerController;
 use App\Http\Controllers\PrescriptionVerificationController;
+use App\Http\Controllers\Procurement\IndentController;
+use App\Http\Controllers\Procurement\ProcurementDashboardController;
+use App\Http\Controllers\Procurement\ProcurementItemController;
+use App\Http\Controllers\Procurement\PurchaseOrderController;
+use App\Http\Controllers\Procurement\VendorController;
+use App\Http\Controllers\Procurement\VendorInvoiceController;
+use App\Http\Controllers\Procurement\VendorQuotationController;
 use App\Http\Controllers\RadiologyExaminationController;
 use App\Http\Controllers\RadiologyImageController;
 use App\Http\Controllers\RadiologyOrderController;
@@ -86,6 +93,13 @@ use App\Http\Controllers\ServiceCatalogController;
 use App\Http\Controllers\ServicePricingController;
 use App\Http\Controllers\StaffController;
 use App\Http\Controllers\StockController;
+use App\Http\Controllers\Stores\DepartmentStockRequestController;
+use App\Http\Controllers\Stores\GoodsReceiptNoteController;
+use App\Http\Controllers\Stores\ProcurementReportController;
+use App\Http\Controllers\Stores\StoreDashboardController;
+use App\Http\Controllers\Stores\StoreInventoryController;
+use App\Http\Controllers\Stores\StoreIssueController;
+use App\Http\Controllers\Stores\StoreTransferController;
 use App\Http\Controllers\TriageController;
 use App\Http\Controllers\VitalSignController;
 use Illuminate\Support\Facades\Route;
@@ -898,6 +912,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/', [ServicePricingController::class, 'index'])->name('index');
         Route::get('create', [ServicePricingController::class, 'create'])->name('create');
         Route::post('/', [ServicePricingController::class, 'store'])->name('store');
+        Route::patch('{servicePrice}', [ServicePricingController::class, 'update'])->name('update');
         Route::post('{servicePrice}/cancel', [ServicePricingController::class, 'cancel'])->name('cancel');
     });
 
@@ -912,6 +927,111 @@ Route::middleware(['auth'])->group(function () {
         Route::get('create', [InsuranceCoverageRuleController::class, 'create'])->name('create');
         Route::post('/', [InsuranceCoverageRuleController::class, 'store'])->name('store');
         Route::post('{insuranceCoverageRule}/cancel', [InsuranceCoverageRuleController::class, 'cancel'])->name('cancel');
+    });
+
+    // ==========================================
+    // PROCUREMENT MODULE
+    // ==========================================
+    Route::prefix('procurement')->name('procurement.')->group(function () {
+        Route::get('/', [ProcurementDashboardController::class, 'index'])->name('dashboard');
+
+        // Indents / Requisitions
+        Route::get('indents', [IndentController::class, 'index'])->name('indents.index');
+        Route::get('indents/create', [IndentController::class, 'create'])->name('indents.create');
+        Route::post('indents', [IndentController::class, 'store'])->name('indents.store');
+        Route::get('indents/{indent}', [IndentController::class, 'show'])->name('indents.show');
+        Route::get('indents/{indent}/edit', [IndentController::class, 'edit'])->name('indents.edit');
+        Route::put('indents/{indent}', [IndentController::class, 'update'])->name('indents.update');
+        Route::post('indents/{indent}/submit', [IndentController::class, 'submit'])->name('indents.submit');
+        Route::post('indents/{indent}/approve', [IndentController::class, 'approve'])->name('indents.approve');
+        Route::post('indents/{indent}/reject', [IndentController::class, 'reject'])->name('indents.reject');
+        Route::post('indents/{indent}/cancel', [IndentController::class, 'cancel'])->name('indents.cancel');
+
+        // Vendor Quotations & Matrix
+        Route::get('quotations', [VendorQuotationController::class, 'index'])->name('quotations.index');
+        Route::get('quotations/create', [VendorQuotationController::class, 'create'])->name('quotations.create');
+        Route::post('quotations', [VendorQuotationController::class, 'store'])->name('quotations.store');
+        Route::get('quotations/compare', [VendorQuotationController::class, 'compare'])->name('quotations.compare');
+        Route::get('quotations/{quotation}', [VendorQuotationController::class, 'show'])->name('quotations.show');
+        Route::post('quotations/{quotation}/select', [VendorQuotationController::class, 'select'])->name('quotations.select');
+
+        // Purchase Orders
+        Route::get('orders', [PurchaseOrderController::class, 'index'])->name('orders.index');
+        Route::get('orders/create', [PurchaseOrderController::class, 'create'])->name('orders.create');
+        Route::post('orders', [PurchaseOrderController::class, 'store'])->name('orders.store');
+        Route::get('orders/{order}', [PurchaseOrderController::class, 'show'])->name('orders.show');
+        Route::get('orders/{order}/edit', [PurchaseOrderController::class, 'edit'])->name('orders.edit');
+        Route::put('orders/{order}', [PurchaseOrderController::class, 'update'])->name('orders.update');
+        Route::post('orders/{order}/submit', [PurchaseOrderController::class, 'submit'])->name('orders.submit');
+        Route::post('orders/{order}/approve', [PurchaseOrderController::class, 'approve'])->name('orders.approve');
+        Route::post('orders/{order}/send', [PurchaseOrderController::class, 'send'])->name('orders.send');
+        Route::post('orders/{order}/cancel', [PurchaseOrderController::class, 'cancel'])->name('orders.cancel');
+
+        // Vendor Invoices & 3-Way Match
+        Route::get('invoices', [VendorInvoiceController::class, 'index'])->name('invoices.index');
+        Route::get('invoices/create', [VendorInvoiceController::class, 'create'])->name('invoices.create');
+        Route::post('invoices', [VendorInvoiceController::class, 'store'])->name('invoices.store');
+        Route::get('invoices/{invoice}', [VendorInvoiceController::class, 'show'])->name('invoices.show');
+        Route::post('invoices/{invoice}/approve', [VendorInvoiceController::class, 'approve'])->name('invoices.approve');
+
+        // Vendors Directory
+        Route::resource('vendors', VendorController::class);
+
+        // Procurement Items Catalog
+        Route::resource('items', ProcurementItemController::class);
+    });
+
+    // ==========================================
+    // STORES & INVENTORY MODULE
+    // ==========================================
+    Route::prefix('stores')->name('stores.')->group(function () {
+        Route::get('/', [StoreDashboardController::class, 'index'])->name('dashboard');
+
+        // Goods Receipt Notes (GRN)
+        Route::get('grn', [GoodsReceiptNoteController::class, 'index'])->name('grn.index');
+        Route::get('grn/create', [GoodsReceiptNoteController::class, 'create'])->name('grn.create');
+        Route::post('grn', [GoodsReceiptNoteController::class, 'store'])->name('grn.store');
+        Route::get('grn/{grn}', [GoodsReceiptNoteController::class, 'show'])->name('grn.show');
+        Route::post('grn/{grn}/inspect', [GoodsReceiptNoteController::class, 'inspect'])->name('grn.inspect');
+        Route::post('grn/{grn}/post', [GoodsReceiptNoteController::class, 'post'])->name('grn.post');
+
+        // Department Stock Requests
+        Route::get('requests', [DepartmentStockRequestController::class, 'index'])->name('requests.index');
+        Route::get('requests/create', [DepartmentStockRequestController::class, 'create'])->name('requests.create');
+        Route::post('requests', [DepartmentStockRequestController::class, 'store'])->name('requests.store');
+        Route::get('requests/{stockRequest}', [DepartmentStockRequestController::class, 'show'])->name('requests.show');
+        Route::post('requests/{stockRequest}/approve', [DepartmentStockRequestController::class, 'approve'])->name('requests.approve');
+
+        // Store Issues (Outward Distribution)
+        Route::get('issues', [StoreIssueController::class, 'index'])->name('issues.index');
+        Route::get('issues/create', [StoreIssueController::class, 'create'])->name('issues.create');
+        Route::post('issues', [StoreIssueController::class, 'store'])->name('issues.store');
+        Route::get('issues/{issue}', [StoreIssueController::class, 'show'])->name('issues.show');
+        Route::post('issues/{issue}/receive', [StoreIssueController::class, 'receive'])->name('issues.receive');
+
+        // Store Transfers (Inter-Store Movement)
+        Route::get('transfers', [StoreTransferController::class, 'index'])->name('transfers.index');
+        Route::get('transfers/create', [StoreTransferController::class, 'create'])->name('transfers.create');
+        Route::post('transfers', [StoreTransferController::class, 'store'])->name('transfers.store');
+        Route::get('transfers/{transfer}', [StoreTransferController::class, 'show'])->name('transfers.show');
+        Route::post('transfers/{transfer}/submit', [StoreTransferController::class, 'submit'])->name('transfers.submit');
+        Route::post('transfers/{transfer}/dispatch', [StoreTransferController::class, 'dispatch'])->name('transfers.dispatch');
+        Route::post('transfers/{transfer}/receive', [StoreTransferController::class, 'receive'])->name('transfers.receive');
+
+        // Store Inventory & Batches
+        Route::get('inventory', [StoreInventoryController::class, 'index'])->name('inventory.index');
+        Route::get('batches', [StoreInventoryController::class, 'batches'])->name('inventory.batches');
+        Route::post('inventory/adjust', [StoreInventoryController::class, 'adjust'])->name('inventory.adjust');
+
+        // Reports
+        Route::prefix('reports')->name('reports.')->group(function () {
+            Route::get('/', [ProcurementReportController::class, 'index'])->name('index');
+            Route::get('stock-valuation', [ProcurementReportController::class, 'stockValuation'])->name('stock-valuation');
+            Route::get('expiry', [ProcurementReportController::class, 'expiry'])->name('expiry');
+            Route::get('reorder-alerts', [ProcurementReportController::class, 'reorderAlerts'])->name('reorder-alerts');
+            Route::get('discrepancies', [ProcurementReportController::class, 'discrepancies'])->name('discrepancies');
+            Route::get('department-consumption', [ProcurementReportController::class, 'departmentConsumption'])->name('department-consumption');
+        });
     });
 });
 

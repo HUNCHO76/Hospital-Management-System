@@ -26,15 +26,20 @@ class PrescriptionOrderPolicy
 
     /**
      * No ownership restriction — any authorized clinical/pharmacy staff in
-     * the same hospital may need to read it for handoffs.
+     * the same hospital may need to read it for handoffs. Prescribers and
+     * encounter practitioners may also view their own orders.
      */
     public function view(User $user, PrescriptionOrder $prescriptionOrder): bool
     {
-        if (! $user->can('prescription-orders.view')) {
-            return false;
+        if ($user->can('prescription-orders.view') && $this->belongsToUsersHospital($user, $prescriptionOrder->clinicalEncounter)) {
+            return true;
         }
 
-        return $this->belongsToUsersHospital($user, $prescriptionOrder->clinicalEncounter);
+        if ($user->id === $prescriptionOrder->prescriber_id || $this->ownsOrSupervises($user, $prescriptionOrder->clinicalEncounter)) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

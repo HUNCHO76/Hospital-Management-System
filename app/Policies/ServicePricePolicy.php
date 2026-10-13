@@ -43,6 +43,23 @@ class ServicePricePolicy
         return $this->belongsToHospital($user, $hospitalId);
     }
 
+    /**
+     * Correct the amount of the current price in place — only an active,
+     * open-ended price; closed/superseded/cancelled prices stay immutable.
+     */
+    public function update(User $user, ServicePrice $price): bool
+    {
+        if (! $user->can('billing-pricing.update')) {
+            return false;
+        }
+
+        if ($price->status !== ServicePrice::STATUS_ACTIVE || $price->effective_to !== null) {
+            return false;
+        }
+
+        return $this->belongsToHospital($user, $price->hospital_id);
+    }
+
     public function cancel(User $user, ServicePrice $price): bool
     {
         if (! $user->can('billing-pricing.deactivate')) {

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { SignaturePad } from '@/components/nhif/signature-pad';
 import { captureFingerprint, MorFinError } from '@/lib/morfin-auth';
 import { Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
@@ -109,6 +110,9 @@ export function NhifClaimFinalizeDialog({
     const [captureError, setCaptureError] = useState<string | null>(null);
     const [captureInfo, setCaptureInfo] = useState<string | null>(null);
 
+    // Manual signature state (raw base64 JPEG from the Topaz / on-screen pad)
+    const [manualSignature, setManualSignature] = useState<string | null>(null);
+
     const [errorResult, setErrorResult] = useState<{ step: string; error: string } | null>(null);
     const [successResult, setSuccessResult] = useState<any | null>(null);
 
@@ -141,6 +145,7 @@ export function NhifClaimFinalizeDialog({
             setErrorResult(null);
             setSuccessResult(null);
             setImageData(null);
+            setManualSignature(null);
             setPreviewSrc(null);
             setCaptureError(null);
             setCaptureInfo(null);
@@ -180,6 +185,7 @@ export function NhifClaimFinalizeDialog({
     };
 
     const isBiometricMethod = signatureMethod === 'FINGERPRINT' || signatureMethod === 'Biometric';
+    const isManualMethod = signatureMethod === 'SIGNATURE' || signatureMethod === 'Manual';
 
     const handleFinalize = async () => {
         if (!readiness?.is_ready) return;
@@ -193,18 +199,28 @@ export function NhifClaimFinalizeDialog({
             return;
         }
 
+        // Manual signature validation
+        if (isManualMethod && !manualSignature) {
+            setErrorResult({
+                step: 'signature',
+                error: "Please capture the signatory's signature before finalizing.",
+            });
+            return;
+        }
+
         setSubmitting(true);
         setErrorResult(null);
 
         const methodCode = isBiometricMethod ? 'FINGERPRINT' : signatureMethod === 'Manual' ? 'SIGNATURE' : signatureMethod;
+        const capturedSignature = isBiometricMethod ? imageData : isManualMethod ? manualSignature : null;
 
         try {
             const res = await axios.post(route('nhif.claims.finalize-from-context'), {
                 clinical_encounter_id: clinicalEncounterId,
                 admission_id: admissionId,
                 signature_method: methodCode,
-                signature_data: isBiometricMethod ? imageData : null,
-                imageData: isBiometricMethod ? imageData : null,
+                signature_data: capturedSignature,
+                imageData: capturedSignature,
                 fp_code: isBiometricMethod ? fpCode : null,
                 fpCode: isBiometricMethod ? fpCode : null,
                 signed_by: signedBy,
@@ -246,6 +262,7 @@ export function NhifClaimFinalizeDialog({
         ['submitted', 'confirmed', 'finalized', 'accepted', 'reconciled'].includes(readiness.existing_claim.status);
 
     const isBiometricReady = !isBiometricMethod || Boolean(imageData && fpCode);
+    const isManualSignatureReady = !isManualMethod || Boolean(manualSignature);
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -517,6 +534,9 @@ export function NhifClaimFinalizeDialog({
                                                 if (next !== 'FINGERPRINT' && next !== 'Biometric') {
                                                     handleClearCapture();
                                                 }
+                                                if (next !== 'SIGNATURE' && next !== 'Manual') {
+                                                    setManualSignature(null);
+                                                }
                                             }}
                                         >
                                             <option value="FINGERPRINT">Biometric / Fingerprint (Mantra)</option>
@@ -668,6 +688,13 @@ export function NhifClaimFinalizeDialog({
                                         </div>
                                     )}
 
+                                    {/* Manual signature: Topaz pad with on-screen fallback */}
+                                    {isManualMethod && (
+                                        <div className="sm:col-span-3 border rounded-lg p-4 bg-background shadow-xs">
+                                            <SignaturePad value={manualSignature} onChange={setManualSignature} disabled={submitting} />
+                                        </div>
+                                    )}
+
                                     <div className="space-y-1 sm:col-span-3">
                                         <Label htmlFor="sig-remarks">Remarks (Optional)</Label>
                                         <Input
@@ -692,7 +719,7 @@ export function NhifClaimFinalizeDialog({
                         <Button
                             variant="default"
                             className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                            disabled={!readiness?.is_ready || !isBiometricReady || submitting || loading}
+                            disabled={!readiness?.is_ready || !isBiometricReady || !isManualSignatureReady || submitting || loading}
                             onClick={handleFinalize}
                         >
                             {submitting ? (

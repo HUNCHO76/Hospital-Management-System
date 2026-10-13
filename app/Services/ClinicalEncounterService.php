@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Charge;
 use App\Models\ClinicalEncounter;
 use App\Models\Consultation;
+use App\Models\NhifPreApprovalSession;
 use App\Models\Patient;
 use App\Models\Practitioner;
 use App\Models\ReceptionVisit;
@@ -86,6 +87,10 @@ class ClinicalEncounterService
 
                 if ($visit) {
                     $this->chargeCapture->releaseReceptionVisitChargeToEncounter($visit, $encounter);
+                    NhifPreApprovalSession::where('patient_id', $visit->patient_id)
+                        ->whereNull('clinical_encounter_id')
+                        ->whereHas('items', fn ($q) => $q->where('source_type', ReceptionVisit::class)->where('source_id', $visit->id))
+                        ->update(['clinical_encounter_id' => $encounter->id]);
                     if (in_array($visit->status, [ReceptionVisit::STATUS_WAITING, ReceptionVisit::STATUS_READY_FOR_SERVICE], true)) {
                         $visit->update(['status' => ReceptionVisit::STATUS_SENT_TO_SERVICE]);
                     }

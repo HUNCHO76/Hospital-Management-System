@@ -20,6 +20,8 @@ class DepartmentSeeder extends Seeder
         'RADIOLOGY' => 'Radiology',
         'INPATIENT' => 'Inpatient',
         'MATERNITY' => 'Maternity',
+        'PROCUREMENT' => 'Procurement & Purchasing',
+        'STORES' => 'Central Stores & Inventory',
     ];
 
     /**

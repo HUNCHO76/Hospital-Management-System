@@ -66,4 +66,9 @@ class Hospital extends Model
     {
         return $this->belongsTo(Service::class, 'default_consultation_service_id');
     }
+
+    public function stores(): HasMany
+    {
+        return $this->hasMany(Store::class);
+    }
 }

@@ -126,6 +126,48 @@ class ServicePricingService
     }
 
     /**
+     * Correct the amount of the current (active, open-ended) price in place.
+     * The one deliberate exception to "a price is never edited" — history
+     * (closed/superseded/cancelled prices) stays immutable and every change
+     * is audit-logged with its old/new amount and reason.
+     *
+     * @throws ValidationException
+     */
+    public function update(ServicePrice $price, float|string $amount, string $reason, Request $request): ServicePrice
+    {
+        $amount = $this->validateMoney($amount, 'amount', allowZero: true);
+
+        if (trim($reason) === '') {
+            throw ValidationException::withMessages(['reason' => 'A reason is required.']);
+        }
+
+        $old = null;
+
+        $updated = DB::transaction(function () use ($price, $amount, &$old) {
+            $locked = ServicePrice::query()->whereKey($price->id)->lockForUpdate()->firstOrFail();
+
+            if ($locked->status !== ServicePrice::STATUS_ACTIVE || $locked->effective_to !== null) {
+                throw ValidationException::withMessages(['amount' => 'Only the current open-ended price can be edited.']);
+            }
+
+            $old = $locked->amount;
+            $locked->update(['amount' => $amount]);
+
+            return $locked;
+        });
+
+        $this->auditLog->record(
+            'price_updated',
+            $updated,
+            ['amount' => $old],
+            ['amount' => $updated->amount, 'reason' => $reason],
+            $request,
+        );
+
+        return $updated->fresh();
+    }
+
+    /**
      * Pull a mistakenly-entered price before (or after) it takes effect —
      * never a delete; the row stays visible with its reason (spec §17/§25).
      *

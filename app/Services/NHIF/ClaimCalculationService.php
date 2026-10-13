@@ -3,18 +3,21 @@
 namespace App\Services\NHIF;
 
 use App\Models\Admission;
+use App\Models\CarePlanItem;
+use App\Models\Charge;
 use App\Models\ClinicalEncounter;
-use App\Models\ClinicalEncounterDiagnosis;
 use App\Models\Consultation;
-use App\Models\DispensingItem;
 use App\Models\EncounterDiagnosis;
 use App\Models\Hospital;
 use App\Models\LaboratoryOrder;
 use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryResult;
 use App\Models\Medication;
+use App\Models\MedicationAdministration;
 use App\Models\NhifClaim;
 use App\Models\NhifClaimItem;
+use App\Models\NhifDisease;
+use App\Models\NhifMemberVerification;
 use App\Models\NhifPreApprovalSession;
 use App\Models\NhifPreApprovalSessionItem;
 use App\Models\Patient;
@@ -25,7 +28,7 @@ use App\Models\PrescriptionOrderItem;
 use App\Models\RadiologyOrder;
 use App\Models\RadiologyOrderItem;
 use App\Models\ReceptionVisit;
-use Illuminate\Database\Eloquent\Model;
+use App\Models\Service;
 use Illuminate\Support\Collection;
 
 /**
@@ -39,6 +42,14 @@ use Illuminate\Support\Collection;
  */
 class ClaimCalculationService
 {
+    /**
+     * Standard statutory NHIF consultation item codes (item_type_id = 1).
+     */
+    public const NHIF_CONSULTATION_CODES = [
+        '10001', '10002', '10003', '10004', '10005', '10006',
+        '163683', '163685', '163686', '163696', '163697', '163698', '163699', '163700', '163701', '163708',
+    ];
+
     /**
      * Discover all eligible, issued, and claimable services for a given clinical encounter or admission.
      *
@@ -65,13 +76,13 @@ class ClaimCalculationService
         $claimedServiceKeys = $this->getAlreadyClaimedServiceKeys($context);
         $items = collect();
 
-        $isIpd = $context instanceof Admission 
+        $isIpd = $context instanceof Admission
             || ($context instanceof ClinicalEncounter && ($context->admission_id || in_array($context->encounter_type, ['ipd', 'inpatient'], true)));
-        
+
         if (! $isIpd && $insurance) {
-            $verification = \App\Models\NhifMemberVerification::query()
+            $verification = NhifMemberVerification::query()
                 ->where('patient_insurance_id', $insurance->id)
-                ->where('verification_status', \App\Models\NhifMemberVerification::STATUS_VERIFIED)
+                ->where('verification_status', NhifMemberVerification::STATUS_VERIFIED)
                 ->when(filled($insurance->nhif_authorization_no), fn ($q) => $q->where('nhif_authorization_no', $insurance->nhif_authorization_no))
                 ->latest()
                 ->first();
@@ -114,13 +125,29 @@ class ClaimCalculationService
 
         // Aggregate items by nhif_item_code so duplicate item codes are merged into single line items with sum quantities
         $aggregated = [];
+        $seenSources = [];
         foreach ($items as $item) {
             if (empty($item['nhif_item_code']) || $item['quantity'] <= 0 || $item['amount_claimed'] < 0) {
                 continue;
             }
             $code = (string) $item['nhif_item_code'];
+
+            // The same underlying source row must never be counted twice.
+            if (! empty($item['source_type']) && ! empty($item['source_id'])) {
+                $sourceKey = $code.'|'.$item['source_type'].'|'.$item['source_id'];
+                if (isset($seenSources[$sourceKey])) {
+                    continue;
+                }
+                $seenSources[$sourceKey] = true;
+            }
+
             if (! isset($aggregated[$code])) {
                 $aggregated[$code] = $item;
+            } elseif (in_array($code, self::NHIF_CONSULTATION_CODES, true) || (int) ($item['item_type_id'] ?? 0) === 1) {
+                // Only one consultation per visit: keep the first line, never sum quantities.
+                if (empty($aggregated[$code]['approval_ref_no']) && ! empty($item['approval_ref_no'])) {
+                    $aggregated[$code]['approval_ref_no'] = $item['approval_ref_no'];
+                }
             } else {
                 $aggregated[$code]['quantity'] += (int) $item['quantity'];
                 $aggregated[$code]['amount_claimed'] = round($aggregated[$code]['unit_price'] * $aggregated[$code]['quantity'], 2);
@@ -440,7 +467,16 @@ class ClaimCalculationService
 
         // Check pre-approval session consultation items
         $sessionItems = NhifPreApprovalSessionItem::query()
-            ->where('source_type', NhifPreApprovalSessionItem::SOURCE_CONSULTATION)
+            ->where(function ($q) {
+                $q->whereIn('source_type', [
+                    NhifPreApprovalSessionItem::SOURCE_CONSULTATION,
+                    ReceptionVisit::class,
+                    'reception_visit',
+                    ClinicalEncounter::class,
+                    'clinical_encounter',
+                ])
+                    ->orWhereIn('nhif_item_code', self::NHIF_CONSULTATION_CODES);
+            })
             ->whereIn('approval_status', [
                 NhifPreApprovalSessionItem::APPROVAL_STATUS_ISSUED,
                 NhifPreApprovalSessionItem::APPROVAL_STATUS_ACCEPTED,
@@ -459,11 +495,14 @@ class ClaimCalculationService
                     });
                 }
             })
+            ->orderByDesc('id')
             ->get();
 
         foreach ($sessionItems as $sessionItem) {
-            $key = 'code:'.$sessionItem->nhif_item_code;
-            if (isset($claimedKeys[$key])) {
+            $code = (string) $sessionItem->nhif_item_code;
+            $key = 'code:'.$code;
+            if (isset($claimedKeys[$key]) || $items->isNotEmpty()) {
+                // Outpatient visits must not have duplicate consultation items
                 continue;
             }
 
@@ -471,7 +510,7 @@ class ClaimCalculationService
             $unitPrice = (float) $sessionItem->unit_price;
 
             $items->push([
-                'nhif_item_code' => (string) $sessionItem->nhif_item_code,
+                'nhif_item_code' => $code,
                 'nhif_item_name' => $sessionItem->nhif_item_name_returned ?: ($sessionItem->nhif_item_name ?: 'General Consultation'),
                 'item_type_id' => 1,
                 'unit_price' => $unitPrice,
@@ -484,11 +523,21 @@ class ClaimCalculationService
             ]);
         }
 
-        // Only add default completed consultation if consultation record was actually completed and not rejected
+        // Only add default completed consultation if no pre-approved consultation was found,
+        // no consultation was rejected, and clinical consultation was actually completed
         $hasRejectedConsultation = NhifPreApprovalSessionItem::query()
-            ->where('source_type', NhifPreApprovalSessionItem::SOURCE_CONSULTATION)
+            ->where(function ($q) {
+                $q->whereIn('source_type', [
+                    NhifPreApprovalSessionItem::SOURCE_CONSULTATION,
+                    ReceptionVisit::class,
+                    'reception_visit',
+                ])
+                    ->orWhereIn('nhif_item_code', self::NHIF_CONSULTATION_CODES);
+            })
             ->where('approval_status', NhifPreApprovalSessionItem::APPROVAL_STATUS_REJECTED)
-            ->whereHas('session', fn ($q) => $q->where('patient_insurance_id', $insurance->id)->where('clinical_encounter_id', $context->id))
+            ->whereHas('session', fn ($q) => $q->where('patient_insurance_id', $insurance->id)->where(function ($sq) use ($context) {
+                $sq->where('clinical_encounter_id', $context->id)->orWhereNull('clinical_encounter_id');
+            }))
             ->exists();
 
         if ($items->isEmpty() && ! $hasRejectedConsultation && $context instanceof ClinicalEncounter && $context->consultation()->where('status', Consultation::STATUS_COMPLETED)->exists()) {
@@ -545,9 +594,9 @@ class ClaimCalculationService
                     continue;
                 }
 
-                $nhifCode = $orderItem->laboratoryTest?->nhif_code 
-                    ?: ($sessionItem?->nhif_item_code 
-                    ?: ($orderItem->test_code_snapshot 
+                $nhifCode = $orderItem->laboratoryTest?->nhif_code
+                    ?: ($sessionItem?->nhif_item_code
+                    ?: ($orderItem->test_code_snapshot
                     ?: ($orderItem->laboratoryTest?->code ?: '20001')));
 
                 if (isset($claimedKeys['code:'.$nhifCode])) {
@@ -702,7 +751,7 @@ class ClaimCalculationService
 
                 // If still 0, check if order is completed / verified / dispensed, or has inpatient administrations
                 if ($dispensedQty === 0) {
-                    $hasAdministered = \App\Models\MedicationAdministration::where('prescription_order_item_id', $orderItem->id)
+                    $hasAdministered = MedicationAdministration::where('prescription_order_item_id', $orderItem->id)
                         ->where('status', 'administered')
                         ->count();
                     if ($hasAdministered > 0) {
@@ -752,9 +801,9 @@ class ClaimCalculationService
 
         // Also check any care plan prescriptions (clinical consultation module)
         if ($context instanceof ClinicalEncounter) {
-            $carePlanMeds = \App\Models\CarePlanItem::query()
+            $carePlanMeds = CarePlanItem::query()
                 ->whereHas('carePlan', fn ($q) => $q->where('clinical_encounter_id', $context->id))
-                ->where('type', \App\Models\CarePlanItem::TYPE_MEDICATION)
+                ->where('type', CarePlanItem::TYPE_MEDICATION)
                 ->with(['prescription.medication'])
                 ->get();
 
@@ -778,7 +827,7 @@ class ClaimCalculationService
                     'quantity' => $qty,
                     'amount_claimed' => round($unitPrice * $qty, 2),
                     'approval_ref_no' => $insurance->nhif_authorization_no,
-                    'source_type' => \App\Models\CarePlanItem::class,
+                    'source_type' => CarePlanItem::class,
                     'source_id' => $cpItem->id,
                     'other_details' => null,
                 ]);
@@ -910,9 +959,12 @@ class ClaimCalculationService
         $otherSessionItems = NhifPreApprovalSessionItem::query()
             ->whereNotIn('source_type', [
                 NhifPreApprovalSessionItem::SOURCE_CONSULTATION,
+                ReceptionVisit::class,
+                'reception_visit',
                 NhifPreApprovalSessionItem::SOURCE_LAB,
                 NhifPreApprovalSessionItem::SOURCE_MEDICATION,
             ])
+            ->whereNotIn('nhif_item_code', self::NHIF_CONSULTATION_CODES)
             ->whereIn('approval_status', [
                 NhifPreApprovalSessionItem::APPROVAL_STATUS_ISSUED,
                 NhifPreApprovalSessionItem::APPROVAL_STATUS_ACCEPTED,
@@ -934,7 +986,8 @@ class ClaimCalculationService
             ->get();
 
         foreach ($otherSessionItems as $sItem) {
-            if (blank($sItem->nhif_item_code) || isset($claimedKeys['code:'.$sItem->nhif_item_code])) {
+            $itemCode = (string) $sItem->nhif_item_code;
+            if (blank($itemCode) || isset($claimedKeys['code:'.$itemCode]) || in_array($itemCode, self::NHIF_CONSULTATION_CODES, true)) {
                 continue;
             }
 
@@ -942,7 +995,7 @@ class ClaimCalculationService
             $unitPrice = (float) $sItem->unit_price;
 
             $items->push([
-                'nhif_item_code' => (string) $sItem->nhif_item_code,
+                'nhif_item_code' => $itemCode,
                 'nhif_item_name' => $sItem->nhif_item_name_returned ?: ($sItem->nhif_item_name ?: 'Medical Service'),
                 'item_type_id' => 2,
                 'unit_price' => $unitPrice,
@@ -957,10 +1010,10 @@ class ClaimCalculationService
 
         // 2. Completed care plan items with procedures or clinical interventions
         if ($context instanceof ClinicalEncounter) {
-            $carePlanItems = \App\Models\CarePlanItem::query()
+            $carePlanItems = CarePlanItem::query()
                 ->whereHas('carePlan', fn ($q) => $q->where('clinical_encounter_id', $context->id))
-                ->whereIn('status', [\App\Models\CarePlanItem::STATUS_COMPLETED, \App\Models\CarePlanItem::STATUS_ACTIVE])
-                ->whereIn('type', [\App\Models\CarePlanItem::TYPE_PROCEDURE, \App\Models\CarePlanItem::TYPE_CLINICAL_INTERVENTION, \App\Models\CarePlanItem::TYPE_OTHER])
+                ->whereIn('status', [CarePlanItem::STATUS_COMPLETED, CarePlanItem::STATUS_ACTIVE])
+                ->whereIn('type', [CarePlanItem::TYPE_PROCEDURE, CarePlanItem::TYPE_CLINICAL_INTERVENTION, CarePlanItem::TYPE_OTHER])
                 ->get();
 
             foreach ($carePlanItems as $cpItem) {
@@ -969,9 +1022,9 @@ class ClaimCalculationService
                     continue;
                 }
 
-                $charge = \App\Models\Charge::query()
+                $charge = Charge::query()
                     ->where('encounter_id', $context->id)
-                    ->where('source_type', \App\Models\CarePlanItem::class)
+                    ->where('source_type', CarePlanItem::class)
                     ->where('source_id', $cpItem->id)
                     ->first();
 
@@ -994,7 +1047,7 @@ class ClaimCalculationService
                     'quantity' => (int) ($charge?->quantity ?: 1),
                     'amount_claimed' => round($unitPrice * ($charge?->quantity ?: 1), 2),
                     'approval_ref_no' => $insurance->nhif_authorization_no,
-                    'source_type' => \App\Models\CarePlanItem::class,
+                    'source_type' => CarePlanItem::class,
                     'source_id' => $cpItem->id,
                     'other_details' => $cpItem->instructions,
                 ]);
@@ -1056,17 +1109,48 @@ class ClaimCalculationService
     {
         $hospitalId = $encounter->department?->hospital_id ?? Hospital::first()?->id;
         $today = now()->toDateString();
-        $service = \App\Models\Service::query()
-            ->where('category', 'consultation')
-            ->where('status', \App\Models\Service::STATUS_ACTIVE)
-            ->when($hospitalId, fn ($q) => $q->whereHas('prices', fn ($p) => $p
-                ->where('hospital_id', $hospitalId)
-                ->where('status', 'active')))
-            ->first()
-            ?? \App\Models\Service::query()
+
+        // 1. Check if the encounter or associated reception visit has an existing consultation charge
+        $existingCharge = Charge::query()
+            ->where(function ($q) use ($encounter) {
+                $q->where(function ($sub) use ($encounter) {
+                    $sub->where('source_type', ClinicalEncounter::class)
+                        ->where('source_id', $encounter->id);
+                });
+                if ($encounter->reception_visit_id) {
+                    $q->orWhere(function ($sub) use ($encounter) {
+                        $sub->where('source_type', ReceptionVisit::class)
+                            ->where('source_id', $encounter->reception_visit_id);
+                    });
+                }
+            })
+            ->whereNotIn('status', [Charge::STATUS_VOIDED, Charge::STATUS_CANCELLED])
+            ->whereHas('service', fn ($q) => $q->where('category', 'consultation'))
+            ->with('service')
+            ->latest()
+            ->first();
+
+        $service = $existingCharge?->service;
+
+        // 2. If no charge service, check practitioner's configured consultation service
+        if (! $service && $encounter->practitioner_id) {
+            $service = $encounter->practitioner?->consultationService;
+        }
+
+        // 3. Fall back to facility active consultation service
+        if (! $service) {
+            $service = Service::query()
                 ->where('category', 'consultation')
-                ->where('status', \App\Models\Service::STATUS_ACTIVE)
-                ->first();
+                ->where('status', Service::STATUS_ACTIVE)
+                ->when($hospitalId, fn ($q) => $q->whereHas('prices', fn ($p) => $p
+                    ->where('hospital_id', $hospitalId)
+                    ->where('status', 'active')))
+                ->first()
+                ?? Service::query()
+                    ->where('category', 'consultation')
+                    ->where('status', Service::STATUS_ACTIVE)
+                    ->first();
+        }
 
         $price = $service
             ? $service->prices()
@@ -1078,8 +1162,8 @@ class ClaimCalculationService
                 ->first()
             : null;
 
-        // Map internal service code to standard NHIF OCS item code
-        $rawCode = $service?->code;
+        // Map internal service code or direct NHIF code to standard NHIF OCS item code
+        $rawCode = $existingCharge?->service_code_snapshot ?: $service?->code;
         $nhifCode = match ($rawCode) {
             'CONSULT-SPECIALIST', 'CONSULT-EYE' => '10002',
             'CONSULT-SUPER', 'CONSULT-SUPERSPECIALIST' => '10003',
@@ -1090,18 +1174,21 @@ class ClaimCalculationService
             default => (is_numeric($rawCode) && (int) $rawCode >= 1000) ? (string) $rawCode : '10001',
         };
 
+        $chargeRate = (float) ($existingCharge?->unit_price ?: ($price?->amount ?? 7000.0));
+
         // Cap consultation price at standard statutory NHIF tariff ceiling
         $rate = match ($nhifCode) {
-            '10002' => min((float) ($price?->amount ?? 10000.0), 10000.0),
-            '10003' => min((float) ($price?->amount ?? 15000.0), 15000.0),
-            '10004' => min((float) ($price?->amount ?? 5000.0), 5000.0),
-            '10005' => min((float) ($price?->amount ?? 4000.0), 4000.0),
-            default => min((float) ($price?->amount ?? 7000.0), 7000.0),
+            '10002' => min($chargeRate, 10000.0),
+            '10003' => min($chargeRate, 15000.0),
+            '10004' => min($chargeRate, 5000.0),
+            '10005' => min($chargeRate, 4000.0),
+            '163698' => min($chargeRate, 3500.0),
+            default => min($chargeRate, 7000.0),
         };
 
         return [
             'nhif_item_code' => $nhifCode,
-            'nhif_item_name' => $service?->name ?? 'General Practitioner Consultation',
+            'nhif_item_name' => $existingCharge?->description ?: ($service?->name ?? 'General Practitioner Consultation'),
             'item_type_id' => 1,
             'unit_price' => $rate,
             'quantity' => 1,
@@ -1119,9 +1206,9 @@ class ClaimCalculationService
     protected function hasCompletedClinicalEvents(ClinicalEncounter $encounter): bool
     {
         return $encounter->consultation()->where(function ($query) {
-                $query->where('status', Consultation::STATUS_COMPLETED)
-                    ->orWhereNotNull('completed_at');
-            })->exists()
+            $query->where('status', Consultation::STATUS_COMPLETED)
+                ->orWhereNotNull('completed_at');
+        })->exists()
             || $encounter->diagnoses()->exists()
             || $encounter->prescriptionOrders()->whereHas('dispensings', fn ($q) => $q->where('status', 'completed'))->exists()
             || $encounter->laboratoryOrders()->whereHas('items.result', fn ($q) => $q->where('status', LaboratoryResult::STATUS_RELEASED))->exists();
@@ -1181,32 +1268,32 @@ class ClaimCalculationService
         $trimmed = trim((string) $rawCode);
 
         // 1. Exact match in nhif_diseases table
-        if (\App\Models\NhifDisease::where('disease_code', $trimmed)->exists()) {
+        if (NhifDisease::where('disease_code', $trimmed)->exists()) {
             return $trimmed;
         }
 
         // 2. Try prefix without dot / sub-digits (e.g. T78.40 -> T78 or J30.1 -> J30)
         $base = explode('.', $trimmed)[0];
-        if (\App\Models\NhifDisease::where('disease_code', $base)->exists()) {
+        if (NhifDisease::where('disease_code', $base)->exists()) {
             return $base;
         }
 
         // 3. Search by hint name (e.g. Allergy -> 477 or J30)
         if (filled($hintName)) {
-            $matched = \App\Models\NhifDisease::where('disease_name', 'like', "%{$hintName}%")->first();
+            $matched = NhifDisease::where('disease_name', 'like', "%{$hintName}%")->first();
             if ($matched) {
                 return $matched->disease_code;
             }
         }
 
         // 4. Fallback: search by trimmed prefix in nhif_diseases
-        $prefixMatch = \App\Models\NhifDisease::where('disease_code', 'like', "{$base}%")->first();
+        $prefixMatch = NhifDisease::where('disease_code', 'like', "{$base}%")->first();
         if ($prefixMatch) {
             return $prefixMatch->disease_code;
         }
 
         // If nhif_diseases table has not been seeded (e.g. in-memory test environment), preserve valid format codes
-        if (\App\Models\NhifDisease::count() === 0 && preg_match('/^[A-Z0-9.\-]+$/i', $trimmed)) {
+        if (NhifDisease::count() === 0 && preg_match('/^[A-Z0-9.\-]+$/i', $trimmed)) {
             return $trimmed;
         }
 

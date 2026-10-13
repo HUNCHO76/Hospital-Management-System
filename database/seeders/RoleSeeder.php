@@ -69,7 +69,7 @@ class RoleSeeder extends Seeder
             'pharmacy-reports.view', 'pharmacy-reports.export',
             'billing.view', 'billing-accounts.view', 'billing-charges.view', 'billing-charges.create',
             'billing-services.view', 'billing-services.create', 'billing-services.update', 'billing-services.activate', 'billing-services.deactivate',
-            'billing-pricing.view', 'billing-pricing.create', 'billing-pricing.deactivate',
+            'billing-pricing.view', 'billing-pricing.create', 'billing-pricing.update', 'billing-pricing.deactivate',
             'billing-invoices.view', 'billing-invoices.create', 'billing-invoices.post', 'billing-invoices.void',
             'billing-insurance.view', 'billing-insurance.calculate',
             'billing-insurance-rules.view', 'billing-insurance-rules.create', 'billing-insurance-rules.deactivate',
@@ -100,6 +100,22 @@ class RoleSeeder extends Seeder
             'nhif-dashboard.view',
             'dashboard.view',
             'reports.view', 'reports.export',
+            // Procurement and Stores Module
+            'procurement.view', 'procurement.dashboard',
+            'procurement-indents.view', 'procurement-indents.create', 'procurement-indents.update', 'procurement-indents.submit', 'procurement-indents.approve', 'procurement-indents.reject', 'procurement-indents.cancel',
+            'procurement-quotations.view', 'procurement-quotations.create', 'procurement-quotations.update', 'procurement-quotations.compare', 'procurement-quotations.select', 'procurement-quotations.reject',
+            'procurement-purchase-orders.view', 'procurement-purchase-orders.create', 'procurement-purchase-orders.update', 'procurement-purchase-orders.submit', 'procurement-purchase-orders.approve', 'procurement-purchase-orders.send', 'procurement-purchase-orders.close', 'procurement-purchase-orders.reject', 'procurement-purchase-orders.cancel',
+            'procurement-vendors.view', 'procurement-vendors.create', 'procurement-vendors.update', 'procurement-vendors.delete',
+            'procurement-invoices.view', 'procurement-invoices.create', 'procurement-invoices.match', 'procurement-invoices.approve', 'procurement-invoices.reject',
+            'procurement-items.view', 'procurement-items.create', 'procurement-items.update', 'procurement-items.activate', 'procurement-items.deactivate',
+            'stores.view', 'stores.dashboard',
+            'stores-grn.view', 'stores-grn.create', 'stores-grn.inspect', 'stores-grn.post',
+            'stores-inventory.view', 'stores-inventory.adjust',
+            'stores-batches.view', 'stores-batches.quarantine', 'stores-batches.release',
+            'stores-issues.view', 'stores-issues.create', 'stores-issues.issue', 'stores-issues.receive',
+            'stores-requests.view', 'stores-requests.create', 'stores-requests.submit', 'stores-requests.approve', 'stores-requests.reject', 'stores-requests.cancel',
+            'stores-transfers.view', 'stores-transfers.create', 'stores-transfers.submit', 'stores-transfers.approve', 'stores-transfers.dispatch', 'stores-transfers.receive',
+            'stores-reports.view', 'stores-reports.export',
         ],
 
         'Manager' => [
@@ -203,7 +219,7 @@ class RoleSeeder extends Seeder
             'diagnosis-codes.view',
             'treatment.view', 'treatment.create', 'treatment.update', 'treatment.activate', 'treatment.complete', 'treatment.cancel', 'treatment.correct',
             'prescription.view', 'prescription.create', 'prescription.update', 'prescription.cancel',
-            'prescription-orders.create', 'prescription-orders.update', 'prescription-orders.cancel',
+            'prescription-orders.view', 'prescription-orders.create', 'prescription-orders.update', 'prescription-orders.cancel',
             'medications.view',
             'clinical-notes.view', 'clinical-notes.create', 'clinical-notes.update', 'clinical-notes.sign', 'clinical-notes.amend', 'clinical-notes.cancel',
             'clinical-history.view',
@@ -238,6 +254,7 @@ class RoleSeeder extends Seeder
             'laboratory-samples.view', 'laboratory-samples.collect', 'laboratory-samples.label', 'laboratory-samples.recollect', 'laboratory-samples.cancel',
             'admission.view', 'admission.create', 'admission.review', 'admission.approve', 'admission.reject', 'admission.confirm', 'admission.discharge', 'admission.cancel', 'admission.transfer',
             'inpatient.encounter.create', 'inpatient.clinical-status.update',
+            'prescription-orders.view',
             'inpatient.medications.view', 'inpatient.medications.administer', 'inpatient.medications.hold',
             'inpatient.medications.record-refusal', 'inpatient.medications.record-missed', 'inpatient.medications.correct',
             'discharge-document.view', 'discharge-document.print',
@@ -391,7 +408,7 @@ class RoleSeeder extends Seeder
             // role, extended incrementally exactly as pharmacist grew
             // across Steps 47-50.
             'billing-services.view', 'billing-services.create', 'billing-services.update', 'billing-services.activate', 'billing-services.deactivate',
-            'billing-pricing.view', 'billing-pricing.create', 'billing-pricing.deactivate',
+            'billing-pricing.view', 'billing-pricing.create', 'billing-pricing.update', 'billing-pricing.deactivate',
             // Phase 7, Step 55: the same billing officer builds and posts
             // invoices — this app's one financial role, extended
             // incrementally exactly as it already grew across Steps 52-53.
@@ -423,6 +440,71 @@ class RoleSeeder extends Seeder
             // Phase 9, Step 94: accountant can view and print discharge
             // documents (financial section gated by billing.view in the UI).
             'discharge-document.view', 'discharge-document.print',
+            // Procurement invoice matching & accounts payable
+            'procurement.view',
+            'procurement-purchase-orders.view',
+            'stores-grn.view',
+            'procurement-invoices.view', 'procurement-invoices.create', 'procurement-invoices.match', 'procurement-invoices.approve', 'procurement-invoices.reject',
+            'procurement-vendors.view',
+        ],
+
+        'purchase-officer' => [
+            'dashboard.view',
+            'procurement.view', 'procurement.dashboard',
+            'procurement-indents.view', 'procurement-indents.create', 'procurement-indents.update', 'procurement-indents.submit',
+            'procurement-quotations.view', 'procurement-quotations.create', 'procurement-quotations.update', 'procurement-quotations.compare',
+            'procurement-purchase-orders.view', 'procurement-purchase-orders.create', 'procurement-purchase-orders.update', 'procurement-purchase-orders.submit', 'procurement-purchase-orders.send',
+            'procurement-invoices.view', 'procurement-invoices.create',
+            'procurement-vendors.view', 'procurement-vendors.create', 'procurement-vendors.update',
+            'procurement-items.view', 'procurement-items.create', 'procurement-items.update',
+            'stores-inventory.view', 'stores-reports.view',
+        ],
+
+        'purchase-manager' => [
+            'dashboard.view',
+            'procurement.view', 'procurement.dashboard',
+            'procurement-indents.view', 'procurement-indents.approve', 'procurement-indents.reject',
+            'procurement-quotations.view', 'procurement-quotations.compare', 'procurement-quotations.select', 'procurement-quotations.reject',
+            'procurement-purchase-orders.view', 'procurement-purchase-orders.approve', 'procurement-purchase-orders.close', 'procurement-purchase-orders.reject', 'procurement-purchase-orders.cancel',
+            'procurement-invoices.view', 'procurement-invoices.match', 'procurement-invoices.approve', 'procurement-invoices.reject',
+            'procurement-vendors.view', 'procurement-vendors.create', 'procurement-vendors.update',
+            'procurement-items.view', 'procurement-items.create', 'procurement-items.update',
+            'stores-inventory.view', 'stores-reports.view', 'stores-reports.export',
+        ],
+
+        'store-officer' => [
+            'dashboard.view',
+            'stores.view', 'stores.dashboard',
+            'stores-grn.view', 'stores-grn.create',
+            'stores-inventory.view',
+            'stores-batches.view',
+            'stores-requests.view',
+            'stores-issues.view', 'stores-issues.create', 'stores-issues.issue',
+            'stores-transfers.view', 'stores-transfers.create', 'stores-transfers.submit', 'stores-transfers.dispatch',
+            'procurement-items.view', 'stores-reports.view',
+        ],
+
+        'store-manager' => [
+            'dashboard.view',
+            'stores.view', 'stores.dashboard',
+            'stores-grn.view', 'stores-grn.create', 'stores-grn.inspect', 'stores-grn.post',
+            'stores-inventory.view', 'stores-inventory.adjust',
+            'stores-batches.view', 'stores-batches.quarantine', 'stores-batches.release',
+            'stores-requests.view', 'stores-requests.approve', 'stores-requests.reject',
+            'stores-issues.view', 'stores-issues.create', 'stores-issues.issue',
+            'stores-transfers.view', 'stores-transfers.approve', 'stores-transfers.dispatch', 'stores-transfers.receive',
+            'procurement-items.view', 'procurement-items.create', 'procurement-items.update',
+            'stores-reports.view', 'stores-reports.export',
+        ],
+
+        'department-user' => [
+            'dashboard.view',
+            'procurement.view',
+            'procurement-indents.view', 'procurement-indents.create', 'procurement-indents.update', 'procurement-indents.submit', 'procurement-indents.cancel',
+            'stores.view',
+            'stores-requests.view', 'stores-requests.create', 'stores-requests.submit', 'stores-requests.cancel',
+            'stores-issues.view', 'stores-issues.receive',
+            'procurement-items.view',
         ],
     ];
 

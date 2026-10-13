@@ -27,6 +27,9 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class NhifClaimController extends Controller
 {
+    /** Upper bound for a captured signature image (~1 MB of binary data, base64-encoded). */
+    private const MAX_SIGNATURE_BASE64_LENGTH = 1_400_000;
+
     public function index(Request $request): Response
     {
         $claims = NhifClaim::with(['hospital', 'patient'])
@@ -239,12 +242,7 @@ class NhifClaimController extends Controller
             'remarks' => ['nullable', 'string', 'max:500'],
         ]);
 
-        if (isset($data['imageData']) && ! isset($data['signature_data'])) {
-            $data['signature_data'] = $data['imageData'];
-        }
-        if (isset($data['fpCode']) && ! isset($data['fp_code'])) {
-            $data['fp_code'] = $data['fpCode'];
-        }
+        $data = $this->normalizeSignatureInput($data);
 
         $updated = $folioService->sign($nhifClaim, $data, $request);
 
@@ -278,12 +276,7 @@ class NhifClaimController extends Controller
             'remarks' => ['nullable', 'string', 'max:500'],
         ]);
 
-        if (isset($data['imageData']) && ! isset($data['signature_data'])) {
-            $data['signature_data'] = $data['imageData'];
-        }
-        if (isset($data['fpCode']) && ! isset($data['fp_code'])) {
-            $data['fp_code'] = $data['fpCode'];
-        }
+        $data = $this->normalizeSignatureInput($data);
 
         $result = $folioService->finalizeClaim($context, $data, $request);
 
@@ -311,6 +304,49 @@ class NhifClaimController extends Controller
         return back()->with('error', 'NHIF bill confirmation failed: '.($result['error'] ?? 'Please check NHIF logs.'));
     }
 
+    /**
+     * Normalize the legacy imageData/fpCode aliases and, for manual signing,
+     * require a well-formed base64 signature image (NHIF SignFolio needs SignatureData).
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     *
+     * @throws ValidationException
+     */
+    protected function normalizeSignatureInput(array $data): array
+    {
+        if (isset($data['imageData']) && ! isset($data['signature_data'])) {
+            $data['signature_data'] = $data['imageData'];
+        }
+        if (isset($data['fpCode']) && ! isset($data['fp_code'])) {
+            $data['fp_code'] = $data['fpCode'];
+        }
+
+        if (is_string($data['signature_data'] ?? null)) {
+            $data['signature_data'] = trim((string) preg_replace('/^data:[^;]+;base64,/', '', $data['signature_data']));
+        }
+
+        $method = strtoupper((string) ($data['signature_method'] ?? ''));
+
+        if (in_array($method, ['SIGNATURE', 'MANUAL'], true)) {
+            $payload = (string) ($data['signature_data'] ?? '');
+
+            if ($payload === '') {
+                throw ValidationException::withMessages([
+                    'signature_data' => 'Signature data is required for a manual signature.',
+                ]);
+            }
+
+            if (strlen($payload) > self::MAX_SIGNATURE_BASE64_LENGTH || base64_decode($payload, true) === false) {
+                throw ValidationException::withMessages([
+                    'signature_data' => 'The captured signature is invalid or too large. Please sign again.',
+                ]);
+            }
+        }
+
+        return $data;
+    }
+
     protected function resolveContextFromRequest(Request $request): ClinicalEncounter|Admission
     {
         if ($request->filled('clinical_encounter_id')) {
@@ -330,7 +366,6 @@ class NhifClaimController extends Controller
         ]);
     }
 
-
     public function receipt(Request $request, NhifClaim $nhifClaim, NhifFolioService $folioService): RedirectResponse
     {
         if ($nhifClaim->status !== NhifClaim::STATUS_SUBMITTED) {
@@ -348,7 +383,7 @@ class NhifClaimController extends Controller
 
     public function monthly(Request $request, NhifMonthlyClaimService $monthlyService): Response
     {
-        $this->authorize('viewAny', NhifClaim::class);
+        $this->authorize('monthlyView', NhifClaim::class);
 
         $user = $request->user();
         $staffHospitalId = $user->staff?->hospital_id;
@@ -406,7 +441,7 @@ class NhifClaimController extends Controller
 
     public function calculateMonthly(Request $request, NhifMonthlyClaimService $monthlyService): JsonResponse
     {
-        $this->authorize('viewAny', NhifClaim::class);
+        $this->authorize('monthlyView', NhifClaim::class);
 
         $user = $request->user();
         $staffHospitalId = $user->staff?->hospital_id;
