@@ -1,21 +1,26 @@
 <?php
 
+$isProduction = env('APP_ENV') === 'production';
+
 return [
     /*
      * OAuth2 client-credentials token endpoint.
      * All credentials remain server-side; they are never sent to the browser.
+     * In production, this MUST be explicitly set via NHIF_AUTH_URL; fallback to test is blocked.
      */
-    'auth_url' => env('NHIF_AUTH_URL', 'https://test.nhif.or.tz/auth/connect/token'),
+    'auth_url' => env('NHIF_AUTH_URL', $isProduction ? null : 'https://test.nhif.or.tz/auth/connect/token'),
 
     /*
      * NHIF ServiceHub base URL — member verification, service catalog, preauth.
+     * In production, this MUST be explicitly set via NHIF_SERVICEHUB_BASE_URL.
      */
-    'servicehub_base_url' => env('NHIF_SERVICEHUB_BASE_URL', 'https://test.nhif.or.tz/servicehub'),
+    'servicehub_base_url' => env('NHIF_SERVICEHUB_BASE_URL', $isProduction ? null : 'https://test.nhif.or.tz/servicehub'),
 
     /*
      * NHIF OCS base URL — online claim system.
+     * In production, this MUST be explicitly set via NHIF_OCS_BASE_URL.
      */
-    'ocs_base_url' => env('NHIF_OCS_BASE_URL', 'https://test.nhif.or.tz/ocs'),
+    'ocs_base_url' => env('NHIF_OCS_BASE_URL', $isProduction ? null : 'https://test.nhif.or.tz/ocs'),
 
     'client_id' => env('NHIF_CLIENT_ID'),
 
@@ -28,9 +33,9 @@ return [
 
     /*
      * Extra username parameter required by the NHIF token endpoint.
-     * Use 'test' for the sandbox environment.
+     * Use 'test' for the sandbox environment only.
      */
-    'username' => env('NHIF_USERNAME', 'test'),
+    'username' => env('NHIF_USERNAME', $isProduction ? null : 'test'),
 
     'timeout' => (int) env('NHIF_TIMEOUT', 30),
 

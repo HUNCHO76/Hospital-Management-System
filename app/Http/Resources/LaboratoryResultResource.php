@@ -36,12 +36,14 @@ class LaboratoryResultResource extends JsonResource
                 'id' => $this->item->id,
                 'test_code' => $this->item->test_code,
                 'test_name' => $this->item->test_name,
+                'specimen_source' => $this->item->specimen_source,
             ] : null),
             'sample' => $this->whenLoaded('sample', fn () => $this->sample ? [
                 'id' => $this->sample->id,
                 'sample_number' => $this->sample->sample_number,
                 'specimen_type' => $this->sample->specimen_type,
                 'container_type' => $this->sample->container_type,
+                'specimen_source' => $this->sample->specimen_source,
                 'received_at' => optional($this->sample->received_at)->toIso8601String(),
             ] : null),
             'laboratory_order' => $this->whenLoaded('item', fn () => $this->item?->laboratoryOrder ? [
@@ -138,6 +140,7 @@ class LaboratoryResultResource extends JsonResource
                         'reference_ranges' => $p->relationLoaded('referenceRanges')
                             ? $p->referenceRanges->map(fn ($rr) => [
                                 'id' => $rr->id,
+                                'specimen_source' => $rr->specimen_source,
                                 'sex' => $rr->sex,
                                 'age_min_days' => $rr->age_min_days,
                                 'age_max_days' => $rr->age_max_days,
@@ -145,6 +148,7 @@ class LaboratoryResultResource extends JsonResource
                                 'high' => $rr->high,
                                 'critical_low' => $rr->critical_low,
                                 'critical_high' => $rr->critical_high,
+                                'notes' => $rr->notes,
                             ])->all()
                             : [],
                     ])->all()

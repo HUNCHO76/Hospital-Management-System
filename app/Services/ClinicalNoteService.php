@@ -34,6 +34,7 @@ class ClinicalNoteService
             'note_type' => $data['note_type'],
             'note_content' => $data['note_content'],
             'status' => ClinicalNote::STATUS_DRAFT,
+            'note_category' => $data['note_category'] ?? null,
         ]);
 
         // Never log the note's own content — only metadata (spec's audit
@@ -42,7 +43,7 @@ class ClinicalNoteService
             'clinical_note_created',
             $note,
             null,
-            $note->only(['clinical_encounter_id', 'patient_id', 'note_type', 'status']),
+            $note->only(['clinical_encounter_id', 'patient_id', 'note_type', 'note_category', 'status']),
             $request,
         );
 

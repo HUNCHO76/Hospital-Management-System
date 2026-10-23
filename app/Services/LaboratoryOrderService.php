@@ -12,6 +12,7 @@ use App\Models\NhifSchemeService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -89,7 +90,7 @@ class LaboratoryOrderService
 
         $order = $order->fresh('items');
 
-        $isNhifCovered = $encounter->patient?->activeNhifInsurance() !== null;
+        $isNhifCovered = $encounter->patient?->currentNhifInsurance() !== null;
 
         if (! $isNhifCovered) {
             $billedCount = Charge::query()
@@ -218,8 +219,10 @@ class LaboratoryOrderService
         }
 
         $oldValues = $item->only(['status', 'cancelled_at', 'cancellation_reason']);
+        $orderCancelled = false;
+        $orderOldValues = [];
 
-        DB::transaction(function () use ($item, $reason, $request) {
+        DB::transaction(function () use ($item, $order, $reason, $request, &$orderCancelled, &$orderOldValues) {
             $item->update([
                 'status' => LaboratoryOrderItem::STATUS_CANCELLED,
                 'cancelled_at' => now(),
@@ -228,6 +231,26 @@ class LaboratoryOrderService
             ]);
 
             $this->chargeCapture->voidForSource(LaboratoryOrderItem::class, $item->id, $reason, $request);
+
+            $remainingItems = $order->items()
+                ->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED)
+                ->get();
+
+            if ($remainingItems->isEmpty()) {
+                $orderOldValues = $order->only(['status', 'cancelled_at', 'cancellation_reason']);
+                $order->update([
+                    'status' => LaboratoryOrder::STATUS_CANCELLED,
+                    'cancelled_at' => now(),
+                    'cancelled_by' => $request->user()->id,
+                    'cancellation_reason' => $reason,
+                ]);
+                $orderCancelled = true;
+            } else {
+                $newStatus = LaboratoryOrder::statusFromItemProgress($remainingItems->pluck('status'));
+                if ($newStatus !== $order->status) {
+                    $order->update(['status' => $newStatus]);
+                }
+            }
         });
 
         $this->auditLog->record(
@@ -237,6 +260,16 @@ class LaboratoryOrderService
             $item->only(['status', 'cancelled_at', 'cancellation_reason']),
             $request,
         );
+
+        if ($orderCancelled) {
+            $this->auditLog->record(
+                'laboratory_order_cancelled',
+                $order,
+                $orderOldValues,
+                $order->only(['status', 'cancelled_at', 'cancellation_reason']),
+                $request,
+            );
+        }
 
         return $item;
     }
@@ -371,8 +404,8 @@ class LaboratoryOrderService
      */
     protected function autoMapNhifCodes(ClinicalEncounter $encounter, $tests): void
     {
-        $insurance = $encounter->patient?->activeNhifInsurance();
-        if (! $insurance?->nhif_scheme_id) {
+        $insurance = $encounter->patient?->currentNhifInsurance();
+        if (! $insurance?->nhif_scheme_id || ! Schema::hasTable('schemes_services')) {
             return;
         }
 

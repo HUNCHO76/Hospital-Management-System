@@ -34,6 +34,7 @@ class NhifPreauthorizationController extends Controller
 
     public function index(Request $request, Patient $patient, PatientInsurance $patientInsurance): Response
     {
+        abort_unless($request->user()->can('nhif-preauthorization.view'), 403);
         abort_unless($patientInsurance->patient_id === $patient->id, 404);
 
         $patientInsurance->load('patient', 'insuranceProvider');
@@ -72,6 +73,7 @@ class NhifPreauthorizationController extends Controller
 
     public function store(Request $request, Patient $patient, PatientInsurance $patientInsurance): RedirectResponse
     {
+        abort_unless($request->user()->can('nhif-preauthorization.request'), 403);
         abort_unless($patientInsurance->patient_id === $patient->id, 404);
 
         $data = $request->validate([
@@ -80,6 +82,8 @@ class NhifPreauthorizationController extends Controller
             'hospital_id' => ['required', 'integer', 'exists:hospitals,id'],
             'authorization_no' => ['required', 'string', 'max:100'],
         ]);
+
+        $this->assertAuthorizedFacility($request, (int) $data['hospital_id']);
 
         $table = self::SOURCE_TABLES[$data['source_type']];
 
@@ -118,6 +122,9 @@ class NhifPreauthorizationController extends Controller
 
     public function show(Request $request, NhifPreauthorization $nhifPreauthorization): Response
     {
+        abort_unless($request->user()->can('nhif-preauthorization.view'), 403);
+        $this->assertAuthorizedFacility($request, (int) $nhifPreauthorization->hospital_id);
+
         $nhifPreauthorization->load('hospital', 'patientInsurance.patient', 'createdBy', 'documents');
 
         return Inertia::render('nhif/preauthorizations/show', [
@@ -157,6 +164,9 @@ class NhifPreauthorizationController extends Controller
 
     public function submit(Request $request, NhifPreauthorization $nhifPreauthorization, NHIFPreauthorizationService $service): RedirectResponse
     {
+        abort_unless($request->user()->can('nhif-preauthorization.request'), 403);
+        $this->assertAuthorizedFacility($request, (int) $nhifPreauthorization->hospital_id);
+
         if (! in_array($nhifPreauthorization->status, [NhifPreauthorization::STATUS_PENDING, NhifPreauthorization::STATUS_REJECTED], true)) {
             return back()->with('error', 'Only pending or rejected pre-authorisations can be submitted.');
         }
@@ -172,6 +182,9 @@ class NhifPreauthorizationController extends Controller
 
     public function sync(Request $request, NhifPreauthorization $nhifPreauthorization, NHIFPreauthorizationService $service): RedirectResponse
     {
+        abort_unless($request->user()->can('nhif-preauthorization.request'), 403);
+        $this->assertAuthorizedFacility($request, (int) $nhifPreauthorization->hospital_id);
+
         if (! in_array($nhifPreauthorization->status, [NhifPreauthorization::STATUS_SUBMITTED], true)) {
             return back()->with('error', 'Only submitted pre-authorisations can be synced.');
         }
@@ -187,6 +200,9 @@ class NhifPreauthorizationController extends Controller
 
     public function cancel(Request $request, NhifPreauthorization $nhifPreauthorization): RedirectResponse
     {
+        abort_unless($request->user()->can('nhif-preauthorization.cancel'), 403);
+        $this->assertAuthorizedFacility($request, (int) $nhifPreauthorization->hospital_id);
+
         if ($nhifPreauthorization->status === NhifPreauthorization::STATUS_APPROVED) {
             return back()->with('error', 'Approved pre-authorisations cannot be cancelled.');
         }
@@ -197,5 +213,16 @@ class NhifPreauthorizationController extends Controller
         ]);
 
         return back()->with('success', 'Pre-authorisation cancelled.');
+    }
+
+    protected function assertAuthorizedFacility(Request $request, int $hospitalId): void
+    {
+        $user = $request->user();
+        if ($user->hasRole('super-admin')) {
+            return;
+        }
+
+        $staff = $user->staff;
+        abort_unless($staff && (int) $staff->hospital_id === $hospitalId, 403, 'You are not authorized to access pre-authorizations for another facility.');
     }
 }

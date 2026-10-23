@@ -48,7 +48,9 @@ interface GRNLineItem {
     [key: string]: any;
     procurement_item_id: number;
     purchase_order_item_id: number | null;
+    item_name: string;
     item_description: string;
+    quantity_delivered: number;
     quantity_received: number;
     unit_of_measure: string;
     unit_cost: number;
@@ -66,6 +68,7 @@ interface GRNForm {
     delivery_note_number: string;
     invoice_reference: string;
     notes: string;
+    remarks: string;
     items: GRNLineItem[];
 }
 
@@ -73,10 +76,13 @@ export default function CreateGRN({ purchase_orders, stores, selected_po }: Prop
     const defaultLines: GRNLineItem[] = selected_po?.items
         ? selected_po.items.map((pi) => {
               const pendingQty = Math.max(0, Number(pi.quantity_ordered) - Number(pi.quantity_received));
+              const name = pi.procurement_item ? `${pi.procurement_item.name} (${pi.procurement_item.code})` : (pi.item_description || 'Item');
               return {
                   procurement_item_id: pi.procurement_item_id,
                   purchase_order_item_id: pi.id,
-                  item_description: pi.procurement_item ? `${pi.procurement_item.name} (${pi.procurement_item.code})` : pi.item_description,
+                  item_name: name,
+                  item_description: name,
+                  quantity_delivered: pendingQty || 1,
                   quantity_received: pendingQty || 1,
                   unit_of_measure: pi.unit_of_measure || 'units',
                   unit_cost: Number(pi.unit_price) || 0,
@@ -87,7 +93,7 @@ export default function CreateGRN({ purchase_orders, stores, selected_po }: Prop
           })
         : [];
 
-    const { data, setData, post, processing, errors } = useForm<GRNForm>({
+    const { data, setData, post, processing, errors, transform } = useForm<GRNForm>({
         purchase_order_id: selected_po?.id || '',
         vendor_id: selected_po?.vendor_id || '',
         store_id: selected_po?.receiving_store_id || stores[0]?.id || '',
@@ -95,6 +101,7 @@ export default function CreateGRN({ purchase_orders, stores, selected_po }: Prop
         delivery_note_number: '',
         invoice_reference: '',
         notes: '',
+        remarks: '',
         items: defaultLines,
     });
 
@@ -110,10 +117,13 @@ export default function CreateGRN({ purchase_orders, stores, selected_po }: Prop
                     store_id: found.receiving_store_id || prev.store_id,
                     items: (found.items || []).map((pi) => {
                         const pendingQty = Math.max(0, Number(pi.quantity_ordered) - Number(pi.quantity_received));
+                        const name = pi.procurement_item ? `${pi.procurement_item.name} (${pi.procurement_item.code})` : (pi.item_description || 'Item');
                         return {
                             procurement_item_id: pi.procurement_item_id,
                             purchase_order_item_id: pi.id,
-                            item_description: pi.procurement_item ? `${pi.procurement_item.name} (${pi.procurement_item.code})` : pi.item_description,
+                            item_name: name,
+                            item_description: name,
+                            quantity_delivered: pendingQty || 1,
                             quantity_received: pendingQty || 1,
                             unit_of_measure: pi.unit_of_measure || 'units',
                             unit_cost: Number(pi.unit_price) || 0,
@@ -130,6 +140,15 @@ export default function CreateGRN({ purchase_orders, stores, selected_po }: Prop
     const updateLine = (index: number, field: keyof GRNLineItem, value: any) => {
         const next = [...data.items];
         next[index] = { ...next[index], [field]: value };
+        if (field === 'quantity_received') {
+            next[index].quantity_delivered = value;
+        } else if (field === 'quantity_delivered') {
+            next[index].quantity_received = value;
+        } else if (field === 'item_description') {
+            next[index].item_name = value;
+        } else if (field === 'item_name') {
+            next[index].item_description = value;
+        }
         setData('items', next);
     };
 
@@ -141,6 +160,18 @@ export default function CreateGRN({ purchase_orders, stores, selected_po }: Prop
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        transform((formState) => ({
+            ...formState,
+            remarks: formState.remarks || formState.notes || '',
+            notes: formState.notes || formState.remarks || '',
+            items: formState.items.map((line) => ({
+                ...line,
+                item_name: line.item_name || line.item_description,
+                item_description: line.item_description || line.item_name,
+                quantity_delivered: line.quantity_delivered || line.quantity_received,
+                quantity_received: line.quantity_received || line.quantity_delivered,
+            })),
+        }));
         post('/stores/grn');
     };
 

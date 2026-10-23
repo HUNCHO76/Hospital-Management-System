@@ -126,3 +126,26 @@ test('a logout is recorded in the audit log', function () {
 
     expect(AuditLog::query()->where('user_id', $user->id)->where('action', 'logout')->exists())->toBeTrue();
 });
+
+test('inactivity logout redirects to login with an inactivity message', function () {
+    $user = User::factory()->create();
+
+    $response = $this->actingAs($user)->post('/logout', ['inactivity' => true]);
+
+    $this->assertGuest();
+    $response->assertRedirect(route('login', absolute: false));
+    $response->assertSessionHas('status', 'You have been logged out after 5 minutes of inactivity for security.');
+});
+
+test('logout does not require valid CSRF token and works on expired sessions', function () {
+    $user = User::factory()->create();
+
+    // Send POST /logout with an intentionally invalid CSRF token
+    $response = $this->actingAs($user)->post('/logout', [
+        '_token' => 'invalid-expired-csrf-token',
+        'inactivity' => true,
+    ]);
+
+    $this->assertGuest();
+    $response->assertRedirect(route('login', absolute: false));
+});

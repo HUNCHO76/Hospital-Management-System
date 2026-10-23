@@ -57,6 +57,10 @@ class AuthenticatedSessionController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
+        if ($request->boolean('inactivity') || $request->query('reason') === 'inactivity') {
+            return redirect()->route('login')->with('status', 'You have been logged out after 5 minutes of inactivity for security.');
+        }
+
         return redirect()->route('login');
     }
 }

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\LaboratoryOrder;
 use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratorySample;
+use App\Services\NHIF\NhifOrderPreApprovalService;
 use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -23,11 +24,16 @@ use Illuminate\Validation\ValidationException;
  */
 class LaboratorySampleService
 {
+    protected NhifOrderPreApprovalService $nhifOrderPreApproval;
+
     public function __construct(
         protected AuditLogService $auditLog,
         protected FinancialAuthorizationService $financialAuth,
         protected NHIFPreauthorizationService $nhifPreauth,
-    ) {}
+        ?NhifOrderPreApprovalService $nhifOrderPreApproval = null,
+    ) {
+        $this->nhifOrderPreApproval = $nhifOrderPreApproval ?? app(NhifOrderPreApprovalService::class);
+    }
 
     /**
      * Register a new specimen against one or more of an order's compatible
@@ -75,18 +81,22 @@ class LaboratorySampleService
             // with no billing mapping (capture skipped) never block sampling.
             // NHIF patients are exempt: NHIF covers the cost, so specimen
             // collection proceeds without upfront payment.
-            $isNhifCovered = $order->clinicalEncounter?->patient?->activeNhifInsurance() !== null;
+            $isNhifCovered = $this->nhifOrderPreApproval->isOrderNhifCovered($order);
             if (! $isNhifCovered) {
                 $this->financialAuth->assertAuthorizedForSources(
                     LaboratoryOrderItem::class,
                     $itemIds,
                     FinancialAuthorizationService::STATUS_AUTHORIZED,
                 );
+            } else {
+                $this->nhifOrderPreApproval->assertLaboratoryOrderCanCollect($order);
             }
 
             $containerType = $data['container_type'] ?? null;
             $this->assertSpecimenMatchesCatalog($items, $data['specimen_type'], $containerType);
             $this->assertNoActiveSampleConflict($items);
+
+            $specimenSource = $data['specimen_source'] ?? $items->firstWhere('specimen_source', '!=', null)?->specimen_source;
 
             $sample = LaboratorySample::create([
                 'laboratory_order_id' => $order->id,
@@ -94,6 +104,7 @@ class LaboratorySampleService
                 'patient_id' => $order->clinicalEncounter->patient_id,
                 'specimen_type' => $data['specimen_type'],
                 'container_type' => $containerType,
+                'specimen_source' => $specimenSource,
                 'status' => LaboratorySample::STATUS_PENDING_COLLECTION,
             ]);
 
@@ -122,7 +133,7 @@ class LaboratorySampleService
     /**
      * Record the physical collection of a registered specimen.
      *
-     * @param  array{collection_site?: string|null, collection_notes?: string|null}  $data
+     * @param  array{collection_site?: string|null, collection_notes?: string|null, specimen_source?: string|null}  $data
      *
      * @throws ValidationException
      */
@@ -137,12 +148,27 @@ class LaboratorySampleService
                 ]);
             }
 
+            if ($sample->laboratoryOrder) {
+                $this->nhifOrderPreApproval->assertLaboratoryOrderCanCollect($sample->laboratoryOrder);
+            }
+
+            $specimenSource = $data['specimen_source'] ?? $sample->specimen_source;
+            if (! $specimenSource) {
+                $contextText = strtolower(($data['collection_site'] ?? '').' '.($data['collection_notes'] ?? ''));
+                if (str_contains($contextText, 'venous') || str_contains($contextText, 'vbg')) {
+                    $specimenSource = 'venous';
+                } elseif (str_contains($contextText, 'arterial') || str_contains($contextText, 'abg')) {
+                    $specimenSource = 'arterial';
+                }
+            }
+
             $sample->update([
                 'status' => LaboratorySample::STATUS_COLLECTED,
                 'collected_by' => $request->user()->id,
                 'collected_at' => now(),
                 'collection_site' => $data['collection_site'] ?? null,
                 'collection_notes' => $data['collection_notes'] ?? null,
+                'specimen_source' => $specimenSource,
             ]);
 
             $this->rollUpFromSample($sample, $request);
@@ -431,7 +457,29 @@ class LaboratorySampleService
     {
         $items = $order->items()->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED)->get();
 
-        if ($items->isEmpty() || $order->status === LaboratoryOrder::STATUS_CANCELLED) {
+        if ($items->isEmpty()) {
+            if ($order->status !== LaboratoryOrder::STATUS_CANCELLED) {
+                $oldStatus = $order->status;
+                $order->update([
+                    'status' => LaboratoryOrder::STATUS_CANCELLED,
+                    'cancelled_at' => now(),
+                    'cancelled_by' => $request->user()?->id,
+                    'cancellation_reason' => 'All items cancelled.',
+                ]);
+
+                $this->auditLog->record(
+                    'laboratory_order_cancelled',
+                    $order,
+                    ['status' => $oldStatus],
+                    $order->only(['status', 'cancelled_at', 'cancellation_reason']),
+                    $request,
+                );
+            }
+
+            return;
+        }
+
+        if ($order->status === LaboratoryOrder::STATUS_CANCELLED) {
             return;
         }
 

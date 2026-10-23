@@ -37,6 +37,7 @@ export type ValidationErrors = Record<string, string>;
 
 export interface SharedData {
     name: string;
+    brandLogoUrl?: string;
     quote: { message: string; author: string };
     auth: Auth;
     flash: Flash;

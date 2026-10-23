@@ -1,10 +1,11 @@
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/spinner';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { radiologyModalityLabel, radiologyPreparationTypeLabel } from '@/lib/radiology-status';
-import { type RadiologyProcedureSearchResult } from '@/types/radiology';
+import { type NhifRadiologyCatalogItem, type RadiologyProcedureSearchResult } from '@/types/radiology';
 import { ChevronsUpDown, Scan, Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -12,27 +13,31 @@ interface RadiologyProcedureSearchProps {
     selected?: RadiologyProcedureSearchResult | null;
     onSelect: (procedure: RadiologyProcedureSearchResult) => void;
     disabled?: boolean;
+    clinicalEncounterId?: number | null;
 }
 
 /**
  * A search-and-select combobox for picking a radiology procedure — mirrors
  * LaboratoryTestSearch's structure exactly (debounce, 2-char minimum, a
  * request-id guard against stale responses, loading/empty states). Queries
- * the lightweight `/radiology-procedures/search-json` endpoint rather than
- * loading the catalog client-side. Full catalog browsing/management is
- * Step 37's job — this is only the minimal picker Step 36 needs.
+ * the lightweight `/radiology-procedures/search-json` endpoint.
+ * When clinicalEncounterId belongs to an NHIF patient, displays both local
+ * procedures and NHIF covered services with direct resolution.
  */
-export function RadiologyProcedureSearch({ selected, onSelect, disabled }: RadiologyProcedureSearchProps) {
+export function RadiologyProcedureSearch({ selected, onSelect, disabled, clinicalEncounterId }: RadiologyProcedureSearchProps) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<RadiologyProcedureSearchResult[]>([]);
+    const [nhifCatalog, setNhifCatalog] = useState<NhifRadiologyCatalogItem[]>([]);
     const [loading, setLoading] = useState(false);
+    const [resolving, setResolving] = useState<string | null>(null);
     const debouncedQuery = useDebouncedValue(query, 300);
     const requestId = useRef(0);
 
     useEffect(() => {
         if (debouncedQuery.trim().length < 2) {
             setResults([]);
+            setNhifCatalog([]);
 
             return;
         }
@@ -40,13 +45,19 @@ export function RadiologyProcedureSearch({ selected, onSelect, disabled }: Radio
         const thisRequest = ++requestId.current;
         setLoading(true);
 
-        fetch(route('radiology-procedures.search-json', { search: debouncedQuery }), {
+        const params: Record<string, string | number> = { search: debouncedQuery };
+        if (clinicalEncounterId) {
+            params.clinical_encounter_id = clinicalEncounterId;
+        }
+
+        fetch(route('radiology-procedures.search-json', params), {
             headers: { Accept: 'application/json' },
         })
             .then((response) => response.json())
-            .then((payload: { data: RadiologyProcedureSearchResult[] }) => {
+            .then((payload: { data: RadiologyProcedureSearchResult[]; nhif_catalog?: NhifRadiologyCatalogItem[] }) => {
                 if (thisRequest === requestId.current) {
                     setResults(payload.data);
+                    setNhifCatalog(payload.nhif_catalog ?? []);
                 }
             })
             .finally(() => {
@@ -54,9 +65,45 @@ export function RadiologyProcedureSearch({ selected, onSelect, disabled }: Radio
                     setLoading(false);
                 }
             });
-    }, [debouncedQuery]);
+    }, [debouncedQuery, clinicalEncounterId]);
+
+    const selectNhifItem = (item: NhifRadiologyCatalogItem) => {
+        if (item.local_procedure) {
+            onSelect({
+                id: item.local_procedure.id,
+                code: item.local_procedure.code,
+                name: item.local_procedure.name,
+                modality: item.local_procedure.modality,
+            });
+            setOpen(false);
+            setQuery('');
+
+            return;
+        }
+
+        setResolving(item.item_code);
+
+        fetch(route('radiology-procedures.resolve-nhif-item', { item_code: item.item_code, item_name: item.item_name }), {
+            headers: { Accept: 'application/json' },
+        })
+            .then((r) => r.json())
+            .then((proc: RadiologyProcedureSearchResult) => {
+                onSelect({
+                    id: proc.id,
+                    code: proc.code,
+                    name: proc.name,
+                    modality: proc.modality,
+                });
+                setOpen(false);
+                setQuery('');
+            })
+            .finally(() => setResolving(null));
+    };
 
     const label = selected ? `${selected.code} — ${selected.name}` : 'Search radiology procedure';
+
+    const localProcIds = new Set(results.map((p) => p.id));
+    const filteredCatalog = nhifCatalog.filter((item) => !item.local_procedure || !localProcIds.has(item.local_procedure.id));
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
@@ -96,7 +143,7 @@ export function RadiologyProcedureSearch({ selected, onSelect, disabled }: Radio
                         </div>
                     )}
 
-                    {!loading && query.trim().length >= 2 && results.length === 0 && (
+                    {!loading && query.trim().length >= 2 && results.length === 0 && filteredCatalog.length === 0 && (
                         <p className="text-muted-foreground px-2 py-4 text-center text-sm">No matching radiology procedures found.</p>
                     )}
 
@@ -115,8 +162,15 @@ export function RadiologyProcedureSearch({ selected, onSelect, disabled }: Radio
                             }}
                             className="hover:bg-accent hover:text-accent-foreground flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm"
                         >
-                            <span className="font-medium">
-                                {procedure.code} — {procedure.name}
+                            <span className="flex items-center gap-2">
+                                <span className="font-medium">
+                                    {procedure.code} — {procedure.name}
+                                </span>
+                                {procedure.nhif_code && (
+                                    <Badge variant="outline" className="border-green-300 px-1 py-0 text-[10px] text-green-700">
+                                        NHIF
+                                    </Badge>
+                                )}
                             </span>
                             {(procedure.modality || procedure.preparation_type) && (
                                 <span className="text-muted-foreground text-xs">
@@ -130,6 +184,41 @@ export function RadiologyProcedureSearch({ selected, onSelect, disabled }: Radio
                             )}
                         </button>
                     ))}
+
+                    {filteredCatalog.length > 0 && (
+                        <>
+                            <div className="my-1 border-t px-2 pt-1.5">
+                                <span className="text-muted-foreground text-xs font-medium">NHIF Covered Services</span>
+                            </div>
+                            {filteredCatalog.map((item) => (
+                                <button
+                                    key={item.item_code}
+                                    type="button"
+                                    disabled={resolving === item.item_code}
+                                    onClick={() => selectNhifItem(item)}
+                                    className="hover:bg-accent hover:text-accent-foreground flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm"
+                                >
+                                    <span className="flex items-center gap-2">
+                                        <span className="font-medium">
+                                            {item.item_code} — {item.item_name}
+                                        </span>
+                                        {resolving === item.item_code ? (
+                                            <Spinner className="h-3 w-3" />
+                                        ) : (
+                                            <Badge variant="outline" className="border-green-300 px-1 py-0 text-[10px] text-green-700">
+                                                NHIF
+                                            </Badge>
+                                        )}
+                                    </span>
+                                    {item.local_procedure && (
+                                        <span className="text-muted-foreground text-xs">
+                                            → {item.local_procedure.code} — {item.local_procedure.name}
+                                        </span>
+                                    )}
+                                </button>
+                            ))}
+                        </>
+                    )}
                 </div>
             </PopoverContent>
         </Popover>

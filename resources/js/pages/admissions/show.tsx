@@ -13,8 +13,9 @@ import AppLayout from '@/layouts/app-layout';
 import { admissionStatusLabel, admissionStatusVariant, admissionTypeLabel, allowedAdmissionActions, dischargeTypeLabel } from '@/lib/admission-status';
 import { type BreadcrumbItem } from '@/types';
 import { type Admission, type DischargeType } from '@/types/admission';
+import { NhifClaimFinalizeDialog } from '@/components/nhif/nhif-claim-finalize-dialog';
 import { Head, Link, router } from '@inertiajs/react';
-import { AlertTriangle, CheckCircle2, ClipboardCheck, Loader2, LogOut, RotateCcw, Send, ShieldCheck, ThumbsDown, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardCheck, FileText, Loader2, LogOut, RotateCcw, Send, ShieldCheck, ThumbsDown, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 interface AdmissionShowProps {
@@ -176,6 +177,20 @@ export default function AdmissionShow({
 
                         {canSubmitNhif && admission.patient_id && (
                             <SubmitNhifDialog admission={admission} />
+                        )}
+
+                        {admission.nhifAdmission?.nhif_authorization_no && (
+                            <NhifClaimFinalizeDialog
+                                admissionId={admission.id}
+                                patientName={admission.patient ? `${admission.patient.first_name} ${admission.patient.last_name}` : undefined}
+                                patientCardNo={admission.patientInsurance?.card_number}
+                                trigger={
+                                    <Button size="sm" variant="outline" className="gap-1.5">
+                                        <FileText className="h-4 w-4 text-primary" />
+                                        Finalize NHIF Claim
+                                    </Button>
+                                }
+                            />
                         )}
                     </div>
                 </div>
@@ -489,6 +504,19 @@ export default function AdmissionShow({
                                         )}
                                     {canSubmitNhif && admission.status !== 'discharged' && (
                                         <SubmitNhifDialog admission={admission} />
+                                    )}
+                                    {admission.nhifAdmission.nhif_authorization_no && (
+                                        <NhifClaimFinalizeDialog
+                                            admissionId={admission.id}
+                                            patientName={admission.patient ? `${admission.patient.first_name} ${admission.patient.last_name}` : undefined}
+                                            patientCardNo={admission.patientInsurance?.card_number}
+                                            trigger={
+                                                <Button size="sm" variant="default" className="gap-1.5 text-xs h-8">
+                                                    <FileText className="h-3.5 w-3.5" />
+                                                    Finalize NHIF Claim
+                                                </Button>
+                                            }
+                                        />
                                     )}
                                 </div>
                             </CardHeader>

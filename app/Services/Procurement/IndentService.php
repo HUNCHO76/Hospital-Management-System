@@ -36,17 +36,24 @@ class IndentService
             $user = $request->user();
             $indentNumber = $this->generateIndentNumber();
 
+            $storeId = $data['target_store_id'] ?? $data['store_id'] ?? null;
+            $requiredDate = $data['required_by_date'] ?? $data['required_date'] ?? null;
+            $notes = $data['notes'] ?? $data['justification'] ?? null;
+
             $indent = Indent::create([
                 'indent_number' => $indentNumber,
                 'hospital_id' => $data['hospital_id'] ?? $user->hospital_id,
                 'department_id' => $data['department_id'],
                 'requested_by' => $user->id,
-                'target_store_id' => $data['target_store_id'] ?? null,
+                'target_store_id' => $storeId,
+                'store_id' => $storeId,
                 'indent_date' => $data['indent_date'] ?? now()->toDateString(),
-                'required_by_date' => $data['required_by_date'] ?? null,
+                'required_by_date' => $requiredDate,
+                'required_date' => $requiredDate,
                 'priority' => $data['priority'] ?? Indent::PRIORITY_NORMAL,
                 'status' => Indent::STATUS_DRAFT,
-                'notes' => $data['notes'] ?? null,
+                'notes' => $notes,
+                'justification' => $notes,
                 'created_by' => $user->id,
             ]);
 
@@ -54,6 +61,8 @@ class IndentService
                 $qty = (int) $item['quantity_requested'];
                 $cost = isset($item['estimated_unit_cost']) ? (float) $item['estimated_unit_cost'] : null;
                 $total = $cost !== null ? $qty * $cost : null;
+                $spec = $item['specification'] ?? $item['specifications'] ?? null;
+                $purpose = $item['purpose'] ?? $item['justification'] ?? null;
 
                 IndentItem::create([
                     'indent_id' => $indent->id,
@@ -64,8 +73,10 @@ class IndentService
                     'quantity_approved' => 0,
                     'estimated_unit_cost' => $cost,
                     'estimated_total_cost' => $total,
-                    'purpose' => $item['purpose'] ?? null,
-                    'specification' => $item['specification'] ?? null,
+                    'purpose' => $purpose,
+                    'specification' => $spec,
+                    'specifications' => $spec,
+                    'justification' => $purpose,
                 ]);
             }
 
@@ -95,13 +106,20 @@ class IndentService
         return DB::transaction(function () use ($indent, $data, $request) {
             $oldValues = $indent->toArray();
 
+            $storeId = $data['target_store_id'] ?? $data['store_id'] ?? $indent->target_store_id ?? $indent->store_id;
+            $requiredDate = $data['required_by_date'] ?? $data['required_date'] ?? $indent->required_by_date ?? $indent->required_date;
+            $notes = $data['notes'] ?? $data['justification'] ?? $indent->notes ?? $indent->justification;
+
             $indent->update([
                 'department_id' => $data['department_id'] ?? $indent->department_id,
-                'target_store_id' => $data['target_store_id'] ?? $indent->target_store_id,
+                'target_store_id' => $storeId,
+                'store_id' => $storeId,
                 'indent_date' => $data['indent_date'] ?? $indent->indent_date,
-                'required_by_date' => $data['required_by_date'] ?? $indent->required_by_date,
+                'required_by_date' => $requiredDate,
+                'required_date' => $requiredDate,
                 'priority' => $data['priority'] ?? $indent->priority,
-                'notes' => $data['notes'] ?? $indent->notes,
+                'notes' => $notes,
+                'justification' => $notes,
                 'updated_by' => $request->user()->id,
             ]);
 
@@ -111,6 +129,8 @@ class IndentService
                     $qty = (int) $item['quantity_requested'];
                     $cost = isset($item['estimated_unit_cost']) ? (float) $item['estimated_unit_cost'] : null;
                     $total = $cost !== null ? $qty * $cost : null;
+                    $spec = $item['specification'] ?? $item['specifications'] ?? null;
+                    $purpose = $item['purpose'] ?? $item['justification'] ?? null;
 
                     IndentItem::create([
                         'indent_id' => $indent->id,
@@ -121,8 +141,10 @@ class IndentService
                         'quantity_approved' => 0,
                         'estimated_unit_cost' => $cost,
                         'estimated_total_cost' => $total,
-                        'purpose' => $item['purpose'] ?? null,
-                        'specification' => $item['specification'] ?? null,
+                        'purpose' => $purpose,
+                        'specification' => $spec,
+                        'specifications' => $spec,
+                        'justification' => $purpose,
                     ]);
                 }
             }

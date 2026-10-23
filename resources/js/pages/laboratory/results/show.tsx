@@ -26,12 +26,14 @@ import {
     canSubmitResult,
     canVerifyResult,
     laboratoryAbnormalFlagLabel,
+    laboratoryAbnormalFlagVariant,
     laboratoryOrderPriorityLabel,
     laboratoryOrderPriorityVariant,
     laboratoryResultStatusLabel,
     laboratoryResultStatusVariant,
     laboratoryReturnReasonLabel,
     laboratorySpecimenContainerLabel,
+    laboratorySpecimenSourceLabel,
     laboratorySpecimenTypeLabel,
 } from '@/lib/laboratory-status';
 import { NhifUtilizationStatus } from '@/components/nhif/nhif-utilization-status';
@@ -95,6 +97,7 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
     // where initializeForItem created no rows yet (e.g., parameters added later).
     const activeParameters = result.laboratory_test?.active_parameters ?? [];
     const isParameterized = activeParameters.length > 0;
+    const specimenSource = result.sample?.specimen_source ?? result.item?.specimen_source ?? null;
 
     // Build the editable parameter_values form state:
     // • If result_value rows already exist, seed from them (preserves any saved draft).
@@ -255,24 +258,36 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
                             </div>
                             <div>
                                 <dt className="text-muted-foreground">Specimen / Container</dt>
-                                <dd>
-                                    {result.sample ? laboratorySpecimenTypeLabel[result.sample.specimen_type] : '—'}
-                                    {result.sample?.container_type ? ` / ${laboratorySpecimenContainerLabel[result.sample.container_type]}` : ''}
+                                <dd className="flex items-center gap-1.5 flex-wrap">
+                                    <span>
+                                        {result.sample ? laboratorySpecimenTypeLabel[result.sample.specimen_type] : '—'}
+                                        {result.sample?.container_type ? ` / ${laboratorySpecimenContainerLabel[result.sample.container_type]}` : ''}
+                                    </span>
+                                    {specimenSource && (
+                                        <Badge variant="outline" className="text-xs capitalize font-medium">
+                                            {laboratorySpecimenSourceLabel[specimenSource] ?? specimenSource}
+                                        </Badge>
+                                    )}
                                 </dd>
                             </div>
                             <div>
                                 <dt className="text-muted-foreground">Processing Completed</dt>
                                 <dd>{result.sample?.received_at ? formatDateTime(result.sample.received_at) : '—'}</dd>
                             </div>
-                            {result.reference_range && (
-                                <div>
-                                    <dt className="text-muted-foreground">Reference Range</dt>
-                                    <dd>
-                                        {result.reference_range}
-                                        {result.unit ? ` ${result.unit}` : ''}
-                                    </dd>
-                                </div>
-                            )}
+                            <div>
+                                <dt className="text-muted-foreground">Reference Range</dt>
+                                <dd className={!result.reference_range && result.result_type === 'numeric' && !isParameterized ? 'text-amber-600 dark:text-amber-400 font-medium text-xs' : ''}>
+                                    {result.reference_range ? (
+                                        `${result.reference_range}${result.unit ? ` ${result.unit}` : ''}`
+                                    ) : (
+                                        result.result_type === 'numeric' && !isParameterized ? (
+                                            'Reference range not configured'
+                                        ) : (
+                                            isParameterized ? 'Multi-parameter (see table below)' : '—'
+                                        )
+                                    )}
+                                </dd>
+                            </div>
                             <div>
                                 <dt className="text-muted-foreground">Entered By</dt>
                                 <dd>{result.entered_by?.name ?? '—'}</dd>
@@ -329,6 +344,8 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
                                         onChangeParameterValue={handleParameterValueChange}
                                         disabled={!canEdit}
                                         errors={errors as Record<string, string>}
+                                        patient={result.patient}
+                                        specimenSource={specimenSource}
                                     />
                                 ) : (
                                     <LaboratoryResultValueInput
@@ -403,9 +420,11 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
                                         parameterValues={[]}
                                         onChangeParameterValue={() => undefined}
                                         disabled={true}
+                                        patient={result.patient}
+                                        specimenSource={specimenSource}
                                     />
                                 ) : (
-                                    <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                                    <dl className="grid gap-3 text-sm sm:grid-cols-3">
                                         <div>
                                             <dt className="text-muted-foreground">Value</dt>
                                             <dd className="font-medium">
@@ -413,11 +432,19 @@ export default function LaboratoryResultShow({ result, nhifUtilizations = [] }: 
                                                 {result.value_numeric && result.unit ? ` ${result.unit}` : ''}
                                             </dd>
                                         </div>
+                                        <div>
+                                            <dt className="text-muted-foreground">Reference Range</dt>
+                                            <dd className={!result.reference_range && result.result_type === 'numeric' ? 'text-amber-600 dark:text-amber-400 font-medium text-xs' : ''}>
+                                                {result.reference_range 
+                                                    ? `${result.reference_range}${result.unit ? ` ${result.unit}` : ''}`
+                                                    : (result.result_type === 'numeric' ? 'Reference range not configured' : '—')}
+                                            </dd>
+                                        </div>
                                         {result.abnormal_flag && (
                                             <div>
                                                 <dt className="text-muted-foreground">Flag</dt>
                                                 <dd>
-                                                    <Badge variant={result.abnormal_flag === 'critical' ? 'destructive' : 'default'}>
+                                                    <Badge variant={laboratoryAbnormalFlagVariant[result.abnormal_flag]}>
                                                         {laboratoryAbnormalFlagLabel[result.abnormal_flag]}
                                                     </Badge>
                                                 </dd>

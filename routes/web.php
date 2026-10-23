@@ -26,6 +26,9 @@ use App\Http\Controllers\EncounterRadiologyOrderController;
 use App\Http\Controllers\HospitalController;
 use App\Http\Controllers\InpatientBillingController;
 use App\Http\Controllers\InpatientController;
+use App\Http\Controllers\InpatientMaternityController;
+use App\Http\Controllers\InpatientNursingController;
+use App\Http\Controllers\InpatientProcedureController;
 use App\Http\Controllers\InsuranceCoverageRuleController;
 use App\Http\Controllers\InsuranceProviderController;
 use App\Http\Controllers\InsuranceSchemeController;
@@ -102,6 +105,7 @@ use App\Http\Controllers\Stores\StoreIssueController;
 use App\Http\Controllers\Stores\StoreTransferController;
 use App\Http\Controllers\TriageController;
 use App\Http\Controllers\VitalSignController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -118,6 +122,7 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('practitioners', PractitionerController::class);
     Route::post('practitioners/{practitioner}/nhif-login', [NhifPractitionerAttendanceController::class, 'login'])->name('practitioners.nhif-login');
     Route::post('practitioners/{practitioner}/nhif-logout', [NhifPractitionerAttendanceController::class, 'logout'])->name('practitioners.nhif-logout');
+    Route::get('batches', fn (Request $request) => redirect()->route('stores.inventory.batches', $request->query()));
 
     // Phase 8, Step 70 — Admissions lifecycle; Phase 9, Step 72 — review/approval workflow
     Route::prefix('admissions')->name('admissions.')->group(function () {
@@ -156,6 +161,30 @@ Route::middleware(['auth'])->group(function () {
         // Phase 9, Step 94 — discharge document generation
         Route::get('{admission}/discharge-document', [DischargeDocumentController::class, 'show'])->name('discharge-document');
         Route::post('{admission}/discharge-document', [DischargeDocumentController::class, 'generate'])->name('discharge-document.generate');
+        // Inpatient Nursing Care & Workspace
+        Route::get('nursing', [InpatientNursingController::class, 'dashboard'])->name('nursing.dashboard');
+        Route::get('{admission}/nursing', [InpatientNursingController::class, 'workspace'])->name('nursing.workspace');
+        Route::post('{admission}/nursing/handovers', [InpatientNursingController::class, 'storeHandover'])->name('nursing.handovers.store');
+        Route::post('{admission}/nursing/wound-care', [InpatientNursingController::class, 'storeWoundCare'])->name('nursing.wound-care.store');
+        Route::post('{admission}/nursing/escalations', [InpatientNursingController::class, 'storeEscalation'])->name('nursing.escalations.store');
+        Route::post('{admission}/nursing/escalations/{escalation}/acknowledge', [InpatientNursingController::class, 'acknowledgeEscalation'])->name('nursing.escalations.acknowledge');
+        Route::post('{admission}/nursing/escalations/{escalation}/resolve', [InpatientNursingController::class, 'resolveEscalation'])->name('nursing.escalations.resolve');
+        Route::post('{admission}/nursing/allergies', [InpatientNursingController::class, 'storeAllergy'])->name('nursing.allergies.store');
+        Route::post('{admission}/nursing/allergies/{allergy}/resolve', [InpatientNursingController::class, 'resolveAllergy'])->name('nursing.allergies.resolve');
+        // Maternity Nursing, Labour Monitoring & Partograph
+        Route::get('{admission}/maternity', [InpatientMaternityController::class, 'show'])->name('maternity.show');
+        Route::post('{admission}/maternity/profile', [InpatientMaternityController::class, 'storeProfile'])->name('maternity.profile.store');
+        Route::post('{admission}/maternity/{profile}/stage', [InpatientMaternityController::class, 'updateStage'])->name('maternity.stage.update');
+        Route::post('{admission}/maternity/{profile}/partograph', [InpatientMaternityController::class, 'storePartograph'])->name('maternity.partograph.store');
+        Route::post('{admission}/maternity/{profile}/delivery', [InpatientMaternityController::class, 'storeDelivery'])->name('maternity.delivery.store');
+        // Doctor-Ordered Procedures & Surgical Theatre Operations
+        Route::get('{admission}/procedures', [InpatientProcedureController::class, 'index'])->name('procedures.index');
+        Route::post('{admission}/procedures', [InpatientProcedureController::class, 'storeOrder'])->name('procedures.store');
+        Route::post('{admission}/procedures/{order}/schedule', [InpatientProcedureController::class, 'scheduleCase'])->name('procedures.schedule');
+        Route::post('{admission}/procedures/cases/{case}/checklist', [InpatientProcedureController::class, 'updateChecklist'])->name('procedures.cases.checklist');
+        Route::post('{admission}/procedures/cases/{case}/intra-op', [InpatientProcedureController::class, 'recordIntraOp'])->name('procedures.cases.intra-op');
+        Route::post('{admission}/procedures/cases/{case}/pacu', [InpatientProcedureController::class, 'recordPacu'])->name('procedures.cases.pacu');
+        Route::post('{admission}/procedures/{order}/bedside', [InpatientProcedureController::class, 'recordBedside'])->name('procedures.bedside');
     });
 
     // Phase 8, Step 68 — NHIF service/price mapping administration
@@ -164,14 +193,14 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('nhif')->name('nhif.')->group(function () {
         // Phase 8, Step 75 — NHIF operational dashboard (read-only).
         Route::get('admissions', [NhifAdmissionController::class, 'index'])->name('admissions.index');
-        Route::get('admissions/lookup', [NhifAdmissionController::class, 'lookup'])->name('admissions.lookup');
+        Route::get('admissions/lookup', [NhifAdmissionController::class, 'lookup'])->name('admissions.lookup')->middleware('throttle:nhif-verification');
         Route::post('admissions/sync', [NhifAdmissionController::class, 'sync'])->name('admissions.sync');
 
-        Route::get('dashboard', [NhifDashboardController::class, 'index'])->name('dashboard');
+        Route::get('dashboard', [NhifDashboardController::class, 'index'])->name('dashboard')->middleware('can:nhif-dashboard.view');
         Route::get('diseases/search-json', [NhifDiseaseController::class, 'searchJson'])->name('diseases.search-json');
 
         Route::get('authorization-context', [NhifAuthorizationContextController::class, 'index'])->name('authorization-context.index');
-        Route::match(['get', 'post'], 'authorization-context/lookup', [NhifAuthorizationContextController::class, 'lookup'])->name('authorization-context.lookup');
+        Route::match(['get', 'post'], 'authorization-context/lookup', [NhifAuthorizationContextController::class, 'lookup'])->name('authorization-context.lookup')->middleware('throttle:nhif-verification');
         Route::get('service-mappings', [NhifServiceMappingController::class, 'index'])->name('service-mappings.index');
         Route::get('service-mappings/create', [NhifServiceMappingController::class, 'create'])->name('service-mappings.create');
         Route::post('service-mappings', [NhifServiceMappingController::class, 'store'])->name('service-mappings.store');
@@ -188,23 +217,24 @@ Route::middleware(['auth'])->group(function () {
         Route::get('catalog/services', [NhifServiceCatalogController::class, 'services'])->name('catalog.services');
         Route::get('catalog/packages', [NhifServiceCatalogController::class, 'packages'])->name('catalog.packages');
         Route::get('catalog-items/search-json', [NhifServiceCatalogController::class, 'searchItemsJson'])->name('catalog-items.search-json');
-        Route::get('item-mapping', [NhifItemMappingController::class, 'index'])->name('item-mapping.index');
-        Route::patch('item-mapping/laboratory-tests/{laboratoryTest}', [NhifItemMappingController::class, 'updateLaboratoryTest'])->name('item-mapping.laboratory-tests.update');
-        Route::patch('item-mapping/medications/{medication}', [NhifItemMappingController::class, 'updateMedication'])->name('item-mapping.medications.update');
+        Route::get('item-mapping', [NhifItemMappingController::class, 'index'])->name('item-mapping.index')->middleware('can:nhif-service-mappings.view');
+        Route::patch('item-mapping/laboratory-tests/{laboratoryTest}', [NhifItemMappingController::class, 'updateLaboratoryTest'])->name('item-mapping.laboratory-tests.update')->middleware('can:nhif-service-mappings.update');
+        Route::patch('item-mapping/medications/{medication}', [NhifItemMappingController::class, 'updateMedication'])->name('item-mapping.medications.update')->middleware('can:nhif-service-mappings.update');
+        Route::patch('item-mapping/radiology-procedures/{radiologyProcedure}', [NhifItemMappingController::class, 'updateRadiologyProcedure'])->name('item-mapping.radiology-procedures.update')->middleware('can:nhif-service-mappings.update');
 
         // Individual preauth record actions (no patient context needed for these)
-        Route::get('preauthorizations/{nhifPreauthorization}', [NhifPreauthorizationController::class, 'show'])->name('preauthorization.show');
-        Route::post('preauthorizations/{nhifPreauthorization}/submit', [NhifPreauthorizationController::class, 'submit'])->name('preauthorization.submit');
-        Route::post('preauthorizations/{nhifPreauthorization}/sync', [NhifPreauthorizationController::class, 'sync'])->name('preauthorization.sync');
-        Route::post('preauthorizations/{nhifPreauthorization}/cancel', [NhifPreauthorizationController::class, 'cancel'])->name('preauthorization.cancel');
+        Route::get('preauthorizations/{nhifPreauthorization}', [NhifPreauthorizationController::class, 'show'])->name('preauthorization.show')->middleware('can:nhif-preauthorization.view');
+        Route::post('preauthorizations/{nhifPreauthorization}/submit', [NhifPreauthorizationController::class, 'submit'])->name('preauthorization.submit')->middleware('can:nhif-preauthorization.request');
+        Route::post('preauthorizations/{nhifPreauthorization}/sync', [NhifPreauthorizationController::class, 'sync'])->name('preauthorization.sync')->middleware('can:nhif-preauthorization.request');
+        Route::post('preauthorizations/{nhifPreauthorization}/cancel', [NhifPreauthorizationController::class, 'cancel'])->name('preauthorization.cancel')->middleware('can:nhif-preauthorization.cancel');
 
         // Phase 8, Step 71 — NHIF clinical service utilization monitoring & recovery.
         // Records are created only by clinical completion events, never through HTTP.
-        Route::get('utilizations', [NhifUtilizationController::class, 'index'])->name('utilization.index');
-        Route::get('utilizations/{nhifUtilization}', [NhifUtilizationController::class, 'show'])->name('utilization.show');
-        Route::post('utilizations/{nhifUtilization}/submit', [NhifUtilizationController::class, 'submit'])->name('utilization.submit');
-        Route::post('utilizations/{nhifUtilization}/authorization', [NhifUtilizationController::class, 'attachAuthorization'])->name('utilization.authorization');
-        Route::post('utilizations/{nhifUtilization}/reconcile', [NhifUtilizationController::class, 'reconcile'])->name('utilization.reconcile');
+        Route::get('utilizations', [NhifUtilizationController::class, 'index'])->name('utilization.index')->middleware('can:nhif-utilization.view');
+        Route::get('utilizations/{nhifUtilization}', [NhifUtilizationController::class, 'show'])->name('utilization.show')->middleware('can:nhif-utilization.view');
+        Route::post('utilizations/{nhifUtilization}/submit', [NhifUtilizationController::class, 'submit'])->name('utilization.submit')->middleware('can:nhif-utilization.submit');
+        Route::post('utilizations/{nhifUtilization}/authorization', [NhifUtilizationController::class, 'attachAuthorization'])->name('utilization.authorization')->middleware('can:nhif-utilization.submit');
+        Route::post('utilizations/{nhifUtilization}/reconcile', [NhifUtilizationController::class, 'reconcile'])->name('utilization.reconcile')->middleware('can:nhif-utilization.reconcile');
 
         // OCS & Claim Workflow Endpoints (specific routes before wildcard {nhifClaim})
         Route::get('claims', [NhifClaimController::class, 'index'])->name('claims.index');
@@ -247,8 +277,9 @@ Route::middleware(['auth'])->group(function () {
     });
     Route::get('patients/search-json', [PatientController::class, 'searchJson'])->name('patients.search-json');
     // NHIF-first registration lookup (Phase 8): pre-registration internal HMS endpoints.
-    Route::post('patients/nhif-lookup', [NhifMemberVerificationController::class, 'lookup'])->name('patients.nhif-lookup');
-    Route::post('patients/nhif-verifiers', [NhifMemberVerificationController::class, 'getVerifiers'])->name('patients.nhif-verifiers');
+    Route::post('patients/nhif-lookup', [NhifMemberVerificationController::class, 'lookup'])->name('patients.nhif-lookup')->middleware('throttle:nhif-verification');
+    Route::post('patients/nhif-verifiers', [NhifMemberVerificationController::class, 'getVerifiers'])->name('patients.nhif-verifiers')->middleware('throttle:nhif-verification');
+    Route::post('patients/nhif-member-picture', [NhifMemberVerificationController::class, 'getMemberPicture'])->name('patients.nhif-member-picture')->middleware('throttle:nhif-verification');
     Route::get('patients/nhif-visit-types', [NhifMemberVerificationController::class, 'getVisitTypes'])->name('patients.nhif-visit-types');
     Route::get('patients/nhif-scheme-services', [NhifMemberVerificationController::class, 'getSchemeServices'])->name('patients.nhif-scheme-services');
     Route::resource('patients', PatientController::class);
@@ -274,9 +305,10 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('{patientInsurance}', [PatientInsuranceController::class, 'destroy'])->name('destroy');
         Route::post('{patientInsurance}/primary', [PatientInsuranceController::class, 'makePrimary'])->name('make-primary');
         Route::patch('{patientInsurance}/verify', [PatientInsuranceController::class, 'verify'])->name('verify');
-        Route::post('{patientInsurance}/nhif-verify', [NhifMemberVerificationController::class, 'verify'])->name('nhif-verify');
+        Route::post('{patientInsurance}/nhif-verify', [NhifMemberVerificationController::class, 'verify'])->name('nhif-verify')->middleware('throttle:nhif-verification');
+        Route::post('{patientInsurance}/nhif-refresh-picture', [NhifMemberVerificationController::class, 'refreshPicture'])->name('nhif-refresh-picture')->middleware('throttle:nhif-verification');
         Route::post('{patientInsurance}/nhif-update-visit-type', [NhifMemberVerificationController::class, 'updateVisitType'])->name('nhif-update-visit-type');
-        Route::post('{patientInsurance}/nhif-eligibility', [NhifEligibilityController::class, 'verify'])->name('nhif-eligibility');
+        Route::post('{patientInsurance}/nhif-eligibility', [NhifEligibilityController::class, 'verify'])->name('nhif-eligibility')->middleware('throttle:nhif-verification');
         // Preauthorization creation/listing (patient context required for IDOR protection)
         Route::get('{patientInsurance}/nhif-preauthorizations', [NhifPreauthorizationController::class, 'index'])->name('nhif-preauthorization.index');
         Route::post('{patientInsurance}/nhif-preauthorizations', [NhifPreauthorizationController::class, 'store'])->name('nhif-preauthorization.store');
@@ -449,6 +481,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('laboratory-tests/search-json', [LaboratoryTestController::class, 'searchJson'])->name('laboratory-tests.search-json');
     Route::get('laboratory-tests/resolve-nhif-item', [LaboratoryTestController::class, 'resolveNhifItem'])->name('laboratory-tests.resolve-nhif-item');
     Route::get('radiology-procedures/search-json', [RadiologyProcedureController::class, 'searchJson'])->name('radiology-procedures.search-json');
+    Route::get('radiology-procedures/resolve-nhif-item', [RadiologyProcedureController::class, 'resolveNhifItem'])->name('radiology-procedures.resolve-nhif-item');
 
     // The Laboratory dashboard/worklist/detail — a standalone,
     // cross-encounter surface for laboratory staff. No store/update/cancel
@@ -864,12 +897,12 @@ Route::middleware(['auth'])->group(function () {
         // so they live under the 'billing.' group alongside their parent
         // payment routes. Adjustments are on invoices. Each correction has
         // a detail show page linked from the correction history table.
-        Route::post('payments/{payment}/reversal', [PaymentReversalController::class, 'store'])->name('payments.reversal.store');
+        Route::post('payments/{payment}/reversal', [PaymentReversalController::class, 'store'])->name('payments.reversal.store')->middleware('password.confirm');
         Route::get('reversals/{reversal}', [PaymentReversalController::class, 'show'])->name('reversals.show');
-        Route::post('payments/{payment}/refunds', [PaymentRefundController::class, 'store'])->name('payments.refunds.store');
+        Route::post('payments/{payment}/refunds', [PaymentRefundController::class, 'store'])->name('payments.refunds.store')->middleware('password.confirm');
         Route::get('refunds/{refund}', [PaymentRefundController::class, 'show'])->name('refunds.show');
         Route::get('adjustments', [BillingAdjustmentController::class, 'index'])->name('adjustments.index');
-        Route::post('invoices/{invoice}/adjustments', [BillingAdjustmentController::class, 'store'])->name('invoices.adjustments.store');
+        Route::post('invoices/{invoice}/adjustments', [BillingAdjustmentController::class, 'store'])->name('invoices.adjustments.store')->middleware('password.confirm');
         Route::get('adjustments/{adjustment}', [BillingAdjustmentController::class, 'show'])->name('adjustments.show');
         // Cashier sessions (Phase 7, Step 59): list, open, detail, and close.
         // 'close' is a POST sub-action on an existing session (mirrors
@@ -1020,7 +1053,8 @@ Route::middleware(['auth'])->group(function () {
 
         // Store Inventory & Batches
         Route::get('inventory', [StoreInventoryController::class, 'index'])->name('inventory.index');
-        Route::get('batches', [StoreInventoryController::class, 'batches'])->name('inventory.batches');
+        Route::get('inventory/batches', [StoreInventoryController::class, 'batches'])->name('inventory.batches');
+        Route::get('batches', [StoreInventoryController::class, 'batches']);
         Route::post('inventory/adjust', [StoreInventoryController::class, 'adjust'])->name('inventory.adjust');
 
         // Reports

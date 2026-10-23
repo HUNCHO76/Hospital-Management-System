@@ -9,6 +9,7 @@ use App\Services\NHIF\NhifEncounterPreApprovalService;
 use App\Services\NHIF\NhifPreApprovalSessionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Encounter-scoped NHIF pre-approval session management.
@@ -34,19 +35,22 @@ class EncounterNhifPreApprovalController extends Controller
             'lab_order_item_ids.*' => ['integer', 'exists:laboratory_order_items,id'],
             'prescription_order_item_ids' => ['nullable', 'array'],
             'prescription_order_item_ids.*' => ['integer', 'exists:prescription_order_items,id'],
+            'radiology_order_item_ids' => ['nullable', 'array'],
+            'radiology_order_item_ids.*' => ['integer', 'exists:radiology_order_items,id'],
             'clinical_notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
         $labIds = $data['lab_order_item_ids'] ?? [];
         $medIds = $data['prescription_order_item_ids'] ?? [];
+        $radIds = $data['radiology_order_item_ids'] ?? [];
 
         $encounterRedirect = redirect()->route('clinical-encounters.show', $clinicalEncounter);
 
-        if (empty($labIds) && empty($medIds)) {
+        if (empty($labIds) && empty($medIds) && empty($radIds)) {
             return $encounterRedirect->with('error', 'Select at least one item for pre-approval.');
         }
 
-        $insurance = $clinicalEncounter->patient?->activeNhifInsurance();
+        $insurance = $clinicalEncounter->patient?->currentNhifInsurance();
 
         if (! $insurance) {
             return $encounterRedirect->with('error', 'Patient does not have active NHIF insurance.');
@@ -54,15 +58,22 @@ class EncounterNhifPreApprovalController extends Controller
 
         $practitionerNo = $clinicalEncounter->practitioner?->nhif_practitioner_no;
 
-        $session = $service->createAndSubmitFromSelection(
-            $insurance,
-            $clinicalEncounter,
-            $labIds,
-            $medIds,
-            $request,
-            $data['clinical_notes'] ?? null,
-            $practitionerNo,
-        );
+        try {
+            $session = $service->createAndSubmitFromSelection(
+                $insurance,
+                $clinicalEncounter,
+                $labIds,
+                $medIds,
+                $request,
+                $data['clinical_notes'] ?? null,
+                $practitionerNo,
+                $radIds,
+            );
+        } catch (ValidationException $e) {
+            $firstError = collect($e->errors())->flatten()->first() ?? 'Pre-approval validation failed.';
+
+            return $encounterRedirect->with('error', $firstError)->withErrors($e->errors());
+        }
 
         return redirect()->route('clinical-encounters.show', $clinicalEncounter)
             ->with('success', "Pre-approval session submitted (#{$session->id}).");

@@ -157,6 +157,15 @@ class Patient extends Model
     }
 
     /**
+     * Get the patient's effective NHIF insurance (active valid authorization,
+     * or fallback to latest active NHIF insurance record).
+     */
+    public function currentNhifInsurance(): ?PatientInsurance
+    {
+        return $this->activeNhifInsurance() ?? $this->latestNhifInsurance();
+    }
+
+    /**
      * Get the patient's full name.
      */
     public function getFullNameAttribute(): string

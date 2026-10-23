@@ -11,8 +11,13 @@ import { ArrowLeft, ArrowRightLeft, CheckCircle2, Send, Truck } from 'lucide-rea
 interface TransferItem {
     id: number;
     procurement_item_id: number;
-    quantity: number;
-    notes: string | null;
+    quantity?: number;
+    quantity_transferred?: number;
+    item_name?: string;
+    batch_number?: string;
+    expiry_date?: string | null;
+    notes?: string | null;
+    remarks?: string | null;
     procurement_item?: { code: string; name: string; unit_of_measure: string };
     from_stock_batch?: { batch_number: string; expiry_date: string };
     to_stock_batch?: { batch_number: string };
@@ -31,6 +36,7 @@ interface StoreTransfer {
     received_by?: { name: string };
     status: 'draft' | 'submitted' | 'approved' | 'in_transit' | 'received' | 'cancelled';
     reason: string | null;
+    notes: string | null;
     items: TransferItem[];
     approval_histories?: any[];
 }
@@ -156,9 +162,9 @@ export default function ShowStoreTransfer({ transfer }: Props) {
                             <CardTitle className="text-sm text-muted-foreground uppercase">Justification</CardTitle>
                         </CardHeader>
                         <CardContent className="text-sm">
-                            {transfer.reason ? (
+                            {transfer.notes || transfer.reason ? (
                                 <p className="text-muted-foreground italic bg-muted p-2 rounded">
-                                    "{transfer.reason}"
+                                    "{transfer.notes || transfer.reason}"
                                 </p>
                             ) : (
                                 <p className="text-muted-foreground">Standard stock rebalancing</p>
@@ -186,22 +192,27 @@ export default function ShowStoreTransfer({ transfer }: Props) {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y">
-                                    {transfer.items.map((it) => (
-                                        <tr key={it.id}>
-                                            <td className="px-4 py-3 font-medium">
-                                                {it.procurement_item ? `${it.procurement_item.name} (${it.procurement_item.code})` : 'Item'}
-                                            </td>
-                                            <td className="px-4 py-3 font-mono text-xs text-blue-700">
-                                                {it.from_stock_batch?.batch_number || 'General Batch'}
-                                            </td>
-                                            <td className="px-4 py-3 text-muted-foreground">
-                                                {it.from_stock_batch?.expiry_date ? it.from_stock_batch.expiry_date.split('T')[0] : '—'}
-                                            </td>
-                                            <td className="px-4 py-3 font-bold">{Number(it.quantity)}</td>
-                                            <td className="px-4 py-3 text-muted-foreground">{it.procurement_item?.unit_of_measure}</td>
-                                            <td className="px-4 py-3 text-muted-foreground">{it.notes || '—'}</td>
-                                        </tr>
-                                    ))}
+                                    {transfer.items.map((it) => {
+                                        const qty = it.quantity_transferred ?? it.quantity ?? 0;
+                                        const itemName = it.item_name || (it.procurement_item ? `${it.procurement_item.name} (${it.procurement_item.code})` : 'Stock Item');
+                                        const batchNum = it.batch_number || it.from_stock_batch?.batch_number || '—';
+                                        const expiry = it.expiry_date || it.from_stock_batch?.expiry_date;
+                                        const noteText = it.remarks || it.notes || '—';
+                                        const uom = it.procurement_item?.unit_of_measure || 'Units';
+
+                                        return (
+                                            <tr key={it.id}>
+                                                <td className="px-4 py-3 font-medium">{itemName}</td>
+                                                <td className="px-4 py-3 font-mono text-xs text-blue-700">{batchNum}</td>
+                                                <td className="px-4 py-3 text-muted-foreground">
+                                                    {expiry ? String(expiry).split('T')[0] : '—'}
+                                                </td>
+                                                <td className="px-4 py-3 font-bold">{qty}</td>
+                                                <td className="px-4 py-3 text-muted-foreground">{uom}</td>
+                                                <td className="px-4 py-3 text-muted-foreground">{noteText}</td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>

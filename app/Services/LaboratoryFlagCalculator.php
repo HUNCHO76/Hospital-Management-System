@@ -24,38 +24,64 @@ class LaboratoryFlagCalculator
 
     public const FLAG_CRITICAL = 'critical';
 
+    public const FLAG_CRITICAL_LOW = 'critical_low';
+
+    public const FLAG_CRITICAL_HIGH = 'critical_high';
+
     public const FLAG_ABNORMAL = 'abnormal';
+
+    public const FLAG_UNCONFIGURED = 'unconfigured';
 
     public const FLAGS = [
         self::FLAG_NORMAL,
         self::FLAG_LOW,
         self::FLAG_HIGH,
         self::FLAG_CRITICAL,
+        self::FLAG_CRITICAL_LOW,
+        self::FLAG_CRITICAL_HIGH,
         self::FLAG_ABNORMAL,
+        self::FLAG_UNCONFIGURED,
     ];
 
     /**
      * Calculate the flag for a numeric value against an optional range.
      *
-     * @param  array{critical_low?: string|float|null, critical_high?: string|float|null, low?: string|float|null, high?: string|float|null}|null  $range
+     * @param  array{critical_low?: string|float|null, critical_high?: string|float|null, low?: string|float|null, high?: string|float|null}|LaboratoryReferenceRange|null  $range
      */
-    public function flagNumeric(?float $value, ?array $range): string
+    public function flagNumeric(?float $value, array|LaboratoryReferenceRange|null $range, bool $detailed = false): string
     {
-        if ($value === null || $range === null) {
+        if ($value === null) {
             return self::FLAG_NORMAL;
         }
 
-        $criticalLow = isset($range['critical_low']) ? (float) $range['critical_low'] : null;
-        $criticalHigh = isset($range['critical_high']) ? (float) $range['critical_high'] : null;
-        $low = isset($range['low']) ? (float) $range['low'] : null;
-        $high = isset($range['high']) ? (float) $range['high'] : null;
+        if ($range instanceof LaboratoryReferenceRange) {
+            $range = [
+                'low' => $range->low,
+                'high' => $range->high,
+                'critical_low' => $range->critical_low,
+                'critical_high' => $range->critical_high,
+            ];
+        }
+
+        if ($range === null) {
+            return $detailed ? self::FLAG_UNCONFIGURED : self::FLAG_NORMAL;
+        }
+
+        $criticalLow = isset($range['critical_low']) && $range['critical_low'] !== null && $range['critical_low'] !== '' ? (float) $range['critical_low'] : null;
+        $criticalHigh = isset($range['critical_high']) && $range['critical_high'] !== null && $range['critical_high'] !== '' ? (float) $range['critical_high'] : null;
+        $low = isset($range['low']) && $range['low'] !== null && $range['low'] !== '' ? (float) $range['low'] : null;
+        $high = isset($range['high']) && $range['high'] !== null && $range['high'] !== '' ? (float) $range['high'] : null;
+
+        if ($criticalLow === null && $criticalHigh === null && $low === null && $high === null) {
+            return $detailed ? self::FLAG_UNCONFIGURED : self::FLAG_NORMAL;
+        }
 
         if ($criticalLow !== null && $value < $criticalLow) {
-            return self::FLAG_CRITICAL;
+            return $detailed ? self::FLAG_CRITICAL_LOW : self::FLAG_CRITICAL;
         }
 
         if ($criticalHigh !== null && $value > $criticalHigh) {
-            return self::FLAG_CRITICAL;
+            return $detailed ? self::FLAG_CRITICAL_HIGH : self::FLAG_CRITICAL;
         }
 
         if ($low !== null && $value < $low) {
@@ -92,6 +118,7 @@ class LaboratoryFlagCalculator
         ?string $valueNumeric,
         ?string $valueCode,
         ?LaboratoryReferenceRange $range,
+        bool $detailed = false,
     ): string {
         return match ($parameter->data_type) {
             LaboratoryTestParameter::DATA_TYPE_NUMERIC => $this->flagNumeric(
@@ -102,6 +129,7 @@ class LaboratoryFlagCalculator
                     'low' => $range->low,
                     'high' => $range->high,
                 ] : null,
+                $detailed,
             ),
             LaboratoryTestParameter::DATA_TYPE_OPTION => $this->flagOption($valueCode, $parameter),
             default => self::FLAG_NORMAL,

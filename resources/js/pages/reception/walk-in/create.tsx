@@ -19,7 +19,7 @@ import {
 } from '@/types/reception';
 import { Head, useForm } from '@inertiajs/react';
 import { AlertTriangle, CheckCircle2, ExternalLink, LoaderCircle, ShieldCheck } from 'lucide-react';
-import { type FormEventHandler, useEffect, useRef, useState } from 'react';
+import { type FormEventHandler, useEffect, useMemo, useRef, useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Reception', href: '/reception' },
@@ -78,6 +78,39 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
 
     const selectedService = nhifConsultationServices.find((s) => String(s.item_code) === data.nhif_item_code) ?? null;
     const selectedPractitioner = practitioners.find((p) => String(p.id) === data.practitioner_id) ?? null;
+
+    const nhifEligiblePractitioners = useMemo(() => {
+        if (!selectedService) return [];
+        return practitioners.filter((p) => {
+            if (!p.nhif_practitioner_no) return false;
+            const matchesServiceId = selectedService.service_id && p.consultation_service_id === selectedService.service_id;
+            const matchesCode = p.consultation_service?.code === selectedService.item_code;
+            return Boolean(matchesServiceId || matchesCode);
+        });
+    }, [practitioners, selectedService]);
+
+    useEffect(() => {
+        if (!isNhifPatient) return;
+
+        if (!data.nhif_item_code) {
+            if (data.practitioner_id) {
+                setData('practitioner_id', '');
+            }
+            return;
+        }
+
+        if (nhifEligiblePractitioners.length === 1) {
+            const singlePractitionerId = String(nhifEligiblePractitioners[0].id);
+            if (data.practitioner_id !== singlePractitionerId) {
+                setData('practitioner_id', singlePractitionerId);
+            }
+        } else if (
+            data.practitioner_id &&
+            !nhifEligiblePractitioners.some((p) => String(p.id) === data.practitioner_id)
+        ) {
+            setData('practitioner_id', '');
+        }
+    }, [data.nhif_item_code, isNhifPatient, nhifEligiblePractitioners, data.practitioner_id, setData]);
 
     const filteredPractitioners = practitioners.filter((p) => {
         if (specialtyFilter === 'dental') return p.practitioner_type === 'dentist';
@@ -444,13 +477,22 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
                                         <Select
                                             value={data.practitioner_id || '__none__'}
                                             onValueChange={(v) => setData('practitioner_id', v === '__none__' ? '' : v)}
+                                            disabled={!data.nhif_item_code || nhifEligiblePractitioners.length === 0}
                                         >
                                             <SelectTrigger id="nhif_practitioner_id">
-                                                <SelectValue placeholder="Select practitioner" />
+                                                <SelectValue
+                                                    placeholder={
+                                                        !data.nhif_item_code
+                                                            ? 'Select consultation service first'
+                                                            : nhifEligiblePractitioners.length === 0
+                                                            ? 'No practitioner assigned to this service'
+                                                            : 'Select practitioner…'
+                                                    }
+                                                />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="__none__">Select practitioner…</SelectItem>
-                                                {practitioners.map((p) => (
+                                                {nhifEligiblePractitioners.map((p) => (
                                                     <SelectItem key={p.id} value={String(p.id)}>
                                                         {p.staff
                                                             ? `${p.staff.first_name} ${p.staff.last_name}`
@@ -460,6 +502,17 @@ export default function WalkInCreate({ departments, visitTypes, practitioners }:
                                             </SelectContent>
                                         </Select>
                                         <InputError message={errors.practitioner_id} />
+
+                                        {/* Notice when consultation service is selected but no practitioner is assigned */}
+                                        {data.nhif_item_code && nhifEligiblePractitioners.length === 0 && (
+                                            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                                                <span>
+                                                    No active practitioner with an NHIF practitioner number is assigned to this consultation service.
+                                                    Please assign this service on the practitioner profile or choose a different consultation service.
+                                                </span>
+                                            </div>
+                                        )}
 
                                         {/* NHIF Practitioner No — auto-resolved */}
                                         {selectedPractitioner && (

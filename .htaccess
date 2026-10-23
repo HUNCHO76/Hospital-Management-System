@@ -1,0 +1,16 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Never touch requests already inside public/ (prevents loops;
+    # public/.htaccess handles them)
+    RewriteRule ^public/ - [L]
+
+    # Block internal folders and sensitive files
+    RewriteRule ^(\.git|\.github|\.claude|\.idea|app|bootstrap|config|copy4|database|docs|lang|node_modules|NHIF-API|resources|routes|scratch|storage|tests|vendor|HMS-NHIF_v3\.1)(/|$) - [F,L,NC]
+    RewriteRule (^|/)\.(?!well-known) - [F,L,NC]
+    RewriteRule \.(zip|md|json|lock|xml|log|sql|bak|yml|yaml|dist|cache)$ - [F,L,NC]
+    RewriteRule ^(artisan|phpunit\.xml|vite\.config\.js|tsconfig\.json)$ - [F,L,NC]
+
+    # Everything else -> public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>

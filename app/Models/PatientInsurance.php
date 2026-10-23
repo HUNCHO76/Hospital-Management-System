@@ -76,6 +76,7 @@ class PatientInsurance extends Model
         'policy_number',
         'card_number',
         'nhif_authorization_no',
+        'nhif_member_picture',
         'nhif_scheme_id',
         'nhif_facility_code',
         'nhif_pf_number',
@@ -304,4 +305,3 @@ class PatientInsurance extends Model
         return round(now()->diffInMinutes($expiresAt, false) / 60.0, 1);
     }
 }
-

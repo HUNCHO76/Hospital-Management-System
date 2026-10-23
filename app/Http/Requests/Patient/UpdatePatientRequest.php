@@ -51,6 +51,7 @@ class UpdatePatientRequest extends FormRequest
             'district' => ['nullable', 'string', 'max:255'],
             'ward' => ['nullable', 'string', 'max:255'],
             'status' => ['required', Rule::in([Patient::STATUS_ACTIVE, Patient::STATUS_INACTIVE, Patient::STATUS_DECEASED])],
+            'correction_reason' => ['nullable', 'string', 'max:1000'],
 
             'contacts' => ['nullable', 'array'],
             'contacts.*.id' => ['nullable', 'integer', Rule::exists('patient_contacts', 'id')->where('patient_id', $patient->id)],

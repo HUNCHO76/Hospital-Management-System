@@ -169,7 +169,13 @@ class LaboratoryResult extends Model
 
     public const FLAG_CRITICAL = 'critical';
 
+    public const FLAG_CRITICAL_LOW = 'critical_low';
+
+    public const FLAG_CRITICAL_HIGH = 'critical_high';
+
     public const FLAG_ABNORMAL = 'abnormal';
+
+    public const FLAG_UNCONFIGURED = 'unconfigured';
 
     /**
      * @var list<string>
@@ -179,7 +185,10 @@ class LaboratoryResult extends Model
         self::FLAG_LOW,
         self::FLAG_HIGH,
         self::FLAG_CRITICAL,
+        self::FLAG_CRITICAL_LOW,
+        self::FLAG_CRITICAL_HIGH,
         self::FLAG_ABNORMAL,
+        self::FLAG_UNCONFIGURED,
     ];
 
     /**

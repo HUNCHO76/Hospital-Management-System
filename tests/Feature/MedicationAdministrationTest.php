@@ -2,6 +2,7 @@
 
 use App\Models\Admission;
 use App\Models\ClinicalEncounter;
+use App\Models\Consultation;
 use App\Models\Department;
 use App\Models\DispensingItem;
 use App\Models\Hospital;
@@ -422,4 +423,115 @@ test('hospital-admin cannot access the MAR worklist for another hospital admissi
         ->get(route('inpatient.medications.worklist', $ctx['admission']));
 
     $response->assertForbidden();
+});
+
+test('the MAR worklist and clinical profile display medications prescribed during walk-in admitting encounters', function () {
+    $hospital = Hospital::factory()->create();
+    $department = Department::factory()->create(['hospital_id' => $hospital->id]);
+    $staff = Staff::factory()->create(['hospital_id' => $hospital->id]);
+    $practitioner = Practitioner::factory()->create(['staff_id' => $staff->id]);
+    $patient = Patient::factory()->create();
+
+    $nurse = userWithRole('nurse');
+    $doctor = userWithRole('doctor');
+    $pharmacist = userWithRole('pharmacist');
+
+    // Create admission
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $hospital->id,
+        'patient_id' => $patient->id,
+        'department_id' => $department->id,
+        'practitioner_id' => $practitioner->id,
+        'admission_type' => 'walk_in',
+        'ward_type' => 'General',
+        'room_type' => 'Shared',
+        'diagnosis_at_admission' => 'Fever',
+        'notes' => null,
+    ], requestAs($nurse));
+
+    $admin = userWithRole('hospital-admin');
+    $admission = app(AdmissionService::class)->startReview($admission, requestAs($admin));
+    $admission = app(AdmissionService::class)->approve($admission, null, requestAs($admin));
+    $admission = app(AdmissionService::class)->confirm($admission, requestAs($admin));
+
+    // Create a walk-in encounter that originated the admission
+    $walkInEncounter = ClinicalEncounter::factory()->create([
+        'department_id' => $department->id,
+        'patient_id' => $patient->id,
+        'practitioner_id' => $practitioner->id,
+        'encounter_type' => 'walk_in',
+        'status' => ClinicalEncounter::STATUS_IN_PROGRESS,
+        'admission_id' => $admission->id,
+    ]);
+    $admission->update(['clinical_encounter_id' => $walkInEncounter->id]);
+    Consultation::create([
+        'clinical_encounter_id' => $walkInEncounter->id,
+        'practitioner_id' => $practitioner->id,
+        'status' => Consultation::STATUS_IN_PROGRESS,
+        'started_at' => now(),
+        'created_by' => $doctor->id,
+    ]);
+
+    $medication = activeMedication();
+    receiveStock($medication, $hospital);
+
+    $order = app(PrescriptionOrderService::class)->create($walkInEncounter, [
+        'items' => [[
+            'medication_id' => $medication->id,
+            'dose' => '500mg',
+            'dose_unit' => 'mg',
+            'frequency' => 'twice_daily',
+            'route' => 'oral',
+            'duration' => 3,
+            'duration_unit' => 'days',
+            'quantity' => 6,
+        ]],
+    ], requestAs($doctor));
+
+    app(PrescriptionVerificationService::class)->verify($order, [], requestAs($pharmacist));
+    $dispensing = app(DispensingService::class)->start($order->fresh(), requestAs($pharmacist));
+    app(DispensingService::class)->complete($dispensing->fresh(), [
+        'items' => [[
+            'prescription_order_item_id' => $order->items->sole()->id,
+            'dispensed_quantity' => 6,
+        ]],
+    ], requestAs($pharmacist));
+
+    // Test MAR worklist includes prescription from walk-in admitting encounter
+    $response = $this->actingAs($nurse)
+        ->get(route('inpatient.medications.worklist', $admission));
+
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->component('inpatient/medications')
+        ->has('prescriptionOrders', 1)
+        ->where('prescriptionOrders.0.items.0.medication_id', $medication->id)
+    );
+
+    // Test clinical profile passes activeMedications
+    $profileResponse = $this->actingAs($doctor)
+        ->get(route('inpatient.clinical-profile', $admission));
+
+    $profileResponse->assertOk();
+    $profileResponse->assertInertia(fn ($page) => $page
+        ->component('inpatient/clinical-profile')
+        ->has('activeMedications', 1)
+        ->where('activeMedications.0.dose', '500mg')
+    );
+
+    // Test recording administration succeeds for walk-in admitting encounter prescription
+    $item = $order->items->sole();
+    $mar = app(MedicationAdministrationService::class)->record($admission, [
+        'prescription_order_item_id' => $item->id,
+        'clinical_encounter_id' => $walkInEncounter->id,
+        'status' => MedicationAdministration::STATUS_ADMINISTERED,
+        'administered_at' => now()->toDateTimeString(),
+        'dose' => '500mg',
+        'dose_unit' => 'mg',
+        'route' => 'oral',
+    ], requestAs($nurse));
+
+    expect($mar)->not->toBeNull();
+    expect($mar->admission_id)->toBe($admission->id);
+    expect($mar->status)->toBe(MedicationAdministration::STATUS_ADMINISTERED);
 });

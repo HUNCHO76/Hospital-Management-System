@@ -60,15 +60,22 @@ export function LaboratoryResultValueInput({
         return (
             <div className="grid gap-2">
                 {!hideLabel && <Label htmlFor="value_numeric">Result {unit && `(${unit})`}</Label>}
-                <Input
-                    id="value_numeric"
-                    type="number"
-                    step="any"
-                    value={valueNumeric}
-                    onChange={(e) => onChangeNumeric(e.target.value)}
-                    disabled={disabled}
-                    className={`max-w-xs ${inputAnimationClass}`}
-                />
+                <div className="relative flex items-center max-w-xs">
+                    <Input
+                        id="value_numeric"
+                        type="number"
+                        step="any"
+                        value={valueNumeric}
+                        onChange={(e) => onChangeNumeric(e.target.value)}
+                        disabled={disabled}
+                        className={`w-full ${unit ? 'pr-16' : ''} ${inputAnimationClass}`}
+                    />
+                    {unit && (
+                        <span className="pointer-events-none absolute right-2.5 text-xs text-muted-foreground font-medium select-none bg-muted/80 px-1.5 py-0.5 rounded border border-border/50">
+                            {unit}
+                        </span>
+                    )}
+                </div>
                 <InputError message={errors.value_numeric} />
             </div>
         );

@@ -128,9 +128,13 @@ export default function PharmacyDispensingIndex({ prescriptions, filters }: Phar
                     </TableHeader>
                     <TableBody>
                         {prescriptions.data.map((prescription) => {
+                            const isNhifSentNotIssued = prescription.financial_status === 'nhif_sent_not_issued';
+                            const isNhifPending = prescription.financial_status === 'nhif_pending_request';
                             const paymentRequired = prescription.financial_status === 'payment_required';
+                            const isBlocked = paymentRequired || isNhifSentNotIssued || isNhifPending;
+
                             return (
-                            <TableRow key={prescription.id} className={paymentRequired ? 'bg-amber-500/5' : undefined}>
+                            <TableRow key={prescription.id} className={isBlocked ? 'bg-amber-500/5' : undefined}>
                                 <TableCell>{prescription.prescription_number}</TableCell>
                                 <TableCell>
                                     <div className="flex flex-col">
@@ -149,7 +153,17 @@ export default function PharmacyDispensingIndex({ prescriptions, filters }: Phar
                                     </Badge>
                                 </TableCell>
                                 <TableCell>
-                                    {paymentRequired ? (
+                                    {isNhifSentNotIssued ? (
+                                        <Badge variant="outline" className="gap-1 border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium whitespace-nowrap">
+                                            <AlertCircle className="h-3 w-3" />
+                                            Request sent but not issued
+                                        </Badge>
+                                    ) : isNhifPending ? (
+                                        <Badge variant="outline" className="gap-1 border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium whitespace-nowrap">
+                                            <AlertCircle className="h-3 w-3" />
+                                            Pre-approval Required
+                                        </Badge>
+                                    ) : paymentRequired ? (
                                         <Badge variant="destructive" className="gap-1 bg-amber-600 dark:bg-amber-700">
                                             <AlertCircle className="h-3 w-3" />
                                             Unpaid
@@ -161,9 +175,9 @@ export default function PharmacyDispensingIndex({ prescriptions, filters }: Phar
                                     )}
                                 </TableCell>
                                 <TableCell className="text-right">
-                                    <Button asChild size="sm" variant={paymentRequired ? 'outline' : 'default'}>
+                                    <Button asChild size="sm" variant={isBlocked ? 'outline' : 'default'}>
                                         <Link href={route('pharmacy-dispensing.show', prescription.id)}>
-                                            {prescription.fulfillment_status === 'dispensed' ? 'View' : paymentRequired ? 'View' : 'Dispense'}
+                                            {prescription.fulfillment_status === 'dispensed' ? 'View' : isBlocked ? 'View' : 'Dispense'}
                                         </Link>
                                     </Button>
                                 </TableCell>

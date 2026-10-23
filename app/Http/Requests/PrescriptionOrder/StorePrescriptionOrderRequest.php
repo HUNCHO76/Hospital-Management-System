@@ -44,6 +44,7 @@ class StorePrescriptionOrderRequest extends FormRequest
             'items.*.instructions' => ['nullable', 'string', 'max:1000'],
             'items.*.safety_override_justification' => ['nullable', 'string', 'max:2000'],
             'clinical_notes' => ['nullable', 'string', 'max:2000'],
+            'send_preapproval' => ['nullable', 'boolean'],
         ];
     }
 

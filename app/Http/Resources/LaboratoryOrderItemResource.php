@@ -23,6 +23,7 @@ class LaboratoryOrderItemResource extends JsonResource
             'test_code' => $this->test_code,
             'test_name' => $this->test_name,
             'clinical_note' => $this->clinical_note,
+            'specimen_source' => $this->specimen_source,
             'status' => $this->status,
             // The authoritative up-to-date progress once a result exists —
             // item.status itself never advances past "result_pending" (see

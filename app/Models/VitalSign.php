@@ -44,6 +44,34 @@ class VitalSign extends Model
     ];
 
     /**
+     * AVPU consciousness levels accepted for bedside neurological observation.
+     *
+     * @var list<string>
+     */
+    public const CONSCIOUSNESS_LEVELS = ['alert', 'voice', 'pain', 'unresponsive'];
+
+    /**
+     * Oxygen support modes recordable alongside SpO2.
+     *
+     * @var list<string>
+     */
+    public const OXYGEN_SUPPORT = ['room_air', 'nasal_cannula', 'face_mask', 'non_rebreather', 'other'];
+
+    /**
+     * Additional inpatient nursing observations stored on the same row.
+     *
+     * @var list<string>
+     */
+    public const NURSING_FIELDS = [
+        'pain_score',
+        'consciousness_level',
+        'oxygen_support',
+        'oxygen_flow_lpm',
+        'intake_ml',
+        'output_ml',
+    ];
+
+    /**
      * The attributes that are mass assignable. `bmi` is deliberately absent
      * — it is always calculated server-side from weight_kg/height_cm, never
      * accepted as direct input (spec §7).
@@ -67,6 +95,14 @@ class VitalSign extends Model
         'bmi',
         'corrects_vital_sign_id',
         'correction_reason',
+        'measured_at',
+        'pain_score',
+        'consciousness_level',
+        'oxygen_support',
+        'oxygen_flow_lpm',
+        'intake_ml',
+        'output_ml',
+        'observation_notes',
     ];
 
     /**
@@ -78,6 +114,8 @@ class VitalSign extends Model
     {
         return [
             'recorded_at' => 'datetime',
+            'measured_at' => 'datetime',
+            'oxygen_flow_lpm' => 'decimal:1',
             'temperature_c' => 'decimal:1',
             'weight_kg' => 'decimal:2',
             'height_cm' => 'decimal:1',

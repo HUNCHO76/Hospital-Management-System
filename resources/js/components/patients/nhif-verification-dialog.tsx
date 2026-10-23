@@ -287,14 +287,30 @@ export function NhifVerificationDialog({
 
                     <div className="space-y-4 py-4">
                         {/* Member & Card Summary */}
-                        <div className="rounded-lg border bg-muted/40 p-3 text-sm space-y-1">
-                            <div className="flex justify-between">
-                                <span className="text-muted-foreground">Card / ID Number:</span>
-                                <span className="font-mono font-medium">{cardNo || patient.national_id || 'N/A'}</span>
+                        <div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-3 text-sm">
+                            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-muted">
+                                <img
+                                    src={
+                                        latestVerification?.member_picture ||
+                                        insurance.nhif_member_picture ||
+                                        '/images/default-avatar.svg'
+                                    }
+                                    alt="NHIF Member"
+                                    className="h-full w-full object-cover object-top"
+                                    onError={(e) => {
+                                        e.currentTarget.src = '/images/default-avatar.svg';
+                                    }}
+                                />
                             </div>
-                            <div className="flex justify-between">
-                                <span className="text-muted-foreground">Patient:</span>
-                                <span className="font-medium">{patientName}</span>
+                            <div className="flex-1 space-y-0.5">
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground text-xs">Card / ID Number:</span>
+                                    <span className="font-mono text-xs font-medium">{cardNo || patient.national_id || 'N/A'}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground text-xs">Patient:</span>
+                                    <span className="text-xs font-medium">{patientName}</span>
+                                </div>
                             </div>
                         </div>
 

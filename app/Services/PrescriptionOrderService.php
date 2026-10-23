@@ -12,6 +12,7 @@ use App\Models\PrescriptionVerification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -48,6 +49,7 @@ class PrescriptionOrderService
 
             $this->assertEncounterEligible($encounter);
             $this->assertConsultationEligible($encounter);
+            $this->assertPrescriberAuthorized($request->user());
 
             $medications = $this->resolveActiveMedications($this->assertNoDuplicateMedications($data['items']));
 
@@ -343,8 +345,8 @@ class PrescriptionOrderService
      */
     protected function autoMapNhifCodes(ClinicalEncounter $encounter, $medications): void
     {
-        $insurance = $encounter->patient?->activeNhifInsurance();
-        if (! $insurance?->nhif_scheme_id) {
+        $insurance = $encounter->patient?->currentNhifInsurance();
+        if (! $insurance?->nhif_scheme_id || ! Schema::hasTable('schemes_services')) {
             return;
         }
 
@@ -445,6 +447,19 @@ class PrescriptionOrderService
         if ($order->verification?->status === PrescriptionVerification::STATUS_VERIFIED) {
             throw ValidationException::withMessages([
                 'status' => 'Cannot modify a prescription that has already been verified.',
+            ]);
+    }
+
+    /**
+     * Enforce professional scope restrictions: nurses cannot prescribe unless explicitly granted the nurse-prescribe privilege.
+     *
+     * @throws ValidationException
+     */
+    protected function assertPrescriberAuthorized(\App\Models\User $user): void
+    {
+        if ($user->hasRole('nurse') && ! $user->can('prescriptions.nurse-prescribe')) {
+            throw ValidationException::withMessages([
+                'prescriber' => 'Nurses are not authorized to prescribe medications without explicit prescribing privileges.',
             ]);
         }
     }

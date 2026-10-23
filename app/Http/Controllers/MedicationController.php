@@ -253,7 +253,7 @@ class MedicationController extends Controller
             return null;
         }
 
-        $insurance = $encounter->patient?->activeNhifInsurance();
+        $insurance = $encounter->patient?->currentNhifInsurance();
 
         return $insurance?->nhif_scheme_id ? (int) $insurance->nhif_scheme_id : null;
     }

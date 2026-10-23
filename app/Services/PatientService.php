@@ -164,7 +164,31 @@ class PatientService
     public function update(Patient $patient, array $data, Request $request): Patient
     {
         $contacts = $data['contacts'] ?? [];
-        unset($data['contacts']);
+        $correctionReason = $data['correction_reason'] ?? null;
+        unset($data['contacts'], $data['correction_reason']);
+
+        $demographicKeys = ['gender', 'date_of_birth', 'national_id', 'passport_number'];
+        $demographicChanged = false;
+        foreach ($demographicKeys as $key) {
+            if (array_key_exists($key, $data) && (string) $data[$key] !== (string) $patient->{$key}) {
+                $demographicChanged = true;
+                break;
+            }
+        }
+
+        if ($demographicChanged) {
+            if (! $request->user()->can('patients.correct-demographics') && ! $request->user()->hasRole(['hospital-admin', 'super-admin', 'doctor'])) {
+                throw ValidationException::withMessages([
+                    'gender' => 'You do not have authorization to correct core patient demographics.',
+                ]);
+            }
+
+            if (empty($correctionReason) || mb_strlen(trim($correctionReason)) < 10) {
+                throw ValidationException::withMessages([
+                    'correction_reason' => 'A documented correction reason (at least 10 characters) is required to correct patient demographics.',
+                ]);
+            }
+        }
 
         $oldValues = $patient->only(array_keys($data));
 
@@ -184,6 +208,62 @@ class PatientService
         });
 
         $this->auditLog->record('patient_updated', $patient, $oldValues, $patient->only(array_keys($data)), $request);
+
+        if ($demographicChanged) {
+            $this->auditLog->record(
+                'patient_demographics_corrected',
+                $patient,
+                $oldValues,
+                [
+                    ...$patient->only($demographicKeys),
+                    'correction_reason' => $correctionReason,
+                    'corrected_by' => $request->user()->id,
+                ],
+                $request
+            );
+        }
+
+        return $patient;
+    }
+
+    /**
+     * Dedicated demographic correction action with explicit justification and audit logging.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @throws ValidationException
+     */
+    public function correctDemographics(Patient $patient, array $data, string $reason, Request $request): Patient
+    {
+        if (! $request->user()->can('patients.correct-demographics') && ! $request->user()->hasRole(['hospital-admin', 'super-admin', 'doctor'])) {
+            throw ValidationException::withMessages([
+                'gender' => 'You do not have authorization to correct core patient demographics.',
+            ]);
+        }
+
+        if (mb_strlen(trim($reason)) < 10) {
+            throw ValidationException::withMessages([
+                'correction_reason' => 'A documented correction reason (at least 10 characters) is required.',
+            ]);
+        }
+
+        $allowedKeys = ['gender', 'date_of_birth', 'national_id', 'passport_number', 'first_name', 'last_name'];
+        $updateData = array_intersect_key($data, array_flip($allowedKeys));
+        $oldValues = $patient->only(array_keys($updateData));
+
+        $patient->update($updateData);
+
+        $this->auditLog->record(
+            'patient_demographics_corrected',
+            $patient,
+            $oldValues,
+            [
+                ...$updateData,
+                'correction_reason' => $reason,
+                'corrected_by' => $request->user()->id,
+            ],
+            $request
+        );
 
         return $patient;
     }

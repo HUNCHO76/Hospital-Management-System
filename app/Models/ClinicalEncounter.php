@@ -188,7 +188,6 @@ class ClinicalEncounter extends Model
         return $this->belongsTo(Admission::class);
     }
 
-
     /**
      * The department responsible for this encounter.
      */
@@ -310,5 +309,21 @@ class ClinicalEncounter extends Model
     public function nhifPreApprovalSessions(): HasMany
     {
         return $this->hasMany(NhifPreApprovalSession::class);
+    }
+
+    /**
+     * Inpatient admission created directly from this encounter, if any.
+     */
+    public function linkedAdmission(): HasOne
+    {
+        return $this->hasOne(Admission::class, 'clinical_encounter_id');
+    }
+
+    /**
+     * Resolve the associated admission whether linked directly via admission_id or inverse clinical_encounter_id.
+     */
+    public function getResolvedAdmissionAttribute(): ?Admission
+    {
+        return $this->admission ?? $this->linkedAdmission;
     }
 }

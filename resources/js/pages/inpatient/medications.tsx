@@ -52,7 +52,7 @@ interface PrescriptionOrderItem {
 interface PrescriptionOrder {
     id: number;
     items: PrescriptionOrderItem[];
-    clinicalEncounter: { id: number; encounter_number: string; started_at: string } | null;
+    clinicalEncounter: { id: number; encounter_number: string; encounter_type?: string; started_at: string } | null;
 }
 
 interface MedicationsProps {
@@ -267,11 +267,16 @@ export default function InpatientMedications({
                                             )}
                                         </div>
                                         <div className="text-right text-sm">
-                                            <div className="text-muted-foreground flex items-center gap-1">
+                                            <div className="text-muted-foreground flex items-center justify-end gap-1">
                                                 <BedDouble className="h-3 w-3" />
-                                                {order.clinicalEncounter?.encounter_number ?? '—'}
+                                                <span>{order.clinicalEncounter?.encounter_number ?? '—'}</span>
                                             </div>
-                                            <div className="text-muted-foreground text-xs">Dispensed: {dispensedQty}</div>
+                                            {order.clinicalEncounter?.encounter_type && (
+                                                <Badge variant="secondary" className="text-[10px] uppercase font-normal mt-0.5">
+                                                    {order.clinicalEncounter.encounter_type.replace(/_/g, ' ')}
+                                                </Badge>
+                                            )}
+                                            <div className="text-muted-foreground text-xs mt-0.5">Dispensed: {dispensedQty}</div>
                                         </div>
                                     </div>
                                 </CardHeader>

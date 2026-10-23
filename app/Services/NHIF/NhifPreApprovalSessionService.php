@@ -9,6 +9,7 @@ use App\Models\NhifPreApprovalSession;
 use App\Models\NhifPreApprovalSessionItem;
 use App\Models\NhifSchemeService;
 use App\Models\PatientInsurance;
+use App\Models\Practitioner;
 use App\Services\AuditLogService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -59,7 +60,7 @@ class NhifPreApprovalSessionService
 
         if ($insurance->isAuthorizationExpired()) {
             throw ValidationException::withMessages([
-                'nhif_authorization_no' => 'Patient NHIF authorization has expired (>24 hours). Please re-verify the patient\'s card before requesting services.',
+                'nhif_authorization_no' => 'Patient NHIF authorization has expired (>24 hours). Please send the patient to reception to re-verify their NHIF card before requesting services.',
             ]);
         }
 
@@ -219,8 +220,8 @@ class NhifPreApprovalSessionService
         $facilityCode = $insurance?->nhif_facility_code ?? $hospital?->code ?? null;
 
         if (blank($session->practitioner_no)) {
-            $resolved = \App\Models\Practitioner::query()
-                ->where('status', \App\Models\Practitioner::STATUS_ACTIVE)
+            $resolved = Practitioner::query()
+                ->where('status', Practitioner::STATUS_ACTIVE)
                 ->whereNotNull('nhif_practitioner_no')
                 ->where('nhif_practitioner_no', '!=', '')
                 ->whereHas('staff', fn ($q) => $q->where('hospital_id', $session->hospital_id))

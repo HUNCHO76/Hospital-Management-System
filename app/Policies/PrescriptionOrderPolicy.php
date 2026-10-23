@@ -52,6 +52,10 @@ class PrescriptionOrderPolicy
             return false;
         }
 
+        if ($user->hasRole('nurse') && ! $user->can('prescriptions.nurse-prescribe')) {
+            return false;
+        }
+
         return $this->ownsOrSupervises($user, $encounter);
     }
 

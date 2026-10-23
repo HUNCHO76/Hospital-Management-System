@@ -54,12 +54,12 @@ export function AppSidebar() {
         const workspaceItems: NavItem[] = [
             ...(can('dashboard.view')
                 ? [
-                      {
-                          title: 'Dashboard',
-                          url: '/dashboard',
-                          icon: LayoutGrid,
-                      },
-                  ]
+                    {
+                        title: 'Dashboard',
+                        url: '/dashboard',
+                        icon: LayoutGrid,
+                    },
+                ]
                 : []),
         ];
 
@@ -79,86 +79,98 @@ export function AppSidebar() {
                 : []),
             ...(can('laboratory.view')
                 ? [
-                      {
-                          title: 'Laboratory',
-                          url: '/laboratory',
-                          icon: FlaskConical,
-                          items: [
-                              { title: 'Orders & Worklist', url: '/laboratory' },
-                              ...(can('laboratory-samples.view')
-                                  ? [{ title: 'Sample Collection', url: '/laboratory/collection' }]
-                                  : []),
-                              ...(can('laboratory-processing.view')
-                                  ? [{ title: 'Bench Processing', url: '/laboratory/processing' }]
-                                  : []),
-                              ...(can('laboratory-results.view')
-                                  ? [{ title: 'Results Entry & Release', url: '/laboratory/results' }]
-                                  : []),
-                              ...(can('laboratory-tests.view')
-                                  ? [{ title: 'Test Catalog', url: '/laboratory/tests' }]
-                                  : []),
-                          ],
-                      },
-                  ]
+                    {
+                        title: 'Laboratory',
+                        url: '/laboratory',
+                        icon: FlaskConical,
+                        items: [
+                            { title: 'Orders & Worklist', url: '/laboratory' },
+                            ...(can('laboratory-samples.view')
+                                ? [{ title: 'Sample Collection', url: '/laboratory/collection' }]
+                                : []),
+                            ...(can('laboratory-processing.view')
+                                ? [{ title: 'Bench Processing', url: '/laboratory/processing' }]
+                                : []),
+                            ...(can('laboratory-results.view')
+                                ? [{ title: 'Results Entry & Release', url: '/laboratory/results' }]
+                                : []),
+                            ...(can('laboratory-tests.view')
+                                ? [{ title: 'Test Catalog', url: '/laboratory/tests' }]
+                                : []),
+                        ],
+                    },
+                ]
                 : []),
             ...(can('radiology.view')
                 ? [
-                      {
-                          title: 'Radiology',
-                          url: '/radiology',
-                          icon: Scan,
-                          items: [
-                              { title: 'Orders Worklist', url: '/radiology' },
-                              ...(can('radiology-scheduling.view')
-                                  ? [{ title: 'Scheduling Worklist', url: '/radiology/worklist' }]
-                                  : []),
-                              ...(can('radiology-reception.view')
-                                  ? [{ title: 'Reception & Prep', url: '/radiology/reception' }]
-                                  : []),
-                              ...(can('radiology-examination.view')
-                                  ? [{ title: 'Examinations', url: '/radiology/examinations' }]
-                                  : []),
-                              ...(can('radiology-results.view')
-                                  ? [{ title: 'Results & Reports', url: '/radiology/results' }]
-                                  : []),
-                              ...(can('radiology-procedures.view')
-                                  ? [{ title: 'Procedure Catalog', url: '/radiology/catalog' }]
-                                  : []),
-                          ],
-                      },
-                  ]
+                    {
+                        title: 'Radiology',
+                        url: '/radiology',
+                        icon: Scan,
+                        items: [
+                            { title: 'Orders Worklist', url: '/radiology' },
+                            ...(can('radiology-scheduling.view')
+                                ? [{ title: 'Scheduling Worklist', url: '/radiology/worklist' }]
+                                : []),
+                            ...(can('radiology-reception.view')
+                                ? [{ title: 'Reception & Prep', url: '/radiology/reception' }]
+                                : []),
+                            ...(can('radiology-examination.view')
+                                ? [{ title: 'Examinations', url: '/radiology/examinations' }]
+                                : []),
+                            ...(can('radiology-results.view')
+                                ? [{ title: 'Results & Reports', url: '/radiology/results' }]
+                                : []),
+                            ...(can('radiology-procedures.view')
+                                ? [{ title: 'Procedure Catalog', url: '/radiology/catalog' }]
+                                : []),
+                        ],
+                    },
+                ]
                 : []),
             ...(can('pharmacy.view')
                 ? [
-                      {
-                          title: 'Pharmacy',
-                          url: '/pharmacy',
-                          icon: Pill,
-                          items: [
-                              ...(can('pharmacy-prescriptions.view') || can('pharmacy.view')
-                                  ? [{ title: 'Prescriptions', url: '/pharmacy/prescriptions' }]
-                                  : []),
-                              ...(can('pharmacy-verification.view')
-                                  ? [{ title: 'Prescription Verification', url: '/pharmacy/prescriptions/verification' }]
-                                  : []),
-                              ...(can('pharmacy-dispensing.view')
-                                  ? [{ title: 'Dispensing', url: '/pharmacy/dispensing' }]
-                                  : []),
-                              ...(can('pharmacy-stock.view')
-                                  ? [{ title: 'Stock & Batches', url: '/pharmacy/stock' }]
-                                  : []),
-                              ...(can('medications.view')
-                                  ? [{ title: 'Medication Catalog', url: '/pharmacy/medications' }]
-                                  : []),
-                          ],
-                      },
-                  ]
+                    {
+                        title: 'Pharmacy',
+                        url: '/pharmacy',
+                        icon: Pill,
+                        items: [
+                            ...(can('pharmacy-prescriptions.view') || can('pharmacy.view')
+                                ? [{ title: 'Prescriptions', url: '/pharmacy/prescriptions' }]
+                                : []),
+                            ...(can('pharmacy-verification.view')
+                                ? [{ title: 'Prescription Verification', url: '/pharmacy/prescriptions/verification' }]
+                                : []),
+                            ...(can('pharmacy-dispensing.view')
+                                ? [{ title: 'Dispensing', url: '/pharmacy/dispensing' }]
+                                : []),
+                            ...(can('pharmacy-stock.view')
+                                ? [{ title: 'Stock & Batches', url: '/pharmacy/stock' }]
+                                : []),
+                            ...(can('medications.view')
+                                ? [{ title: 'Medication Catalog', url: '/pharmacy/medications' }]
+                                : []),
+                        ],
+                    },
+                ]
                 : []),
             ...(can('admission.view')
                 ? [{ title: 'Admissions', url: '/admissions', icon: BedDouble }]
                 : []),
-            ...(can('admission.view') || can('inpatient.medications.view')
-                ? [{ title: 'Inpatient Ward', url: '/inpatient', icon: Activity }]
+            ...(can('admission.view') || can('inpatient.medications.view') || can('inpatient-nursing.view')
+                ? [
+                    {
+                        title: 'Inpatient Ward',
+                        url: '/inpatient',
+                        icon: Activity,
+                        items: [
+                            { title: 'Ward Overview', url: '/inpatient' },
+                            ...(can('inpatient-nursing.view')
+                                ? [{ title: 'Nursing Station', url: '/inpatient/nursing' }]
+                                : []),
+                        ],
+                    },
+                ]
                 : []),
         ];
 
@@ -166,83 +178,83 @@ export function AppSidebar() {
         const financeItems: NavItem[] = [
             ...(can('billing.view')
                 ? [
-                      {
-                          title: 'Billing & Payments',
-                          url: '/billing',
-                          icon: Receipt,
-                          items: [
-                              { title: 'Overview', url: '/billing' },
-                              ...(can('billing-accounts.view')
-                                  ? [{ title: 'Patient Accounts', url: '/billing/accounts' }]
-                                  : []),
-                              ...(can('billing-invoices.view')
-                                  ? [{ title: 'Invoices', url: '/billing/invoices' }]
-                                  : []),
-                              ...(can('billing-payments.view')
-                                  ? [{ title: 'Payments', url: '/billing/payments' }]
-                                  : []),
-                              ...(can('billing-cashier.view')
-                                  ? [{ title: 'Cashier Sessions', url: '/billing/cashier' }]
-                                  : []),
-                              ...(can('billing-adjustments.view')
-                                  ? [{ title: 'Adjustments', url: '/billing/adjustments' }]
-                                  : []),
-                          ],
-                      },
-                  ]
+                    {
+                        title: 'Billing & Payments',
+                        url: '/billing',
+                        icon: Receipt,
+                        items: [
+                            { title: 'Overview', url: '/billing' },
+                            ...(can('billing-accounts.view')
+                                ? [{ title: 'Patient Accounts', url: '/billing/accounts' }]
+                                : []),
+                            ...(can('billing-invoices.view')
+                                ? [{ title: 'Invoices', url: '/billing/invoices' }]
+                                : []),
+                            ...(can('billing-payments.view')
+                                ? [{ title: 'Payments', url: '/billing/payments' }]
+                                : []),
+                            ...(can('billing-cashier.view')
+                                ? [{ title: 'Cashier Sessions', url: '/billing/cashier' }]
+                                : []),
+                            ...(can('billing-adjustments.view')
+                                ? [{ title: 'Adjustments', url: '/billing/adjustments' }]
+                                : []),
+                        ],
+                    },
+                ]
                 : []),
             ...(can('insurance-providers.view') || can('insurance-schemes.view') || can('patient-insurance.view')
                 ? [
-                      {
-                          title: 'Insurance',
-                          url: '/insurance/providers',
-                          icon: ShieldCheck,
-                          items: [
-                              ...(can('insurance-providers.view')
-                                  ? [{ title: 'Insurance Providers', url: '/insurance/providers' }]
-                                  : []),
-                              ...(can('insurance-schemes.view')
-                                  ? [{ title: 'Insurance Schemes', url: '/insurance/schemes' }]
-                                  : []),
-                              ...(can('patient-insurance.view')
-                                  ? [{ title: 'Patient Insurance', url: '/insurance/patient-insurance' }]
-                                  : []),
-                          ],
-                      },
-                  ]
+                    {
+                        title: 'Insurance',
+                        url: '/insurance/providers',
+                        icon: ShieldCheck,
+                        items: [
+                            ...(can('insurance-providers.view')
+                                ? [{ title: 'Insurance Providers', url: '/insurance/providers' }]
+                                : []),
+                            ...(can('insurance-schemes.view')
+                                ? [{ title: 'Insurance Schemes', url: '/insurance/schemes' }]
+                                : []),
+                            ...(can('patient-insurance.view')
+                                ? [{ title: 'Patient Insurance', url: '/insurance/patient-insurance' }]
+                                : []),
+                        ],
+                    },
+                ]
                 : []),
             ...(can('nhif-claims.view') ||
-            can('nhif-authorization-context.lookup') ||
-            can('nhif-claims.monthly-view') ||
-            can('nhif-claims.view-reconciliation') ||
-            can('nhif-utilization.view')
+                can('nhif-authorization-context.lookup') ||
+                can('nhif-claims.monthly-view') ||
+                can('nhif-claims.view-reconciliation') ||
+                can('nhif-utilization.view')
                 ? [
-                      {
-                          title: 'NHIF Management',
-                          url: '/nhif/claims',
-                          icon: FileText,
-                          items: [
-                              ...(can('nhif-authorization-context.lookup')
-                                  ? [{ title: 'NHIF Verification & Lookup', url: '/nhif/authorization-context' }]
-                                  : []),
-                              ...(can('admission.view')
-                                  ? [{ title: 'NHIF Admissions', url: '/nhif/admissions' }]
-                                  : []),
-                              ...(can('nhif-claims.view')
-                                  ? [{ title: 'Individual Claims', url: '/nhif/claims' }]
-                                  : []),
-                              ...(can('nhif-claims.monthly-view')
-                                  ? [{ title: 'Monthly Claims', url: '/nhif/claims/monthly' }]
-                                  : []),
-                              ...(can('nhif-claims.view-reconciliation')
-                                  ? [{ title: 'Claim Reconciliation', url: '/nhif/reconciliation' }]
-                                  : []),
-                              ...(can('nhif-utilization.view')
-                                  ? [{ title: 'Service Utilization', url: '/nhif/utilizations' }]
-                                  : []),
-                          ],
-                      },
-                  ]
+                    {
+                        title: 'NHIF Management',
+                        url: '/nhif/claims',
+                        icon: FileText,
+                        items: [
+                            ...(can('nhif-authorization-context.lookup')
+                                ? [{ title: 'NHIF Verification & Lookup', url: '/nhif/authorization-context' }]
+                                : []),
+                            ...(can('admission.view')
+                                ? [{ title: 'NHIF Admissions', url: '/nhif/admissions' }]
+                                : []),
+                            ...(can('nhif-claims.view')
+                                ? [{ title: 'Individual Claims', url: '/nhif/claims' }]
+                                : []),
+                            ...(can('nhif-claims.monthly-view')
+                                ? [{ title: 'Monthly Claims', url: '/nhif/claims/monthly' }]
+                                : []),
+                            ...(can('nhif-claims.view-reconciliation')
+                                ? [{ title: 'Claim Reconciliation', url: '/nhif/reconciliation' }]
+                                : []),
+                            ...(can('nhif-utilization.view')
+                                ? [{ title: 'Service Utilization', url: '/nhif/utilizations' }]
+                                : []),
+                        ],
+                    },
+                ]
                 : []),
         ];
 
@@ -250,66 +262,66 @@ export function AppSidebar() {
         const procurementItems: NavItem[] = [
             ...(can('procurement.view')
                 ? [
-                      {
-                          title: 'Procurement',
-                          url: '/procurement',
-                          icon: ShoppingCart,
-                          items: [
-                              { title: 'Dashboard', url: '/procurement' },
-                              ...(can('procurement-indents.view')
-                                  ? [{ title: 'Hospital Indents', url: '/procurement/indents' }]
-                                  : []),
-                              ...(can('procurement-quotations.view')
-                                  ? [{ title: 'Vendors & Quotations', url: '/procurement/quotations' }]
-                                  : []),
-                              ...(can('procurement-quotations.compare')
-                                  ? [{ title: 'Quote Comparison', url: '/procurement/quotations/compare' }]
-                                  : []),
-                              ...(can('procurement-purchase-orders.view')
-                                  ? [{ title: 'Purchase Orders', url: '/procurement/orders' }]
-                                  : []),
-                              ...(can('procurement-invoices.view')
-                                  ? [{ title: 'Vendor Invoices (3-Way)', url: '/procurement/invoices' }]
-                                  : []),
-                              ...(can('procurement-vendors.view')
-                                  ? [{ title: 'Vendors Directory', url: '/procurement/vendors' }]
-                                  : []),
-                              ...(can('procurement-items.view')
-                                  ? [{ title: 'Catalog Items', url: '/procurement/items' }]
-                                  : []),
-                          ],
-                      },
-                  ]
+                    {
+                        title: 'Procurement',
+                        url: '/procurement',
+                        icon: ShoppingCart,
+                        items: [
+                            { title: 'Dashboard', url: '/procurement' },
+                            ...(can('procurement-indents.view')
+                                ? [{ title: 'Hospital Indents', url: '/procurement/indents' }]
+                                : []),
+                            ...(can('procurement-quotations.view')
+                                ? [{ title: 'Vendors & Quotations', url: '/procurement/quotations' }]
+                                : []),
+                            ...(can('procurement-quotations.compare')
+                                ? [{ title: 'Quote Comparison', url: '/procurement/quotations/compare' }]
+                                : []),
+                            ...(can('procurement-purchase-orders.view')
+                                ? [{ title: 'Purchase Orders', url: '/procurement/orders' }]
+                                : []),
+                            ...(can('procurement-invoices.view')
+                                ? [{ title: 'Vendor Invoices (3-Way)', url: '/procurement/invoices' }]
+                                : []),
+                            ...(can('procurement-vendors.view')
+                                ? [{ title: 'Vendors Directory', url: '/procurement/vendors' }]
+                                : []),
+                            ...(can('procurement-items.view')
+                                ? [{ title: 'Catalog Items', url: '/procurement/items' }]
+                                : []),
+                        ],
+                    },
+                ]
                 : []),
             ...(can('stores.view')
                 ? [
-                      {
-                          title: 'Stores & Inventory',
-                          url: '/stores',
-                          icon: Warehouse,
-                          items: [
-                              { title: 'Store Dashboard', url: '/stores' },
-                              ...(can('stores-grn.view')
-                                  ? [{ title: 'Goods Receipt (GRN)', url: '/stores/grn' }]
-                                  : []),
-                              ...(can('stores-requests.view')
-                                  ? [{ title: 'Department Requests', url: '/stores/requests' }]
-                                  : []),
-                              ...(can('stores-issues.view')
-                                  ? [{ title: 'Department Issues', url: '/stores/issues' }]
-                                  : []),
-                              ...(can('stores-transfers.view')
-                                  ? [{ title: 'Stock Transfers', url: '/stores/transfers' }]
-                                  : []),
-                              ...(can('stores-inventory.view')
-                                  ? [{ title: 'Stock & Inventory', url: '/stores/inventory' }]
-                                  : []),
-                              ...(can('stores-batches.view')
-                                  ? [{ title: 'Batches & Expiry', url: '/stores/batches' }]
-                                  : []),
-                          ],
-                      },
-                  ]
+                    {
+                        title: 'Stores & Inventory',
+                        url: '/stores',
+                        icon: Warehouse,
+                        items: [
+                            { title: 'Store Dashboard', url: '/stores' },
+                            ...(can('stores-grn.view')
+                                ? [{ title: 'Goods Receipt (GRN)', url: '/stores/grn' }]
+                                : []),
+                            ...(can('stores-requests.view')
+                                ? [{ title: 'Department Requests', url: '/stores/requests' }]
+                                : []),
+                            ...(can('stores-issues.view')
+                                ? [{ title: 'Department Issues', url: '/stores/issues' }]
+                                : []),
+                            ...(can('stores-transfers.view')
+                                ? [{ title: 'Stock Transfers', url: '/stores/transfers' }]
+                                : []),
+                            ...(can('stores-inventory.view')
+                                ? [{ title: 'Stock & Inventory', url: '/stores/inventory' }]
+                                : []),
+                            ...(can('stores-batches.view')
+                                ? [{ title: 'Batches & Expiry', url: '/stores/batches' }]
+                                : []),
+                        ],
+                    },
+                ]
                 : []),
         ];
 

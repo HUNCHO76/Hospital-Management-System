@@ -57,4 +57,22 @@ return [
         'pain_score' => ['min' => 0, 'max' => 10],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Escalation behaviour
+    |--------------------------------------------------------------------------
+    |
+    | When true, an inpatient observation with any measurement in a configured
+    | "critical" band automatically opens an ObservationEscalation (a request
+    | for clinician review — never a diagnosis). The observation itself is
+    | always saved. The bands above are generic adult reference values, NOT a
+    | facility-approved protocol: replace them with the hospital's approved
+    | early-warning/escalation thresholds before clinical use.
+    |
+    */
+
+    'escalation' => [
+        'auto_on_critical' => env('VITALS_AUTO_ESCALATE_ON_CRITICAL', true),
+    ],
+
 ];

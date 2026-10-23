@@ -162,7 +162,7 @@ class LaboratoryOrder extends Model
         );
 
         if ($progress === []) {
-            return self::STATUS_ORDERED;
+            return self::STATUS_CANCELLED;
         }
 
         $min = min($progress);

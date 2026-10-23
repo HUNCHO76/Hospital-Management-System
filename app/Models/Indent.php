@@ -39,11 +39,14 @@ class Indent extends Model
         'hospital_id',
         'department_id',
         'requested_by',
+        'store_id',
         'target_store_id',
         'indent_date',
         'required_by_date',
+        'required_date',
         'priority',
         'status',
+        'justification',
         'rejection_reason',
         'notes',
         'approved_by',
@@ -57,8 +60,32 @@ class Indent extends Model
         return [
             'indent_date' => 'date',
             'required_by_date' => 'date',
+            'required_date' => 'date',
             'approved_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (self $indent) {
+            if ($indent->target_store_id && ! $indent->store_id) {
+                $indent->store_id = $indent->target_store_id;
+            } elseif ($indent->store_id && ! $indent->target_store_id) {
+                $indent->target_store_id = $indent->store_id;
+            }
+
+            if ($indent->required_by_date && ! $indent->required_date) {
+                $indent->required_date = $indent->required_by_date;
+            } elseif ($indent->required_date && ! $indent->required_by_date) {
+                $indent->required_by_date = $indent->required_date;
+            }
+
+            if ($indent->notes && ! $indent->justification) {
+                $indent->justification = $indent->notes;
+            } elseif ($indent->justification && ! $indent->notes) {
+                $indent->notes = $indent->justification;
+            }
+        });
     }
 
     public function hospital(): BelongsTo
@@ -79,6 +106,11 @@ class Indent extends Model
     public function targetStore(): BelongsTo
     {
         return $this->belongsTo(Store::class, 'target_store_id');
+    }
+
+    public function store(): BelongsTo
+    {
+        return $this->belongsTo(Store::class, 'store_id');
     }
 
     public function approvedBy(): BelongsTo

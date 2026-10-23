@@ -50,6 +50,7 @@ class NhifMemberVerification extends Model
         'nhif_facility_code',
         'verify_card_request',
         'verify_card_response',
+        'member_picture',
         'http_status',
         'error_message',
         'correlation_id',

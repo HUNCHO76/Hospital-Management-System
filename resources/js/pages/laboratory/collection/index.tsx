@@ -140,9 +140,15 @@ export default function LaboratoryCollectionIndex({ orders, filters, priorities 
                     </TableHeader>
                     <TableBody>
                         {orders.data.map((order) => {
+                            const isCancelled = order.status === 'cancelled' || order.financial_status === 'cancelled';
+                            const isNhifSentNotIssued = order.financial_status === 'nhif_sent_not_issued';
+                            const isNhifPending = order.financial_status === 'nhif_pending_request';
                             const paymentRequired = order.financial_status === 'payment_required';
+                            const isBlocked = paymentRequired || isNhifSentNotIssued || isNhifPending;
+                            const activeItemsCount = order.items.filter((i) => i.status !== 'cancelled').length;
+
                             return (
-                            <TableRow key={order.id} className={paymentRequired ? 'bg-amber-500/5' : undefined}>
+                            <TableRow key={order.id} className={isCancelled ? 'opacity-60 bg-muted/20' : isBlocked ? 'bg-amber-500/5' : undefined}>
                                 <TableCell className="font-medium">{order.order_number}</TableCell>
                                 <TableCell>
                                     <div className="flex flex-col">
@@ -150,7 +156,7 @@ export default function LaboratoryCollectionIndex({ orders, filters, priorities 
                                         {order.patient && <span className="text-muted-foreground text-xs">{order.patient.patient_number}</span>}
                                     </div>
                                 </TableCell>
-                                <TableCell>{order.items.length}</TableCell>
+                                <TableCell>{activeItemsCount}</TableCell>
                                 <TableCell>{requiredSpecimens(order)}</TableCell>
                                 <TableCell>{laboratoryOrderPriorityLabel[order.priority]}</TableCell>
                                 <TableCell>{formatDateTime(order.ordered_at)}</TableCell>
@@ -158,7 +164,21 @@ export default function LaboratoryCollectionIndex({ orders, filters, priorities 
                                     <Badge variant={laboratoryOrderStatusVariant[order.status]}>{laboratoryOrderStatusLabel[order.status]}</Badge>
                                 </TableCell>
                                 <TableCell>
-                                    {paymentRequired ? (
+                                    {isCancelled ? (
+                                        <Badge variant="secondary" className="text-muted-foreground">
+                                            Cancelled
+                                        </Badge>
+                                    ) : isNhifSentNotIssued ? (
+                                        <Badge variant="outline" className="gap-1 border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium whitespace-nowrap">
+                                            <AlertCircle className="h-3 w-3" />
+                                            Request sent but not issued
+                                        </Badge>
+                                    ) : isNhifPending ? (
+                                        <Badge variant="outline" className="gap-1 border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium whitespace-nowrap">
+                                            <AlertCircle className="h-3 w-3" />
+                                            Pre-approval Required
+                                        </Badge>
+                                    ) : paymentRequired ? (
                                         <Badge variant="destructive" className="gap-1 bg-amber-600 dark:bg-amber-700">
                                             <AlertCircle className="h-3 w-3" />
                                             Unpaid
@@ -170,9 +190,9 @@ export default function LaboratoryCollectionIndex({ orders, filters, priorities 
                                     )}
                                 </TableCell>
                                 <TableCell>
-                                    <Button asChild size="sm" variant={paymentRequired ? 'outline' : 'default'}>
+                                    <Button asChild size="sm" variant={isBlocked || isCancelled ? 'outline' : 'default'}>
                                         <Link href={route('laboratory.collection.show', order.id)}>
-                                            {paymentRequired ? 'View' : 'Collect'}
+                                            {isBlocked || isCancelled ? 'View' : 'Collect'}
                                         </Link>
                                     </Button>
                                 </TableCell>

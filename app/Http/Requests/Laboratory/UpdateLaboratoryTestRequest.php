@@ -52,6 +52,7 @@ class UpdateLaboratoryTestRequest extends FormRequest
             'effective_to' => ['nullable', 'date', 'after_or_equal:effective_from'],
             'nhif_code' => ['nullable', 'string', 'max:50'],
             'price' => ['nullable', 'numeric', 'min:0'],
+            'redirect_to' => ['nullable', 'string', 'max:500'],
         ];
     }
 }

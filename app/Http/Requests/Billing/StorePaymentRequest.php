@@ -38,6 +38,7 @@ class StorePaymentRequest extends FormRequest
             'payment_method' => ['required', 'string', Rule::in(Payment::METHODS)],
             'reference_number' => ['nullable', 'string', 'max:100'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'idempotency_key' => ['nullable', 'string', 'max:100'],
         ];
     }
 }

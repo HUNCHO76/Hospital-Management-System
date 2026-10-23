@@ -23,6 +23,7 @@ class LaboratorySampleResource extends JsonResource
             'laboratory_order_id' => $this->laboratory_order_id,
             'specimen_type' => $this->specimen_type,
             'container_type' => $this->container_type,
+            'specimen_source' => $this->specimen_source,
             'status' => $this->status,
             'collection_site' => $this->collection_site,
             'collection_notes' => $this->collection_notes,

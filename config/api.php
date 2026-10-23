@@ -45,6 +45,7 @@ return [
     'rate_limits' => [
         'auth' => (int) env('API_RATE_LIMIT_AUTH', 5),
         'standard' => (int) env('API_RATE_LIMIT_STANDARD', 60),
+        'nhif_verification' => (int) env('API_RATE_LIMIT_NHIF_VERIFICATION', 15),
     ],
 
     /*

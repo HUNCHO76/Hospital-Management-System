@@ -11,6 +11,7 @@ use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
 use App\Models\PrescriptionVerification;
 use App\Services\FinancialAuthorizationService;
+use App\Services\NHIF\NhifOrderPreApprovalService;
 use App\Services\PharmacySearchService;
 use App\Services\PrescriptionVerificationService;
 use Illuminate\Http\RedirectResponse;
@@ -49,8 +50,12 @@ class PrescriptionVerificationController extends Controller
         ];
     }
 
-    public function index(Request $request, PharmacySearchService $search, FinancialAuthorizationService $financialAuth): Response
-    {
+    public function index(
+        Request $request,
+        PharmacySearchService $search,
+        FinancialAuthorizationService $financialAuth,
+        NhifOrderPreApprovalService $nhifPreApproval,
+    ): Response {
         $this->authorize('viewVerificationQueue', PrescriptionOrder::class);
 
         $filters = $request->only(['search', 'status', 'date_from', 'date_to']);
@@ -59,7 +64,7 @@ class PrescriptionVerificationController extends Controller
         $search->scopeToHospital($query, $this->scopedHospitalId($request));
 
         $paginator = $query->paginate(20)->withQueryString();
-        $financialStatuses = $this->batchPrescriptionFinancialStatuses($paginator->getCollection(), $financialAuth);
+        $financialStatuses = $this->batchPrescriptionFinancialStatuses($paginator->getCollection(), $financialAuth, $nhifPreApproval);
 
         $orders = $paginator->through(fn (PrescriptionOrder $order) => array_merge(
             (new PrescriptionVerificationResource($order))->resolve($request),
@@ -78,8 +83,12 @@ class PrescriptionVerificationController extends Controller
      * Fires the PRESCRIPTION_REVIEW_STARTED audit event when it is actually
      * pending a decision.
      */
-    public function review(Request $request, PrescriptionOrder $prescriptionOrder, PrescriptionVerificationService $service): Response
-    {
+    public function review(
+        Request $request,
+        PrescriptionOrder $prescriptionOrder,
+        PrescriptionVerificationService $service,
+        NhifOrderPreApprovalService $nhifPreApproval,
+    ): Response {
         $this->authorize('review', $prescriptionOrder);
 
         $prescriptionOrder->load($this->eagerLoads());
@@ -92,11 +101,17 @@ class PrescriptionVerificationController extends Controller
             ->pluck('id')
             ->all();
 
+        $nhifStatus = $nhifPreApproval->statusForPrescriptionOrder($prescriptionOrder);
         $prescriptionFinancialStatus = FinancialAuthorizationService::STATUS_AUTHORIZED;
-        foreach ($activeItemIds as $itemId) {
-            if ($financialAuth->statusForSource(PrescriptionOrderItem::class, $itemId) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
-                $prescriptionFinancialStatus = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
-                break;
+
+        if ($nhifStatus !== null && $nhifStatus['status'] !== NhifOrderPreApprovalService::STATUS_AUTHORIZED) {
+            $prescriptionFinancialStatus = $nhifStatus['status'];
+        } else {
+            foreach ($activeItemIds as $itemId) {
+                if ($financialAuth->statusForSource(PrescriptionOrderItem::class, $itemId) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                    $prescriptionFinancialStatus = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
+                    break;
+                }
             }
         }
 
@@ -114,6 +129,7 @@ class PrescriptionVerificationController extends Controller
             'canReturn' => $request->user()->can('returnForCorrection', $prescriptionOrder),
             'canResubmit' => $request->user()->can('update', $prescriptionOrder),
             'prescriptionFinancialStatus' => $prescriptionFinancialStatus,
+            'nhifPreApprovalStatus' => $nhifStatus,
             'patientAccountId' => $patientAccountId,
         ]);
     }
@@ -159,10 +175,22 @@ class PrescriptionVerificationController extends Controller
      * @param  Collection<int, PrescriptionOrder>  $orders
      * @return array<int, string>
      */
-    private function batchPrescriptionFinancialStatuses(Collection $orders, FinancialAuthorizationService $financialAuth): array
-    {
+    private function batchPrescriptionFinancialStatuses(
+        Collection $orders,
+        FinancialAuthorizationService $financialAuth,
+        NhifOrderPreApprovalService $nhifPreApproval,
+    ): array {
+        $nhifStatuses = $nhifPreApproval->batchPrescriptionOrderStatuses($orders);
+        $result = [];
         $itemIdsByOrderId = [];
+
         foreach ($orders as $order) {
+            if (isset($nhifStatuses[$order->id])) {
+                $result[$order->id] = $nhifStatuses[$order->id]['status'];
+
+                continue;
+            }
+
             $itemIdsByOrderId[$order->id] = $order->items
                 ->where('status', '!=', PrescriptionOrderItem::STATUS_CANCELLED)
                 ->pluck('id')
@@ -172,7 +200,11 @@ class PrescriptionVerificationController extends Controller
         $allItemIds = collect(array_values($itemIdsByOrderId))->flatten()->all();
 
         if (empty($allItemIds)) {
-            return array_fill_keys(array_keys($itemIdsByOrderId), FinancialAuthorizationService::STATUS_AUTHORIZED);
+            foreach ($itemIdsByOrderId as $orderId => $itemIds) {
+                $result[$orderId] = FinancialAuthorizationService::STATUS_AUTHORIZED;
+            }
+
+            return $result;
         }
 
         $chargesByItemId = Charge::query()
@@ -181,7 +213,6 @@ class PrescriptionVerificationController extends Controller
             ->get()
             ->keyBy('source_id');
 
-        $result = [];
         foreach ($itemIdsByOrderId as $orderId => $itemIds) {
             $status = FinancialAuthorizationService::STATUS_AUTHORIZED;
             foreach ($itemIds as $itemId) {

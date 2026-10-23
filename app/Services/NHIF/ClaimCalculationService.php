@@ -14,6 +14,7 @@ use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryResult;
 use App\Models\Medication;
 use App\Models\MedicationAdministration;
+use App\Models\NhifAdmission;
 use App\Models\NhifClaim;
 use App\Models\NhifClaimItem;
 use App\Models\NhifDisease;
@@ -29,6 +30,7 @@ use App\Models\RadiologyOrder;
 use App\Models\RadiologyOrderItem;
 use App\Models\ReceptionVisit;
 use App\Models\Service;
+use App\Models\ServicePrice;
 use Illuminate\Support\Collection;
 
 /**
@@ -113,9 +115,13 @@ class ClaimCalculationService
         $radiologyItems = $this->collectRadiologyServices($context, $insurance, $claimedServiceKeys);
         $items = $items->merge($radiologyItems);
 
-        // 5. Inpatient bed / accommodation services (if admission context)
-        if ($context instanceof Admission) {
-            $inpatientItems = $this->collectInpatientBedServices($context, $insurance, $claimedServiceKeys);
+        // 5. Inpatient bed / accommodation services (if admission context or encounter linked to admission)
+        $admission = $context instanceof Admission
+            ? $context
+            : ($context->admission ?? ($context->admission_id ? Admission::find($context->admission_id) : Admission::where('clinical_encounter_id', $context->id)->latest()->first()));
+
+        if ($admission) {
+            $inpatientItems = $this->collectInpatientBedServices($admission, $insurance, $claimedServiceKeys);
             $items = $items->merge($inpatientItems);
         }
 
@@ -253,9 +259,10 @@ class ClaimCalculationService
         $servicesCompleted = false;
         $completionDetail = 'Services in progress';
         if ($context instanceof ClinicalEncounter) {
-            $servicesCompleted = in_array($context->status, [ClinicalEncounter::STATUS_COMPLETED], true)
-                || $this->hasCompletedClinicalEvents($context);
-            $completionDetail = $servicesCompleted ? "Encounter {$context->encounter_number} completed" : "Encounter status is '{$context->status}'";
+            $servicesCompleted = $context->status === ClinicalEncounter::STATUS_COMPLETED;
+            $completionDetail = $servicesCompleted
+                ? "Encounter {$context->encounter_number} completed"
+                : "Doctor should complete Clinical Encounters for the patient before sending claim (Current status: {$context->status})";
         } elseif ($context instanceof Admission) {
             $servicesCompleted = in_array($context->status, [Admission::STATUS_ACTIVE, Admission::STATUS_DISCHARGED], true);
             $completionDetail = $servicesCompleted ? "Admission {$context->admission_number} ({$context->status})" : "Admission status is '{$context->status}'";
@@ -268,7 +275,11 @@ class ClaimCalculationService
             'detail' => $completionDetail,
         ];
         if (! $servicesCompleted) {
-            $errors[] = 'Clinical services have not been marked as completed for this visit.';
+            if ($context instanceof ClinicalEncounter) {
+                $errors[] = 'Doctor should complete Clinical Encounters for the patient before sending claim.';
+            } else {
+                $errors[] = 'Clinical services have not been marked as completed for this visit.';
+            }
         }
 
         // 6. Claimable Issued Services
@@ -402,16 +413,26 @@ class ClaimCalculationService
      */
     public function findExistingClaimForContext(ClinicalEncounter|Admission $context): ?NhifClaim
     {
-        if ($context instanceof ClinicalEncounter) {
-            return NhifClaim::query()
-                ->where('clinical_encounter_id', $context->id)
-                ->where('status', '!=', NhifClaim::STATUS_CANCELLED)
-                ->latest()
-                ->first();
-        }
+        $admissionId = $context instanceof Admission
+            ? $context->id
+            : ($context->resolved_admission?->id ?? $context->admission_id ?? Admission::where('clinical_encounter_id', $context->id)->value('id'));
+
+        $encounterId = $context instanceof ClinicalEncounter
+            ? $context->id
+            : ($context->clinical_encounter_id ?? null);
 
         return NhifClaim::query()
-            ->where('admission_id', $context->id)
+            ->where(function ($q) use ($admissionId, $encounterId) {
+                if ($admissionId && $encounterId) {
+                    $q->where('admission_id', $admissionId)->orWhere('clinical_encounter_id', $encounterId);
+                } elseif ($admissionId) {
+                    $q->where('admission_id', $admissionId);
+                } elseif ($encounterId) {
+                    $q->where('clinical_encounter_id', $encounterId);
+                } else {
+                    $q->whereRaw('0 = 1');
+                }
+            })
             ->where('status', '!=', NhifClaim::STATUS_CANCELLED)
             ->latest()
             ->first();
@@ -427,15 +448,26 @@ class ClaimCalculationService
         $existingClaim = $this->findExistingClaimForContext($context);
         $excludeClaimId = $existingClaim?->id;
 
+        $admissionId = $context instanceof Admission
+            ? $context->id
+            : ($context->resolved_admission?->id ?? $context->admission_id ?? Admission::where('clinical_encounter_id', $context->id)->value('id'));
+        $encounterId = $context instanceof ClinicalEncounter
+            ? $context->id
+            : ($context->clinical_encounter_id ?? null);
+
         $claimedItems = NhifClaimItem::query()
             ->whereNull('removed_at')
-            ->whereHas('claim', function ($q) use ($excludeClaimId, $context) {
+            ->whereHas('claim', function ($q) use ($excludeClaimId, $admissionId, $encounterId) {
                 $q->where('status', '!=', NhifClaim::STATUS_CANCELLED);
-                if ($context instanceof ClinicalEncounter) {
-                    $q->where('clinical_encounter_id', $context->id);
-                } else {
-                    $q->where('admission_id', $context->id);
-                }
+                $q->where(function ($sub) use ($admissionId, $encounterId) {
+                    if ($admissionId && $encounterId) {
+                        $sub->where('admission_id', $admissionId)->orWhere('clinical_encounter_id', $encounterId);
+                    } elseif ($admissionId) {
+                        $sub->where('admission_id', $admissionId);
+                    } elseif ($encounterId) {
+                        $sub->where('clinical_encounter_id', $encounterId);
+                    }
+                });
                 if ($excludeClaimId) {
                     $q->where('id', '!=', $excludeClaimId);
                 }
@@ -560,10 +592,7 @@ class ClaimCalculationService
         // Laboratory orders with released results or completed status
         $labOrders = LaboratoryOrder::query()
             ->when($context instanceof ClinicalEncounter, fn ($q) => $q->where('clinical_encounter_id', $context->id))
-            ->when($context instanceof Admission, fn ($q) => $q->where(function ($sub) use ($context) {
-                $sub->whereHas('clinicalEncounter', fn ($e) => $e->where('patient_id', $context->patient_id))
-                    ->orWhere('patient_id', $context->patient_id);
-            }))
+            ->when($context instanceof Admission, fn ($q) => $q->whereHas('clinicalEncounter', fn ($e) => $e->where('patient_id', $context->patient_id)))
             ->where('status', '!=', 'cancelled')
             ->with(['items.laboratoryTest', 'items.result'])
             ->get();
@@ -903,10 +932,7 @@ class ClaimCalculationService
 
         $radiologyOrders = RadiologyOrder::query()
             ->when($context instanceof ClinicalEncounter, fn ($q) => $q->where('clinical_encounter_id', $context->id))
-            ->when($context instanceof Admission, fn ($q) => $q->where(function ($sub) use ($context) {
-                $sub->whereHas('clinicalEncounter', fn ($e) => $e->where('patient_id', $context->patient_id))
-                    ->orWhere('patient_id', $context->patient_id);
-            }))
+            ->when($context instanceof Admission, fn ($q) => $q->whereHas('clinicalEncounter', fn ($e) => $e->where('patient_id', $context->patient_id)))
             ->where('status', '!=', 'cancelled')
             ->with('items.procedure')
             ->get();
@@ -1064,39 +1090,79 @@ class ClaimCalculationService
     {
         $items = collect();
 
-        if ($admission->admitted_at) {
-            $endDate = $admission->discharged_at ?? now();
-            $days = max(1, (int) ceil($admission->admitted_at->diffInDays($endDate)));
-            $rate = (float) ($admission->charges_per_day ?: 0.0);
+        $admittedAt = $admission->admitted_at ?? $admission->created_at ?? now();
+        $endDate = $admission->discharged_at ?? now();
+        $days = max(1, (int) ceil($admittedAt->diffInDays($endDate)));
 
-            if ($rate > 0) {
-                $wardType = strtolower((string) ($admission->ward_type ?? ''));
-                $nhifBedCode = match (true) {
-                    str_contains($wardType, 'icu') => '22',
-                    str_contains($wardType, 'hdu') => '23',
-                    default => '21',
-                };
-                $bedName = match ($nhifBedCode) {
-                    '22' => 'Intensive Care Unit (ICU)',
-                    '23' => 'High Dependency Unit (HDU)',
-                    default => 'Admission Fee for Ordinary Wards',
-                };
+        $rate = 0.0;
 
-                if (! isset($claimedKeys['code:'.$nhifBedCode])) {
-                    $items->push([
-                        'nhif_item_code' => $nhifBedCode,
-                        'nhif_item_name' => $bedName,
-                        'item_type_id' => 2,
-                        'unit_price' => $rate,
-                        'quantity' => $days,
-                        'amount_claimed' => round($rate * $days, 2),
-                        'approval_ref_no' => $insurance->nhif_authorization_no,
-                        'source_type' => Admission::class,
-                        'source_id' => $admission->id,
-                        'other_details' => "Days: {$days}",
-                    ]);
+        // 1. Check if the admission has an authoritative NHIF admission registration with confirmed rate
+        $nhifAdmission = $admission->nhifAdmission
+            ?? NhifAdmission::where('admission_id', $admission->id)
+                ->latest()
+                ->first();
+
+        $wardTypeId = 0;
+        if ($nhifAdmission) {
+            $resp = is_array($nhifAdmission->raw_response) ? $nhifAdmission->raw_response : json_decode($nhifAdmission->raw_response ?? '', true);
+            $req = is_array($nhifAdmission->raw_request) ? $nhifAdmission->raw_request : json_decode($nhifAdmission->raw_request ?? '', true);
+
+            $nhifCharges = (float) ($resp['ChargesPerDay'] ?? $resp['chargesPerDay'] ?? $req['chargesPerDay'] ?? $req['ChargesPerDay'] ?? 0.0);
+            if ($nhifCharges > 0) {
+                $rate = $nhifCharges;
+                if ((float) $admission->charges_per_day !== $rate) {
+                    $admission->updateQuietly(['charges_per_day' => $rate]);
                 }
             }
+
+            $wardTypeId = (int) ($nhifAdmission->nhif_ward_type_id ?? ($resp['WardTypeID'] ?? $resp['wardTypeID'] ?? $req['wardTypeID'] ?? $req['WardTypeID'] ?? 0));
+        }
+
+        // 2. If no NHIF admission rate, use admission's own recorded rate
+        if ($rate <= 0) {
+            $rate = (float) ($admission->charges_per_day ?: 0.0);
+        }
+
+        // 3. Fallback to service price
+        if ($rate <= 0 && $admission->service_id) {
+            $servicePrice = ServicePrice::where('service_id', $admission->service_id)
+                ->where('is_active', true)
+                ->latest()
+                ->first();
+            $rate = (float) ($servicePrice?->price ?? 0.0);
+        }
+
+        // 4. Default standard NHIF daily ordinary ward rate
+        if ($rate <= 0) {
+            $rate = 10000.0; // Standard NHIF daily ordinary ward rate
+        }
+
+        $wardType = strtolower((string) ($admission->ward_type ?? ''));
+        $nhifBedCode = match (true) {
+            $wardTypeId === 22 || str_contains($wardType, 'icu') => '22',
+            $wardTypeId === 23 || str_contains($wardType, 'hdu') => '23',
+            $wardTypeId > 0 => (string) $wardTypeId,
+            default => '21',
+        };
+        $bedName = match ($nhifBedCode) {
+            '22' => 'Intensive Care Unit (ICU)',
+            '23' => 'High Dependency Unit (HDU)',
+            default => 'Admission Fee for Ordinary Wards',
+        };
+
+        if (! isset($claimedKeys['code:'.$nhifBedCode])) {
+            $items->push([
+                'nhif_item_code' => $nhifBedCode,
+                'nhif_item_name' => $bedName,
+                'item_type_id' => 2,
+                'unit_price' => $rate,
+                'quantity' => $days,
+                'amount_claimed' => round($rate * $days, 2),
+                'approval_ref_no' => $insurance->nhif_authorization_no,
+                'source_type' => Admission::class,
+                'source_id' => $admission->id,
+                'other_details' => "Days: {$days}",
+            ]);
         }
 
         return $items;
@@ -1239,13 +1305,24 @@ class ClaimCalculationService
                 ];
             }
         } elseif ($context instanceof Admission) {
-            $rawCode = $context->primary_diagnosis_code ?? $context->diagnosis;
-            $code = $this->normalizeNhifDiseaseCode($rawCode, $context->diagnosis);
+            if ($context->clinicalEncounter) {
+                $encDiag = $this->resolvePrimaryDiagnosis($context->clinicalEncounter);
+                if ($encDiag['code'] !== '000') {
+                    return $encDiag;
+                }
+            }
 
-            if ($code) {
+            $rawCode = $context->diagnosis_at_admission
+                ?? $context->diagnosis_at_discharge
+                ?? $context->primary_diagnosis_code
+                ?? $context->diagnosis;
+
+            $code = $this->normalizeNhifDiseaseCode($rawCode, $context->diagnosis_at_admission ?? $context->diagnosis_at_discharge ?? $context->diagnosis);
+
+            if ($code && $code !== '000') {
                 return [
                     'code' => $code,
-                    'description' => $context->diagnosis ?? 'Admission Diagnosis',
+                    'description' => $context->diagnosis_at_admission ?? $context->diagnosis_at_discharge ?? $context->diagnosis ?? 'Admission Diagnosis',
                 ];
             }
         }
@@ -1312,6 +1389,10 @@ class ClaimCalculationService
         if (! $practitioner && $context instanceof ClinicalEncounter) {
             $practitioner = $context->consultation?->practitioner
                 ?? $context->prescriptionOrders()->latest()->first()?->prescriber?->staff?->practitioner;
+        } elseif (! $practitioner && $context instanceof Admission && $context->clinicalEncounter) {
+            $practitioner = $context->clinicalEncounter->practitioner
+                ?? $context->clinicalEncounter->consultation?->practitioner
+                ?? $context->clinicalEncounter->prescriptionOrders()->latest()->first()?->prescriber?->staff?->practitioner;
         }
 
         if ($practitioner) {

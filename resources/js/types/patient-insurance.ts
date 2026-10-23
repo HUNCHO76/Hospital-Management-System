@@ -19,6 +19,7 @@ export interface NhifMemberVerification {
     nhif_expiry_date: string | null;
     nhif_membership_no: string | null;
     nhif_plan_name: string | null;
+    member_picture?: string | null;
     http_status: number | null;
     error_message: string | null;
     correlation_id: string | null;
@@ -108,6 +109,7 @@ export interface NhifLookupMember {
     expiry_date: string | null;
     authorization_no: string | null;
     nhif_scheme_id: number | null;
+    member_picture?: string | null;
 }
 
 export interface NhifSchemeService {
@@ -173,6 +175,7 @@ export interface PatientInsurance {
     nhif_coverage_percent?: string | null;
     nhif_eligibility_checked_at?: string | null;
     nhif_authorization_no?: string | null;
+    nhif_member_picture?: string | null;
     is_authorization_expired?: boolean;
     authorization_expires_at?: string | null;
     authorization_hours_remaining?: number | null;

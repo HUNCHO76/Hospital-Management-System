@@ -4,12 +4,17 @@ namespace App\Services;
 
 use App\Models\Admission;
 use App\Models\AdmissionTransfer;
+use App\Models\Charge;
+use App\Models\ClinicalEncounter;
 use App\Models\NhifAdmission;
+use App\Models\Patient;
+use App\Models\PatientInsurance;
 use App\Services\NHIF\NhifHttpClient;
 use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -37,18 +42,18 @@ class AdmissionService
     public function create(array $data, Request $request): Admission
     {
         $admission = DB::transaction(function () use ($data, $request) {
-            $patient = \App\Models\Patient::find($data['patient_id']);
+            $patient = Patient::find($data['patient_id']);
             $insurance = $patient?->activeNhifInsurance()
-                ?? (!empty($data['patient_insurance_id']) ? \App\Models\PatientInsurance::find($data['patient_insurance_id']) : null)
+                ?? (! empty($data['patient_insurance_id']) ? PatientInsurance::find($data['patient_insurance_id']) : null)
                 ?? $patient?->insurances()->whereNotNull('nhif_authorization_no')->latest()->first();
 
             $patientInsuranceId = $data['patient_insurance_id'] ?? $insurance?->id;
-            $nhifAuthNo = !empty($data['nhif_authorization_no']) ? $data['nhif_authorization_no'] : $insurance?->nhif_authorization_no;
+            $nhifAuthNo = ! empty($data['nhif_authorization_no']) ? $data['nhif_authorization_no'] : $insurance?->nhif_authorization_no;
 
             $clinicalEncounterId = $data['clinical_encounter_id'] ?? null;
-            if (empty($clinicalEncounterId) && !empty($data['patient_id'])) {
-                $clinicalEncounterId = \App\Models\ClinicalEncounter::where('patient_id', $data['patient_id'])
-                    ->whereIn('status', \App\Models\ClinicalEncounter::ACTIVE_STATUSES)
+            if (empty($clinicalEncounterId) && ! empty($data['patient_id'])) {
+                $clinicalEncounterId = ClinicalEncounter::where('patient_id', $data['patient_id'])
+                    ->whereIn('status', ClinicalEncounter::ACTIVE_STATUSES)
                     ->latest('created_at')
                     ->value('id');
             }
@@ -71,7 +76,7 @@ class AdmissionService
             ]);
 
             if ($clinicalEncounterId) {
-                \App\Models\ClinicalEncounter::where('id', $clinicalEncounterId)
+                ClinicalEncounter::where('id', $clinicalEncounterId)
                     ->whereNull('admission_id')
                     ->update(['admission_id' => $admission->id]);
             }
@@ -82,7 +87,7 @@ class AdmissionService
                 $admission->update(['charges_per_day' => $charge->unit_price]);
             }
 
-            if (!empty($nhifAuthNo) || !empty($data['nhif_ward_type_id'])) {
+            if (! empty($nhifAuthNo) || ! empty($data['nhif_ward_type_id'])) {
                 NhifAdmission::create([
                     'admission_id' => $admission->id,
                     'nhif_authorization_no' => $nhifAuthNo,
@@ -243,7 +248,7 @@ class AdmissionService
      */
     public function confirm(Admission $admission, Request $request): Admission
     {
-        return DB::transaction(function () use ($admission, $request) {
+        $admission = DB::transaction(function () use ($admission, $request) {
             $admission = Admission::query()->whereKey($admission->id)->lockForUpdate()->firstOrFail();
 
             if (! $admission->isApproved()) {
@@ -269,16 +274,37 @@ class AdmissionService
 
             $oldStatus = $admission->status;
 
-            $admission->update([
+            $updateData = [
                 'status' => Admission::STATUS_ACTIVE,
                 'admitted_at' => now(),
                 'admitted_by' => $request->user()->id,
-            ]);
+            ];
+
+            if (empty($admission->clinical_status)) {
+                $updateData['clinical_status'] = 'under_observation';
+                $updateData['clinical_status_updated_at'] = now();
+                $updateData['clinical_status_updated_by'] = $request->user()->id;
+            }
+
+            $admission->update($updateData);
 
             $this->auditLog->record('admission_confirmed', $admission, ['status' => $oldStatus], ['status' => $admission->status], $request);
 
             return $admission;
         });
+
+        // Automatically transmit admission to NHIF if patient has NHIF coverage
+        if ($admission->nhifAdmission || $admission->patientInsurance?->nhif_authorization_no) {
+            try {
+                $this->submitNhif($admission, $request);
+            } catch (\Throwable $e) {
+                Log::warning('Automatic NHIF admission submission failed: '.$e->getMessage(), [
+                    'admission_id' => $admission->id,
+                ]);
+            }
+        }
+
+        return $admission->fresh(['nhifAdmission']);
     }
 
     /**
@@ -346,7 +372,7 @@ class AdmissionService
             'practitionerNo' => (string) $practitionerNo,
             'practitionersRemarks' => (string) ($admission->discharge_reason ?: 'None provided'),
             'dischargeTypeID' => (int) $dischargeTypeId,
-            'dateDischarged' => optional($admission->discharged_at)->toIso8601String() ?: now()->toIso8601String(),
+            'dateDischarged' => optional($admission->discharged_at)->format('Y-m-d\TH:i:s') ?: now()->format('Y-m-d\TH:i:s'),
             'diagnosisAtDischarge' => (string) ($admission->diagnosis_at_discharge ?: ($admission->diagnosis_at_admission ?: 'None provided')),
             'referredToFacilityCode' => $admission->referred_to_facility_code ?: null,
             'createdBy' => (string) ($request->user()->UserName ?? $request->user()->name ?? 'SYSTEM'),
@@ -361,6 +387,7 @@ class AdmissionService
             'nhif_discharge_raw_request' => json_encode($payload),
             'nhif_discharge_raw_response' => json_encode($result['data'] ?? []),
             'nhif_discharge_error' => $result['error'] ?? null,
+            'nhif_facility_code' => $admission->hospital?->nhif_facility_code ?: $admission->hospital?->code,
             'nhif_discharged_at' => now(),
             'nhif_discharge_submitted_by' => $request->user()->id,
         ]);
@@ -442,10 +469,10 @@ class AdmissionService
 
         $payload = [
             'authorizationNo' => $authNo ?: 'UNKNOWN',
-            'fullName' => $admission->patient ? trim($admission->patient->first_name . ' ' . $admission->patient->last_name) : 'UNKNOWN',
+            'fullName' => $admission->patient ? trim($admission->patient->first_name.' '.$admission->patient->last_name) : 'UNKNOWN',
             'gender' => $admission->patient?->gender ? ucfirst(strtolower($admission->patient->gender)) : 'Unknown',
-            'dateOfBirth' => optional($dob)->toIso8601String() ?: '1900-01-01T00:00:00Z',
-            'dateAdmitted' => optional($admission->admitted_at)->toIso8601String() ?: now()->toIso8601String(),
+            'dateOfBirth' => optional($dob)->format('Y-m-d\TH:i:s') ?: '1900-01-01T00:00:00',
+            'dateAdmitted' => optional($admission->admitted_at)->format('Y-m-d\TH:i:s') ?: now()->format('Y-m-d\TH:i:s'),
             'createdBy' => $request->user()->UserName ?? $request->user()->name ?? 'SYSTEM',
 
             'wardTypeID' => (int) ($nhifAdmission?->nhif_ward_type_id ?: 1),
@@ -453,13 +480,11 @@ class AdmissionService
             'admissionTypeID' => (int) ($nhifAdmission?->nhif_admission_type_id ?: 1),
 
             'chargesPerDay' => (float) ($admission->charges_per_day ?: 1.0),
-            
+
             'diagnosisAtAdmission' => $admission->diagnosis_at_admission ?: 'None provided',
             'practitionersRemarks' => $admission->notes ?: 'None provided',
 
             'practitionerNo' => $admission->practitioner?->nhif_practitioner_no ?: 'UNKNOWN',
-            'facilityCode' => $admission->hospital?->code ?: 'UNKNOWN',
-            'patientFileNo' => $admission->patient?->patient_number ?: 'UNKNOWN',
         ];
 
         $result = $this->nhifClient->admitPatient($payload);
@@ -474,7 +499,7 @@ class AdmissionService
             ['admission_id' => $admission->id],
             [
                 'nhif_admission_no' => $admissionNo,
-                'nhif_facility_code' => $admission->hospital?->code,
+                'nhif_facility_code' => $admission->hospital?->nhif_facility_code ?: $admission->hospital?->code,
                 'nhif_practitioner_no' => $admission->practitioner?->nhif_practitioner_no,
                 'nhif_status' => $result['success'] ? NhifAdmission::STATUS_SUBMITTED : NhifAdmission::STATUS_FAILED,
                 'http_status' => $result['http_status'] ?? null,
@@ -488,6 +513,10 @@ class AdmissionService
         );
 
         if ($result['success'] && ! empty($admissionNo)) {
+            $confirmedRate = (float) ($result['data']['ChargesPerDay'] ?? $result['data']['chargesPerDay'] ?? $payload['chargesPerDay'] ?? 0);
+            if ($confirmedRate > 0) {
+                $admission->update(['charges_per_day' => $confirmedRate]);
+            }
             $this->settleAdmissionChargeForNhif($admission, $request);
         }
 
@@ -509,10 +538,10 @@ class AdmissionService
      */
     public function settleAdmissionChargeForNhif(Admission $admission, Request $request): void
     {
-        $charge = \App\Models\Charge::query()
+        $charge = Charge::query()
             ->where('source_type', Admission::class)
             ->where('source_id', $admission->id)
-            ->whereNotIn('status', [\App\Models\Charge::STATUS_VOIDED, \App\Models\Charge::STATUS_CANCELLED])
+            ->whereNotIn('status', [Charge::STATUS_VOIDED, Charge::STATUS_CANCELLED])
             ->first();
 
         if ($charge) {
@@ -663,31 +692,32 @@ class AdmissionService
 
     public function getNhifAdmissionTypes(): array
     {
-        return $this->fetchAndCacheNhifType('nhif.admission_types', fn() => $this->nhifClient->getAdmissionTypes());
+        return $this->fetchAndCacheNhifType('nhif.admission_types', fn () => $this->nhifClient->getAdmissionTypes());
     }
 
     public function getNhifWardTypes(): array
     {
-        return $this->fetchAndCacheNhifType('nhif.ward_types', fn() => $this->nhifClient->getWardTypes());
+        return $this->fetchAndCacheNhifType('nhif.ward_types', fn () => $this->nhifClient->getWardTypes());
     }
 
     public function getNhifRoomTypes(): array
     {
-        return $this->fetchAndCacheNhifType('nhif.room_types', fn() => $this->nhifClient->getRoomTypes());
+        return $this->fetchAndCacheNhifType('nhif.room_types', fn () => $this->nhifClient->getRoomTypes());
     }
 
     private function fetchAndCacheNhifType(string $cacheKey, callable $fetcher): array
     {
         $types = Cache::get($cacheKey);
-        if (!$types) {
+        if (! $types) {
             $res = $fetcher();
-            if (isset($res['success']) && $res['success'] && !empty($res['data'])) {
+            if (isset($res['success']) && $res['success'] && ! empty($res['data'])) {
                 $types = $res['data'];
                 Cache::put($cacheKey, $types, 86400); // 24 hours
             } else {
                 $types = []; // Don't cache failures
             }
         }
+
         return $types;
     }
 }

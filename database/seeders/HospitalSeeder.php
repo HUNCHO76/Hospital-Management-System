@@ -16,6 +16,7 @@ class HospitalSeeder extends Seeder
             ['code' => 'MAIN'],
             [
                 'name' => 'Main Hospital',
+                'nhif_facility_code' => config('nhif.client_id', '01141') ?: '01141',
                 'registration_number' => 'REG-000001',
                 'phone' => '+255700000000',
                 'email' => 'info@mainhospital.test',

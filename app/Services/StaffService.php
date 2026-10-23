@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Staff;
 use App\Models\User;
+use App\Services\Auth\AuthenticationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -80,9 +81,13 @@ class StaffService
                 }
                 if (filled($userStatus)) {
                     $userUpdates['status'] = $userStatus;
+                    if ($userStatus !== User::STATUS_ACTIVE) {
+                        app(AuthenticationService::class)->revokeUserSessions($user, $request);
+                    }
                 }
                 if (filled($password)) {
                     $userUpdates['password'] = $password;
+                    app(AuthenticationService::class)->revokeUserSessions($user, $request);
                 }
                 $user->update($userUpdates);
 
@@ -90,6 +95,10 @@ class StaffService
                     $oldRoles = $user->getRoleNames()->all();
                     $user->syncRoles([$role]);
                     $this->auditLog->record('user_roles_synced', $user, ['roles' => $oldRoles], ['roles' => [$role]], $request);
+
+                    if ($request->user() && $request->user()->id === $user->id) {
+                        $request->session()->regenerate();
+                    }
                 }
             } elseif ($createAccount && filled($staff->email) && filled($role)) {
                 $user = User::create([

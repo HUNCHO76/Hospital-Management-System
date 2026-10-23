@@ -13,11 +13,13 @@ beforeEach(function () {
     $this->hospital = Hospital::factory()->create([
         'name' => 'St. Joseph Hospital',
         'code' => '01141',
+        'nhif_facility_code' => '01141',
     ]);
 
     $this->otherHospital = Hospital::factory()->create([
         'name' => 'Northern Referral Hospital',
         'code' => '02299',
+        'nhif_facility_code' => '02299',
     ]);
 
     $this->user = userWithRole('hospital-admin');
@@ -126,6 +128,7 @@ test('submitMonthlyClaim builds dynamic payload, submits to NHIF, and records au
 
     NhifClaim::factory()->create([
         'hospital_id' => $this->hospital->id,
+        'facility_code' => '01141',
         'folio_year' => $year,
         'folio_month' => $month,
         'status' => NhifClaim::STATUS_SUBMITTED,
@@ -331,4 +334,37 @@ test('HTTP controller endpoints calculate and submit monthly claim successfully'
         'status' => NhifMonthlySubmission::STATUS_SUBMITTED,
         'folios_submitted' => 1,
     ]);
+});
+
+test('resolveFacilityCode correctly prioritizes nhif_facility_code over internal hospital code MAIN', function () {
+    $mainHospital = Hospital::factory()->create([
+        'name' => 'Main Referral Hospital',
+        'code' => 'MAIN',
+        'nhif_facility_code' => '01141',
+    ]);
+
+    $service = app(NhifMonthlyClaimService::class);
+    expect($service->resolveFacilityCode($mainHospital))->toBe('01141');
+});
+
+test('resolveFacilityCode falls back to folio facility_code when hospital nhif_facility_code is null', function () {
+    $mainHospital = Hospital::factory()->create([
+        'name' => 'Main Referral Hospital',
+        'code' => 'MAIN',
+        'nhif_facility_code' => null,
+    ]);
+
+    $folio = NhifClaim::factory()->create([
+        'hospital_id' => $mainHospital->id,
+        'facility_code' => '01141',
+        'folio_year' => 2026,
+        'folio_month' => 10,
+        'status' => NhifClaim::STATUS_SUBMITTED,
+        'nhif_allowable_total' => 10000.00,
+    ]);
+
+    $service = app(NhifMonthlyClaimService::class);
+    $folios = collect([$folio]);
+
+    expect($service->resolveFacilityCode($mainHospital, $folios))->toBe('01141');
 });

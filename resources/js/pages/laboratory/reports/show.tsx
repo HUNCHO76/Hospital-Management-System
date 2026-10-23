@@ -68,12 +68,26 @@ export default function LaboratoryReportShow({ report, versions }: LaboratoryRep
         const parts: string[] = [];
         if (rv.reference_low !== null && rv.reference_high !== null) {
             parts.push(`${rv.reference_low} – ${rv.reference_high}`);
-        }
-        if (rv.reference_critical_low !== null && rv.reference_critical_high !== null) {
-            parts.push(`(crit: ${rv.reference_critical_low} – ${rv.reference_critical_high})`);
+        } else if (rv.reference_low !== null) {
+            parts.push(`≥ ${rv.reference_low}`);
+        } else if (rv.reference_high !== null) {
+            parts.push(`≤ ${rv.reference_high}`);
         }
 
-        return parts.join('') || '—';
+        if (rv.reference_critical_low !== null && rv.reference_critical_high !== null) {
+            parts.push(` (crit: ${rv.reference_critical_low} – ${rv.reference_critical_high})`);
+        }
+
+        if (parts.length > 0) {
+            return parts.join('');
+        }
+
+        // If numeric parameter has no configured range, do not show blank or imply normal
+        if (rv.value_numeric !== null) {
+            return 'Reference range not configured';
+        }
+
+        return '—';
     };
 
     const allResults = report.results.flatMap((g) => g.results);
@@ -252,7 +266,11 @@ export default function LaboratoryReportShow({ report, versions }: LaboratoryRep
                                                 </td>
                                                 <td className="py-2 pr-2 font-medium">{resultValue(result)}</td>
                                                 <td className="text-muted-foreground py-2 pr-2">{result.unit ?? '—'}</td>
-                                                <td className="text-muted-foreground py-2 pr-2">{result.reference_range ?? '—'}</td>
+                                                <td className="text-muted-foreground py-2 pr-2">
+                                                    {result.reference_range 
+                                                        ? result.reference_range 
+                                                        : (result.result_type === 'numeric' ? 'Reference range not configured' : '—')}
+                                                </td>
                                                 <td className="py-2 pr-2">
                                                     {result.abnormal_flag && result.abnormal_flag !== 'normal' && (
                                                         <Badge variant={result.abnormal_flag === 'critical' ? 'destructive' : 'default'}>

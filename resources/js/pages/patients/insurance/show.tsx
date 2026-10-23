@@ -15,7 +15,7 @@ import {
 } from '@/types/patient-insurance';
 import { NhifVerificationDialog } from '@/components/patients/nhif-verification-dialog';
 import { Head, Link, router } from '@inertiajs/react';
-import { AlertTriangle, Pencil, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Pencil, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 
 interface InsuranceShowProps {
@@ -42,63 +42,123 @@ function nhifVerifVariant(status: NhifVerificationStatus): 'default' | 'secondar
     return 'secondary';
 }
 
-function NhifVerificationCard({ verification }: { verification: NhifMemberVerification }) {
+function NhifVerificationCard({
+    verification,
+    patient,
+    insurance,
+}: {
+    verification: NhifMemberVerification;
+    patient?: PatientInsurancePatient;
+    insurance?: PatientInsurance;
+}) {
+    const [refreshing, setRefreshing] = useState(false);
+    const hasPhoto = !!verification.member_picture;
+    const pictureSrc = verification.member_picture || '/images/default-avatar.svg';
+
+    const handleRefreshPicture = () => {
+        if (!patient || !insurance) return;
+        setRefreshing(true);
+        router.post(
+            route('patients.insurance.nhif-refresh-picture', [patient.id, insurance.id]),
+            {},
+            {
+                onFinish: () => setRefreshing(false),
+            },
+        );
+    };
+
     return (
         <Card className="max-w-2xl">
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-base">Latest NHIF Verification</CardTitle>
+                {patient && insurance && verification.verification_status === 'verified' && (
+                    <Can permission="patient-insurance.verify">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                            onClick={handleRefreshPicture}
+                            disabled={refreshing}
+                        >
+                            <RefreshCw className={`mr-1 h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                            {refreshing ? 'Fetching Photo…' : 'Refresh Photo'}
+                        </Button>
+                    </Can>
+                )}
             </CardHeader>
             <CardContent>
-                <dl className="space-y-2 text-sm">
-                    <div className="flex justify-between gap-4">
-                        <dt className="text-muted-foreground">Status</dt>
-                        <dd>
-                            <Badge variant={nhifVerifVariant(verification.verification_status)}>
-                                {nhifVerifStatusLabel[verification.verification_status]}
-                            </Badge>
-                        </dd>
+                <div className="flex flex-col sm:flex-row items-start gap-5 pt-2">
+                    {/* Member Picture / Default Avatar */}
+                    <div className="flex flex-col items-center gap-2 self-center sm:self-start shrink-0">
+                        <div className="relative h-28 w-28 overflow-hidden rounded-xl border bg-muted/30 shadow-xs ring-1 ring-border">
+                            <img
+                                src={pictureSrc}
+                                alt={verification.nhif_member_name ?? 'NHIF Member'}
+                                className="h-full w-full object-cover object-top"
+                                onError={(e) => {
+                                    e.currentTarget.src = '/images/default-avatar.svg';
+                                }}
+                            />
+                        </div>
+                        <Badge
+                            variant={hasPhoto ? 'default' : 'outline'}
+                            className={`text-[10px] px-1.5 py-0 font-normal ${hasPhoto ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'text-muted-foreground'}`}
+                        >
+                            {hasPhoto ? 'NHIF Photo' : 'Default Avatar'}
+                        </Badge>
                     </div>
-                    {verification.nhif_member_name && (
+
+                    <dl className="flex-1 space-y-2 text-sm w-full">
                         <div className="flex justify-between gap-4">
-                            <dt className="text-muted-foreground">Member Name</dt>
-                            <dd>{verification.nhif_member_name}</dd>
+                            <dt className="text-muted-foreground">Status</dt>
+                            <dd>
+                                <Badge variant={nhifVerifVariant(verification.verification_status)}>
+                                    {nhifVerifStatusLabel[verification.verification_status]}
+                                </Badge>
+                            </dd>
                         </div>
-                    )}
-                    {verification.nhif_card_no && (
+                        {verification.nhif_member_name && (
+                            <div className="flex justify-between gap-4">
+                                <dt className="text-muted-foreground">Member Name</dt>
+                                <dd className="font-medium">{verification.nhif_member_name}</dd>
+                            </div>
+                        )}
+                        {verification.nhif_card_no && (
+                            <div className="flex justify-between gap-4">
+                                <dt className="text-muted-foreground">Card No.</dt>
+                                <dd className="font-mono">{verification.nhif_card_no}</dd>
+                            </div>
+                        )}
+                        {verification.nhif_membership_no && (
+                            <div className="flex justify-between gap-4">
+                                <dt className="text-muted-foreground">Membership No.</dt>
+                                <dd className="font-mono">{verification.nhif_membership_no}</dd>
+                            </div>
+                        )}
+                        {verification.nhif_plan_name && (
+                            <div className="flex justify-between gap-4">
+                                <dt className="text-muted-foreground">Plan</dt>
+                                <dd>{verification.nhif_plan_name}</dd>
+                            </div>
+                        )}
+                        {verification.nhif_expiry_date && (
+                            <div className="flex justify-between gap-4">
+                                <dt className="text-muted-foreground">Expiry Date</dt>
+                                <dd>{verification.nhif_expiry_date}</dd>
+                            </div>
+                        )}
+                        {verification.error_message && (
+                            <div className="flex justify-between gap-4">
+                                <dt className="text-muted-foreground">Error</dt>
+                                <dd className="text-destructive">{verification.error_message}</dd>
+                            </div>
+                        )}
                         <div className="flex justify-between gap-4">
-                            <dt className="text-muted-foreground">Card No.</dt>
-                            <dd>{verification.nhif_card_no}</dd>
+                            <dt className="text-muted-foreground">Checked At</dt>
+                            <dd>{verification.verified_at ?? verification.created_at}</dd>
                         </div>
-                    )}
-                    {verification.nhif_membership_no && (
-                        <div className="flex justify-between gap-4">
-                            <dt className="text-muted-foreground">Membership No.</dt>
-                            <dd>{verification.nhif_membership_no}</dd>
-                        </div>
-                    )}
-                    {verification.nhif_plan_name && (
-                        <div className="flex justify-between gap-4">
-                            <dt className="text-muted-foreground">Plan</dt>
-                            <dd>{verification.nhif_plan_name}</dd>
-                        </div>
-                    )}
-                    {verification.nhif_expiry_date && (
-                        <div className="flex justify-between gap-4">
-                            <dt className="text-muted-foreground">Expiry Date</dt>
-                            <dd>{verification.nhif_expiry_date}</dd>
-                        </div>
-                    )}
-                    {verification.error_message && (
-                        <div className="flex justify-between gap-4">
-                            <dt className="text-muted-foreground">Error</dt>
-                            <dd className="text-destructive">{verification.error_message}</dd>
-                        </div>
-                    )}
-                    <div className="flex justify-between gap-4">
-                        <dt className="text-muted-foreground">Checked At</dt>
-                        <dd>{verification.verified_at ?? verification.created_at}</dd>
-                    </div>
-                </dl>
+                    </dl>
+                </div>
             </CardContent>
         </Card>
     );
@@ -400,7 +460,11 @@ export default function InsuranceShow({ patient, insurance }: InsuranceShowProps
                 )}
 
                 {insurance.latest_nhif_verification && (
-                    <NhifVerificationCard verification={insurance.latest_nhif_verification} />
+                    <NhifVerificationCard
+                        verification={insurance.latest_nhif_verification}
+                        patient={patient}
+                        insurance={insurance}
+                    />
                 )}
 
                 <NhifVerificationDialog

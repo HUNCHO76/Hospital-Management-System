@@ -39,10 +39,13 @@ interface TransferLineItem {
     [key: string]: any;
     procurement_item_id: number;
     from_stock_batch_id: number;
+    item_name: string;
     batch_label: string;
     quantity: number;
+    quantity_transferred: number;
     max_available: number;
     notes: string;
+    remarks: string;
 }
 
 interface TransferForm {
@@ -51,6 +54,7 @@ interface TransferForm {
     to_store_id: string | number;
     transfer_date: string;
     reason: string;
+    notes: string;
     items: TransferLineItem[];
 }
 
@@ -63,6 +67,7 @@ export default function CreateStoreTransfer({ stores, selected_from_store_id, av
         to_store_id: otherStore?.id || '',
         transfer_date: new Date().toISOString().split('T')[0],
         reason: '',
+        notes: '',
         items: [] as TransferLineItem[],
     });
 
@@ -84,10 +89,13 @@ export default function CreateStoreTransfer({ stores, selected_from_store_id, av
             {
                 procurement_item_id: itemId,
                 from_stock_batch_id: batch.id,
+                item_name: itemName,
                 batch_label: `${itemName} - Lot: ${batch.batch_number} (Exp: ${batch.expiry_date?.split('T')[0]})`,
                 quantity: 1,
+                quantity_transferred: 1,
                 max_available: Number(batch.quantity) || 1,
                 notes: '',
+                remarks: '',
             },
         ]);
         setSelectedBatchId('');
@@ -101,13 +109,36 @@ export default function CreateStoreTransfer({ stores, selected_from_store_id, av
 
     const updateLine = (index: number, field: keyof TransferLineItem, value: any) => {
         const next = [...data.items];
-        next[index] = { ...next[index], [field]: value };
+        const updated = { ...next[index], [field]: value };
+        if (field === 'quantity') {
+            updated.quantity_transferred = value;
+        } else if (field === 'quantity_transferred') {
+            updated.quantity = value;
+        } else if (field === 'notes') {
+            updated.remarks = value;
+        } else if (field === 'remarks') {
+            updated.notes = value;
+        }
+        next[index] = updated;
         setData('items', next);
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        post('/stores/transfers');
+        // Ensure both aliases and fields are properly synced
+        const payload = {
+            ...data,
+            notes: data.notes || data.reason,
+            reason: data.reason || data.notes,
+            items: data.items.map((it) => ({
+                ...it,
+                quantity_transferred: it.quantity_transferred || it.quantity,
+                quantity: it.quantity || it.quantity_transferred,
+                remarks: it.remarks || it.notes,
+                notes: it.notes || it.remarks,
+            })),
+        };
+        router.post('/stores/transfers', payload);
     };
 
     return (
@@ -126,6 +157,17 @@ export default function CreateStoreTransfer({ stores, selected_from_store_id, av
                         </Button>
                     </Link>
                 </div>
+
+                {Object.keys(errors).length > 0 && (
+                    <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+                        <p className="font-semibold">Unable to submit store transfer. Please correct the following errors:</p>
+                        <ul className="list-disc list-inside mt-1.5 space-y-1">
+                            {Object.entries(errors).map(([key, msg]) => (
+                                <li key={key}>{msg}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <Card>
@@ -188,9 +230,18 @@ export default function CreateStoreTransfer({ stores, selected_from_store_id, av
                                     id="reason"
                                     rows={2}
                                     placeholder="Explain why stock is being moved (e.g. balancing emergency ward buffer)..."
-                                    value={data.reason}
-                                    onChange={(e) => setData('reason', e.target.value)}
+                                    value={data.reason || data.notes}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        setData((prev) => ({
+                                            ...prev,
+                                            reason: val,
+                                            notes: val,
+                                        }));
+                                    }}
                                 />
+                                {errors.notes && <p className="text-xs text-red-500">{errors.notes}</p>}
+                                {errors.reason && <p className="text-xs text-red-500">{errors.reason}</p>}
                             </div>
                         </CardContent>
                     </Card>

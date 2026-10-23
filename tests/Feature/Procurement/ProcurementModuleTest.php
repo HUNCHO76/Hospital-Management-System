@@ -624,6 +624,49 @@ class ProcurementModuleTest extends TestCase
         $this->assertEquals(5, $destBatch->quantity);
     }
 
+    public function test_store_transfer_creation_with_frontend_payload(): void
+    {
+        $stockItem = StockItem::create([
+            'hospital_id' => $this->hospital->id,
+            'store_id' => $this->mainStore->id,
+            'procurement_item_id' => $this->paracetamolItem->id,
+            'status' => 'active',
+            'created_by' => $this->admin->id,
+        ]);
+
+        $batch = StockBatch::create([
+            'stock_item_id' => $stockItem->id,
+            'store_id' => $this->mainStore->id,
+            'batch_number' => 'FE-BATCH-01',
+            'quantity' => 20,
+            'unit_cost' => 5.00,
+            'expiry_date' => now()->addMonths(6),
+            'status' => StockBatch::STATUS_ACTIVE,
+            'created_by' => $this->admin->id,
+        ]);
+
+        $response = $this->actingAs($this->storeOfficer)
+            ->post(route('stores.transfers.store'), [
+                'from_store_id' => $this->mainStore->id,
+                'to_store_id' => $this->pharmacyStore->id,
+                'reason' => 'Emergency transfer',
+                'items' => [
+                    [
+                        'from_stock_batch_id' => $batch->id,
+                        'batch_label' => 'Paracetamol 500mg - Lot: FE-BATCH-01',
+                        'quantity' => 3,
+                        'notes' => 'Urgent batch',
+                    ],
+                ],
+            ]);
+
+        $response->assertSessionHasNoErrors();
+        $transfer = StoreTransfer::where('notes', 'Emergency transfer')->first();
+        $this->assertNotNull($transfer);
+        $this->assertEquals(StoreTransfer::STATUS_DRAFT, $transfer->status);
+        $response->assertRedirect(route('stores.transfers.show', $transfer->id));
+    }
+
     public function test_procurement_and_stores_reports_endpoints(): void
     {
         $this->actingAs($this->admin)

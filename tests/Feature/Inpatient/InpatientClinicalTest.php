@@ -246,3 +246,54 @@ test('opening an inpatient encounter never creates a new patient', function () {
 
     expect(Patient::count())->toBe($patientsBefore);
 });
+
+test('ward dashboard counts admitting encounters and shows default clinical status', function () {
+    $ctx = activeAdmission();
+    $admission = $ctx['admission'];
+    $nurse = userWithRole('nurse');
+
+    // Originating encounter
+    $walkInEncounter = ClinicalEncounter::factory()->create([
+        'department_id' => $ctx['department']->id,
+        'patient_id' => $admission->patient_id,
+        'practitioner_id' => $ctx['practitioner']->id,
+        'encounter_type' => 'walk_in',
+        'status' => ClinicalEncounter::STATUS_IN_PROGRESS,
+        'admission_id' => $admission->id,
+    ]);
+
+    expect($admission->fresh()->clinical_status)->toBe('under_observation');
+
+    $response = $this->actingAs($nurse)->get(route('inpatient.dashboard'));
+
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->component('inpatient/dashboard')
+        ->where('canUpdateClinicalStatus', true)
+        ->has('admissions.data', 1)
+        ->where('admissions.data.0.inpatient_encounters_count', 1)
+        ->where('admissions.data.0.clinical_status', 'under_observation')
+    );
+});
+
+test('ward dashboard supports filtering by clinical status', function () {
+    $ctx = activeAdmission();
+    $admission = $ctx['admission'];
+    $nurse = userWithRole('nurse');
+
+    $response = $this->actingAs($nurse)->get(route('inpatient.dashboard', ['clinical_status' => 'under_observation']));
+
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->component('inpatient/dashboard')
+        ->has('admissions.data', 1)
+    );
+
+    $responseEmpty = $this->actingAs($nurse)->get(route('inpatient.dashboard', ['clinical_status' => 'critical']));
+
+    $responseEmpty->assertOk();
+    $responseEmpty->assertInertia(fn ($page) => $page
+        ->component('inpatient/dashboard')
+        ->has('admissions.data', 0)
+    );
+});

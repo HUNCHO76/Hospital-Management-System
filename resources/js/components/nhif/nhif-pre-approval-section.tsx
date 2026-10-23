@@ -83,10 +83,11 @@ function PendingItemsForms({
         return null;
     }
 
-    const hasLabItems = pendingItems.lab_items.length > 0;
-    const hasMedItems = pendingItems.medication_items.length > 0;
+    const hasLabItems = (pendingItems.lab_items?.length ?? 0) > 0;
+    const hasMedItems = (pendingItems.medication_items?.length ?? 0) > 0;
+    const hasRadItems = (pendingItems.radiology_items?.length ?? 0) > 0;
 
-    if (!hasLabItems && !hasMedItems) {
+    if (!hasLabItems && !hasMedItems && !hasRadItems) {
         return (
             <Card>
                 <CardContent className="py-4">
@@ -107,6 +108,17 @@ function PendingItemsForms({
                     practitioner={practitioner}
                     sourceLabel="Laboratory"
                     sourceType="lab"
+                />
+            )}
+            {hasRadItems && (
+                <NhifPreApprovalForm
+                    items={pendingItems.radiology_items}
+                    insurance={insurance}
+                    encounterId={encounterId}
+                    patientName={patientName}
+                    practitioner={practitioner}
+                    sourceLabel="Radiology"
+                    sourceType="radiology"
                 />
             )}
             {hasMedItems && (

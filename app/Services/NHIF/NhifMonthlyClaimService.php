@@ -7,6 +7,7 @@ use App\Models\NhifClaim;
 use App\Models\NhifMonthlySubmission;
 use App\Services\AuditLogService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -24,6 +25,27 @@ class NhifMonthlyClaimService
     ) {}
 
     /**
+     * Resolve the active NHIF facility code for monthly claim submission.
+     *
+     * Fallback order:
+     * 1. Hospital's explicit nhif_facility_code
+     * 2. Folio's facility_code from the submitted batch
+     * 3. Configured NHIF client ID (nhif.client_id)
+     * 4. Hospital internal code
+     *
+     * @param  Collection<int, mixed>|null  $folios
+     */
+    public function resolveFacilityCode(Hospital $hospital, $folios = null): string
+    {
+        $folioFacilityCode = $folios?->first(fn ($f) => filled($f->facility_code ?? null))?->facility_code;
+
+        return $hospital->nhif_facility_code
+            ?: ($folioFacilityCode
+                ?: (config('nhif.client_id')
+                    ?: ($hospital->code ?: '')));
+    }
+
+    /**
      * Retrieve submitted claims from NHIF OCS for the given period.
      * Server-side only — never exposed directly to React.
      *
@@ -31,7 +53,7 @@ class NhifMonthlyClaimService
      */
     public function getSubmittedClaims(Hospital $hospital, int $year, int $month, Request $request): array
     {
-        $facilityCode = $hospital->nhif_facility_code ?? $hospital->code ?? '';
+        $facilityCode = $this->resolveFacilityCode($hospital);
 
         return $this->client->getSubmittedClaims($facilityCode, $year, $month);
     }
@@ -55,8 +77,6 @@ class NhifMonthlyClaimService
      */
     public function calculateMonthlyClaim(Hospital $hospital, int $year, int $month): array
     {
-        $facilityCode = $hospital->nhif_facility_code ?? $hospital->code ?? '';
-
         $existing = NhifMonthlySubmission::where('hospital_id', $hospital->id)
             ->where('claim_year', $year)
             ->where('claim_month', $month)
@@ -86,7 +106,9 @@ class NhifMonthlyClaimService
                 NhifClaim::STATUS_CANCELLED,
             ])
             ->with(['patient'])
-            ->get(['id', 'claim_number', 'folio_no', 'patient_id', 'card_no', 'attendance_date', 'status', 'nhif_allowable_total', 'hms_total', 'nhif_submission_no']);
+            ->get(['id', 'claim_number', 'folio_no', 'patient_id', 'card_no', 'attendance_date', 'status', 'nhif_allowable_total', 'hms_total', 'nhif_submission_no', 'facility_code']);
+
+        $facilityCode = $this->resolveFacilityCode($hospital, $folios);
 
         $foliosCount = $folios->count();
         $totalAmount = (float) $folios->sum(fn ($f) => (float) ($f->nhif_allowable_total ?? $f->hms_total ?? 0));
@@ -135,14 +157,6 @@ class NhifMonthlyClaimService
         ?string $remarks,
         Request $request,
     ): NhifMonthlySubmission {
-        $facilityCode = $hospital->nhif_facility_code ?? $hospital->code ?? '';
-
-        if (blank($facilityCode)) {
-            throw ValidationException::withMessages([
-                'facility_code' => 'Hospital NHIF facility code is not configured.',
-            ]);
-        }
-
         // Prevent duplicate monthly submission
         $existing = NhifMonthlySubmission::where('hospital_id', $hospital->id)
             ->where('claim_year', $year)
@@ -178,7 +192,7 @@ class NhifMonthlyClaimService
                 NhifClaim::STATUS_REJECTED,
                 NhifClaim::STATUS_CANCELLED,
             ])
-            ->get(['id', 'nhif_allowable_total', 'hms_total']);
+            ->get(['id', 'nhif_allowable_total', 'hms_total', 'facility_code']);
 
         $foliosCount = $folios->count();
         $totalAmount = (float) $folios->sum(fn ($f) => (float) ($f->nhif_allowable_total ?? $f->hms_total ?? 0));
@@ -186,6 +200,14 @@ class NhifMonthlyClaimService
         if ($foliosCount === 0 || $totalAmount <= 0) {
             throw ValidationException::withMessages([
                 'folios' => 'No eligible submitted folios found for the selected period.',
+            ]);
+        }
+
+        $facilityCode = $this->resolveFacilityCode($hospital, $folios);
+
+        if (blank($facilityCode)) {
+            throw ValidationException::withMessages([
+                'facility_code' => 'Hospital NHIF facility code is not configured.',
             ]);
         }
 

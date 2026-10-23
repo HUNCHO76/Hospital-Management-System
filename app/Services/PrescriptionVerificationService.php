@@ -5,11 +5,10 @@ namespace App\Services;
 use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
 use App\Models\PrescriptionVerification;
+use App\Services\NHIF\NhifOrderPreApprovalService;
 use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
-
 /**
  * Owns the prescription verification workflow's write path (Phase 6, Step
  * 47) — mirrors RadiologyReportService's verify()/returnForCorrection()/
@@ -18,13 +17,20 @@ use Illuminate\Validation\ValidationException;
  * PrescriptionVerification entity instead of retrofitting a status column
  * onto PrescriptionOrder itself.
  */
+use Illuminate\Validation\ValidationException;
+
 class PrescriptionVerificationService
 {
+    protected NhifOrderPreApprovalService $nhifOrderPreApproval;
+
     public function __construct(
         protected AuditLogService $auditLog,
         protected FinancialAuthorizationService $financialAuth,
         protected NHIFPreauthorizationService $nhifPreauth,
-    ) {}
+        ?NhifOrderPreApprovalService $nhifOrderPreApproval = null,
+    ) {
+        $this->nhifOrderPreApproval = $nhifOrderPreApproval ?? app(NhifOrderPreApprovalService::class);
+    }
 
     /**
      * Create the verification row the moment a PrescriptionOrder is created
@@ -112,6 +118,7 @@ class PrescriptionVerificationService
                 ->all();
             // Step 69: NHIF preauthorization gate
             $this->nhifPreauth->assertPreauthorizedForSources(PrescriptionOrderItem::class, $activeItemIds);
+            $this->nhifOrderPreApproval->assertPrescriptionOrderCanVerify($order);
 
             // No-charge rule: when a medication has no configured price the
             // charge capture is skipped (audited). That billing gap is never a

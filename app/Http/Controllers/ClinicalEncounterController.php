@@ -25,6 +25,7 @@ use App\Models\Practitioner;
 use App\Models\RadiologyAppointment;
 use App\Models\RadiologyReport;
 use App\Models\ReceptionVisit;
+use App\Services\AuditLogService;
 use App\Services\ClinicalEncounterSearchService;
 use App\Services\ClinicalEncounterService;
 use App\Services\FinancialAuthorizationService;
@@ -89,9 +90,15 @@ class ClinicalEncounterController extends Controller
      * (consultation, diagnosis, treatment) remain placeholders only — no
      * such content is fetched or exposed here.
      */
-    public function show(Request $request, ClinicalEncounter $clinicalEncounter): Response
+    public function show(Request $request, ClinicalEncounter $clinicalEncounter, AuditLogService $auditLog): Response
     {
         $this->authorize('view', $clinicalEncounter);
+
+        $auditLog->record('clinical_encounter.viewed', $clinicalEncounter, null, [
+            'patient_id' => $clinicalEncounter->patient_id,
+            'encounter_id' => $clinicalEncounter->id,
+            'encounter_type' => $clinicalEncounter->encounter_type,
+        ], $request);
 
         $clinicalEncounter->load($this->eagerLoads());
 
@@ -236,20 +243,26 @@ class ClinicalEncounterController extends Controller
                 ->warningsForDiagnoses(
                     app(MedicationSafetyService::class)->activeDiagnosisCodeIds($clinicalEncounter->id),
                 ),
-            // Whether the patient has active verified NHIF insurance — used
-            // to show the NHIF disease field on the diagnosis form.
-            'nhifEligible' => $clinicalEncounter->patient?->activeNhifInsurance() !== null,
-            'nhifInsurance' => $clinicalEncounter->patient?->activeNhifInsurance()?->only([
-                'id', 'card_number', 'nhif_authorization_no', 'nhif_scheme_id',
-                'nhif_scheme_name', 'nhif_facility_code', 'nhif_pf_number',
-            ]),
+            // Whether the patient has current NHIF insurance — used
+            // for pre-approvals, diagnosis disease fields, and pre-approval item tracking.
+            'nhifEligible' => $clinicalEncounter->patient?->currentNhifInsurance() !== null,
+            'nhifInsurance' => ($currentInsurance = $clinicalEncounter->patient?->currentNhifInsurance()) ? [
+                ...$currentInsurance->only([
+                    'id', 'card_number', 'nhif_authorization_no', 'nhif_scheme_id',
+                    'nhif_scheme_name', 'nhif_facility_code', 'nhif_pf_number',
+                ]),
+                'is_authorization_expired' => $currentInsurance->isAuthorizationExpired(),
+                'has_valid_authorization' => $currentInsurance->hasValidAuthorization(),
+                'authorization_hours_remaining' => $currentInsurance->authorizationHoursRemaining(),
+                'authorization_expires_at' => $currentInsurance->authorizationExpiresAt()?->toISOString(),
+            ] : null,
             'nhifPreApprovalSessions' => NhifPreApprovalSession::with('items')
                 ->where('clinical_encounter_id', $clinicalEncounter->id)
                 ->latest()
                 ->get(),
-            'nhifPendingItems' => Inertia::defer(fn () => $clinicalEncounter->patient?->activeNhifInsurance()
+            'nhifPendingItems' => Inertia::defer(fn () => $clinicalEncounter->patient?->currentNhifInsurance()
                 ? app(NhifEncounterPreApprovalService::class)
-                    ->prepareItems($clinicalEncounter, $clinicalEncounter->patient->activeNhifInsurance())
+                    ->prepareItems($clinicalEncounter, $clinicalEncounter->patient->currentNhifInsurance())
                 : null),
         ]);
     }

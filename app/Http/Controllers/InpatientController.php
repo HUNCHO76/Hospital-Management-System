@@ -9,6 +9,8 @@ use App\Models\Admission;
 use App\Models\ClinicalEncounter;
 use App\Models\Department;
 use App\Models\Practitioner;
+use App\Models\PrescriptionOrder;
+use App\Models\PrescriptionOrderItem;
 use App\Models\VitalSign;
 use App\Services\InpatientClinicalService;
 use App\Services\VitalSignsService;
@@ -39,7 +41,28 @@ class InpatientController extends Controller
     {
         $this->authorize('viewAny', Admission::class);
 
-        $filters = $request->only(['ward_type', 'room_type', 'department_id', 'hospital_id', 'patient_id', 'practitioner_id', 'date_from']);
+        // Auto-link any originating encounters of active admissions
+        $activeAdmissionsWithUnlinkedOrigin = Admission::query()
+            ->where('status', Admission::STATUS_ACTIVE)
+            ->whereNotNull('clinical_encounter_id')
+            ->get(['id', 'clinical_encounter_id']);
+
+        foreach ($activeAdmissionsWithUnlinkedOrigin as $adm) {
+            ClinicalEncounter::where('id', $adm->clinical_encounter_id)
+                ->whereNull('admission_id')
+                ->update(['admission_id' => $adm->id]);
+        }
+
+        // Backfill any active admissions without a clinical status
+        Admission::query()
+            ->where('status', Admission::STATUS_ACTIVE)
+            ->whereNull('clinical_status')
+            ->update([
+                'clinical_status' => 'under_observation',
+                'clinical_status_updated_at' => now(),
+            ]);
+
+        $filters = $request->only(['ward_type', 'room_type', 'department_id', 'hospital_id', 'patient_id', 'practitioner_id', 'date_from', 'clinical_status']);
 
         $hospitalId = $this->scopedHospitalId($request);
 
@@ -50,6 +73,7 @@ class InpatientController extends Controller
             ->when($filters['ward_type'] ?? null, fn ($q, $v) => $q->where('ward_type', $v))
             ->when($filters['room_type'] ?? null, fn ($q, $v) => $q->where('room_type', $v))
             ->when($filters['department_id'] ?? null, fn ($q, $id) => $q->where('department_id', $id))
+            ->when($filters['clinical_status'] ?? null, fn ($q, $v) => $q->where('clinical_status', $v))
             ->when($filters['patient_id'] ?? null, fn ($q, $id) => $q->where('patient_id', $id))
             ->when($filters['practitioner_id'] ?? null, fn ($q, $id) => $q->where('practitioner_id', $id))
             ->when($filters['date_from'] ?? null, fn ($q, $date) => $q->whereDate('admitted_at', '>=', $date))
@@ -59,9 +83,7 @@ class InpatientController extends Controller
                 'department:id,name',
                 'practitioner:id,practitioner_number,staff_id',
                 'practitioner.staff:id,first_name,last_name',
-                // Latest vital sign per admission — subquery in the select is
-                // expensive at scale; eager-load then take last in the
-                // resource, acceptable for ward-size volumes (10–100 patients).
+                // Latest encounter and vital sign per admission
                 'inpatientEncounters' => fn ($q) => $q->latest('created_at')->limit(1),
                 'inpatientEncounters.clinicalNotes' => fn ($q) => $q->latest('created_at')->limit(1),
             ])
@@ -77,6 +99,7 @@ class InpatientController extends Controller
             'filters' => $filters,
             'departments' => Department::query()->active()->orderBy('name')->get(['id', 'name']),
             'clinicalStatuses' => Admission::CLINICAL_STATUSES,
+            'canUpdateClinicalStatus' => $request->user()->can('inpatient.clinical-status.update'),
         ]);
     }
 
@@ -98,6 +121,8 @@ class InpatientController extends Controller
             'createdBy:id,UserName',
             'admittedBy:id,UserName',
             'clinicalStatusUpdatedBy:id,UserName',
+            'nhifAdmission',
+            'patientInsurance',
         ]);
 
         // All encounters related to this admission episode (originating encounter + inpatient ward rounds), newest first.
@@ -124,6 +149,7 @@ class InpatientController extends Controller
                 'laboratoryOrders.items.result',
                 'radiologyOrders.items',
                 'prescriptionOrders.items.medication:id,generic_name,brand_name',
+                'prescriptionOrders.items.dispensingItems',
             ])
             ->orderByDesc('created_at')
             ->get();
@@ -170,11 +196,46 @@ class InpatientController extends Controller
             ->with('staff:id,first_name,last_name')
             ->get(['id', 'practitioner_number', 'staff_id']);
 
+        $activeMedications = $encounters
+            ->flatMap(function ($encounter) {
+                return $encounter->prescriptionOrders
+                    ->where('status', PrescriptionOrder::STATUS_ACTIVE)
+                    ->flatMap(function ($order) use ($encounter) {
+                        return $order->items
+                            ->where('status', PrescriptionOrderItem::STATUS_ACTIVE)
+                            ->map(function ($item) use ($encounter) {
+                                $dispensedQty = (int) $item->dispensingItems->sum('dispensed_quantity');
+
+                                return [
+                                    'id' => $item->id,
+                                    'prescription_order_id' => $item->prescription_order_id,
+                                    'medication_name' => $item->medication?->generic_name ?? $item->medication_name_snapshot,
+                                    'brand_name' => $item->medication?->brand_name,
+                                    'strength' => $item->strength_snapshot,
+                                    'form' => $item->form_snapshot,
+                                    'dose' => $item->dose,
+                                    'dose_unit' => $item->dose_unit,
+                                    'frequency' => $item->frequency,
+                                    'route' => $item->route,
+                                    'instructions' => $item->instructions,
+                                    'quantity' => $item->quantity,
+                                    'quantity_unit' => $item->quantity_unit,
+                                    'dispensed_quantity' => $dispensedQty,
+                                    'encounter_number' => $encounter->encounter_number,
+                                    'encounter_type' => $encounter->encounter_type,
+                                    'prescribed_at' => $item->created_at?->toIso8601String(),
+                                ];
+                            });
+                    });
+            })
+            ->values();
+
         return Inertia::render('inpatient/clinical-profile', [
             'admission' => $admission,
             'encounters' => $encounters,
             'vitals' => $vitals,
             'practitioners' => $practitioners,
+            'activeMedications' => $activeMedications,
             'clinicalStatuses' => Admission::CLINICAL_STATUSES,
             'canOpenEncounter' => $request->user()->can('inpatient.encounter.create'),
             'canUpdateClinicalStatus' => $request->user()->can('inpatient.clinical-status.update'),
@@ -183,6 +244,7 @@ class InpatientController extends Controller
             'canManageCarePlan' => $request->user()->can('treatment.create'),
             'canCreateOrders' => $request->user()->can('laboratory-orders.create'),
             'canViewMedications' => $request->user()->can('inpatient.medications.view'),
+            'canSubmitNhif' => $request->user()->can('submitNhif', $admission),
         ]);
     }
 

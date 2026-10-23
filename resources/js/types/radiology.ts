@@ -134,6 +134,13 @@ export interface RadiologyProcedureSearchResult {
     name: string;
     modality?: RadiologyModality | null;
     preparation_type?: RadiologyPreparationType | null;
+    nhif_code?: string | null;
+}
+
+export interface NhifRadiologyCatalogItem {
+    item_code: string;
+    item_name: string;
+    local_procedure?: RadiologyProcedureSearchResult | null;
 }
 
 export interface RadiologyOrderUser {
@@ -252,6 +259,14 @@ export interface RadiologyOrder {
     cancellation_reason: string | null;
     patient: RadiologyOrderPatient | null;
     encounter: RadiologyOrderEncounter | null;
+    nhif_pre_approval?: {
+        status: string;
+        label: string;
+        blocked: boolean;
+        message: string;
+        session_id?: number | null;
+        can_issue?: boolean;
+    } | null;
     created_at: string;
 }
 
@@ -260,7 +275,8 @@ export interface RadiologyOrderFormData {
     priority: RadiologyOrderPriority | '';
     clinical_indication: string;
     notes: string;
-    [key: string]: string | number[];
+    send_preapproval?: boolean;
+    [key: string]: string | number[] | boolean | undefined;
 }
 
 export interface RadiologyOrderFilters {

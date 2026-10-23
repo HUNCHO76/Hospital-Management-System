@@ -13,6 +13,7 @@ use App\Models\PaymentReversal;
 use App\Services\Concerns\ValidatesMoney;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -153,6 +154,18 @@ class PaymentService
      */
     public function createPayment(array $data, Request $request): Payment
     {
+        $idempotencyKey = $request->header('X-Idempotency-Key') ?? ($data['idempotency_key'] ?? null);
+
+        if (filled($idempotencyKey)) {
+            $cachedPaymentId = Cache::get("payment:idempotency:{$idempotencyKey}");
+            if ($cachedPaymentId) {
+                $existingPayment = Payment::find($cachedPaymentId);
+                if ($existingPayment) {
+                    return $existingPayment;
+                }
+            }
+        }
+
         $this->validateMethodAndReference($data);
         $amount = $this->validateMoney($data['amount'] ?? null, 'amount', allowZero: false);
         $paymentDate = $this->validatePaymentDate($data['payment_date'] ?? null);
@@ -208,6 +221,10 @@ class PaymentService
 
             return $payment;
         });
+
+        if (filled($idempotencyKey)) {
+            Cache::put("payment:idempotency:{$idempotencyKey}", $payment->id, now()->addHours(24));
+        }
 
         $this->auditLog->record(
             'payment_posted',

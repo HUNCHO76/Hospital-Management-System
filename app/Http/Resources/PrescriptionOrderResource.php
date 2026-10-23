@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\PrescriptionOrder;
+use App\Services\NHIF\NhifOrderPreApprovalService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -78,6 +79,7 @@ class PrescriptionOrderResource extends JsonResource
                 'id' => $encounter->department->id,
                 'name' => $encounter->department->name,
             ] : null,
+            'nhif_pre_approval' => app(NhifOrderPreApprovalService::class)->statusForPrescriptionOrder($this->resource),
             'created_at' => optional($this->created_at)->toIso8601String(),
         ];
     }

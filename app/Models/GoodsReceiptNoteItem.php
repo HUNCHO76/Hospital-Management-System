@@ -45,6 +45,21 @@ class GoodsReceiptNoteItem extends Model
         ];
     }
 
+    protected $appends = [
+        'quantity_received',
+        'item_description',
+    ];
+
+    public function getQuantityReceivedAttribute(): int
+    {
+        return (int) $this->quantity_delivered;
+    }
+
+    public function getItemDescriptionAttribute(): string
+    {
+        return (string) ($this->item_name ?? '');
+    }
+
     public function goodsReceiptNote(): BelongsTo
     {
         return $this->belongsTo(GoodsReceiptNote::class);

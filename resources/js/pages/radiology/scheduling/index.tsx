@@ -175,15 +175,29 @@ export default function RadiologySchedulingIndex({
                                         </TableCell>
                                         <TableCell>{item.order ? radiologyOrderPriorityLabel[item.order.priority] : '—'}</TableCell>
                                         <TableCell>
-                                            {(item as any).financial_status === 'payment_required' ? (
-                                                <Badge variant="destructive" className="bg-amber-600 dark:bg-amber-700 text-white">
-                                                    PAYMENT REQUIRED
-                                                </Badge>
-                                            ) : (
-                                                <Badge variant="default" className="bg-green-600 dark:bg-green-700 text-white">
-                                                    AUTHORIZED
-                                                </Badge>
-                                            )}
+                                            <div className="flex flex-col gap-1 items-start">
+                                                {(item as any).financial_status === 'payment_required' ? (
+                                                    <Badge variant="destructive" className="bg-amber-600 dark:bg-amber-700 text-white">
+                                                        PAYMENT REQUIRED
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge variant="default" className="bg-green-600 dark:bg-green-700 text-white">
+                                                        AUTHORIZED
+                                                    </Badge>
+                                                )}
+                                                {(item as any).nhif_pre_approval && (
+                                                    <Badge
+                                                        variant="outline"
+                                                        className={
+                                                            (item as any).nhif_pre_approval.status === 'authorized'
+                                                                ? 'border-green-500/50 text-green-700 dark:text-green-400 text-[10px]'
+                                                                : 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[10px]'
+                                                        }
+                                                    >
+                                                        {(item as any).nhif_pre_approval.label}
+                                                    </Badge>
+                                                )}
+                                            </div>
                                         </TableCell>
                                         <TableCell className="text-right flex items-center justify-end gap-1">
                                             {(item as any).financial_status === 'payment_required' && (item as any).patient_account_id ? (
@@ -196,7 +210,17 @@ export default function RadiologySchedulingIndex({
                                                     item={item}
                                                     knownResources={knownResources}
                                                     trigger={
-                                                        <Button size="sm" disabled={(item as any).financial_status === 'payment_required'} title={(item as any).financial_status === 'payment_required' ? 'Payment required before scheduling' : undefined}>
+                                                        <Button
+                                                            size="sm"
+                                                            disabled={(item as any).financial_status === 'payment_required' || (item as any).nhif_pre_approval?.blocked}
+                                                            title={
+                                                                (item as any).financial_status === 'payment_required'
+                                                                    ? 'Payment required before scheduling'
+                                                                    : (item as any).nhif_pre_approval?.blocked
+                                                                      ? (item as any).nhif_pre_approval?.message
+                                                                      : undefined
+                                                            }
+                                                        >
                                                             <CalendarClock className="h-4 w-4" />
                                                             Schedule
                                                         </Button>

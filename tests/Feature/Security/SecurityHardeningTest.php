@@ -98,6 +98,7 @@ test('mass assignment cannot smuggle a non-fillable column into a patient', func
         'last_name' => 'Assign',
         'gender' => 'male',
         'status' => 'active',
+        'payment_type' => 'cash',
         'id' => 999999,          // attempt to force a primary key
         'created_at' => '1990-01-01',
     ]);

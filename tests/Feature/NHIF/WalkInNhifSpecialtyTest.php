@@ -18,10 +18,13 @@ use App\Models\InsuranceProvider;
 use App\Models\NhifSchemeService;
 use App\Models\Patient;
 use App\Models\PatientInsurance;
+use App\Models\Practitioner;
 use App\Models\ReceptionVisit;
+use App\Models\Service;
 use App\Models\Staff;
 use App\Services\NHIF\NhifSchemeEligibilityService;
 use Illuminate\Validation\ValidationException;
+use Inertia\Testing\AssertableInertia as Assert;
 
 // ---------------------------------------------------------------------------
 // Helper — set up an NHIF-verified patient with scheme services
@@ -172,4 +175,74 @@ it('cash walk-in with no nhif_item_code registers successfully via static path',
 it('nhif-consultation-services redirects unauthenticated requests', function (): void {
     $this->get(route('reception.nhif-consultation-services').'?patient_id=1')
         ->assertRedirect();
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 7 — nhif-consultation-services returns resolved service_id
+// ---------------------------------------------------------------------------
+
+it('nhif-consultation-services returns resolved service_id', function (): void {
+    $ctx = nhifWalkInSetup();
+    $hmsService = Service::factory()->create(['code' => 'CONSULT-GP-NHIF', 'category' => 'consultation']);
+
+    $response = $this->actingAs($ctx['actor'])
+        ->getJson(route('reception.nhif-consultation-services').'?patient_id='.$ctx['patient']->id);
+
+    $response->assertOk();
+    $data = $response->json();
+    expect($data['services'][0]['service_id'])->toBe($hmsService->id);
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 8 — createWalkIn view loads consultationService on practitioners
+// ---------------------------------------------------------------------------
+
+it('walk-in create page loads practitioners with consultation_service relation', function (): void {
+    $ctx = nhifWalkInSetup();
+    $hmsService = Service::factory()->create(['code' => 'CONSULT-101', 'category' => 'consultation']);
+    Practitioner::factory()->create([
+        'consultation_service_id' => $hmsService->id,
+        'nhif_practitioner_no' => 'NHIF-DOC-001',
+    ]);
+
+    $response = $this->actingAs($ctx['actor'])
+        ->get(route('reception.walk-in.create'));
+
+    $response->assertOk();
+    $response->assertInertia(fn (Assert $page) => $page
+        ->component('reception/walk-in/create')
+        ->has('practitioners')
+    );
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 9 — walk-in store rejects practitioner with mismatched consultation service
+// ---------------------------------------------------------------------------
+
+it('walk-in store rejects practitioner when assigned consultation service does not match selected NHIF service', function (): void {
+    $ctx = nhifWalkInSetup();
+
+    Service::factory()->create(['code' => 'CONSULT-GP-NHIF', 'category' => 'consultation']);
+    $serviceB = Service::factory()->create(['code' => 'OTHER-CONSULT', 'category' => 'consultation']);
+
+    $practitioner = Practitioner::factory()->create([
+        'consultation_service_id' => $serviceB->id,
+        'nhif_practitioner_no' => 'PRAC-MISMATCH',
+    ]);
+
+    $this->mock(NhifSchemeEligibilityService::class)
+        ->shouldReceive('assertEligible')
+        ->once()
+        ->andReturnNull();
+
+    $response = $this->actingAs($ctx['actor'])
+        ->post(route('reception.walk-in.store'), [
+            'patient_id' => $ctx['patient']->id,
+            'department_id' => $ctx['department']->id,
+            'visit_type' => 'walk_in',
+            'nhif_item_code' => 'CONSULT-GP-NHIF',
+            'practitioner_id' => $practitioner->id,
+        ]);
+
+    $response->assertSessionHasErrors('practitioner_id');
 });

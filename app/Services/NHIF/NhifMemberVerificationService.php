@@ -144,6 +144,10 @@ class NhifMemberVerificationService
             $insuranceUpdates['nhif_facility_code'] = $record->nhif_facility_code;
         }
 
+        if ($record->member_picture) {
+            $insuranceUpdates['nhif_member_picture'] = $record->member_picture;
+        }
+
         $pfNumber = $memberData['PFNumber'] ?? $memberData['pfNumber'] ?? null;
         if (filled($pfNumber) && blank($insurance->nhif_pf_number)) {
             $insuranceUpdates['nhif_pf_number'] = $pfNumber;
@@ -576,6 +580,15 @@ class NhifMemberVerificationService
             $isSuccess = ($result['success'] ?? false) && filled($authNoFromVerify);
 
             if ($isSuccess) {
+                // Fetch member biometric photo (GetMemberPicture)
+                $memberPicture = null;
+                try {
+                    $picRes = $this->client->getMemberPicture($cardNo, $verifierId);
+                    $memberPicture = $picRes['data']['picture'] ?? null;
+                } catch (Throwable $picEx) {
+                    Log::info('NHIF GetMemberPicture skipped/failed during verifyCard: '.$picEx->getMessage());
+                }
+
                 $record->update([
                     'verification_status' => NhifMemberVerification::STATUS_VERIFIED,
                     'verified_at' => now(),
@@ -584,6 +597,7 @@ class NhifMemberVerificationService
                     'nhif_authorization_no' => $authNoFromVerify,
                     'nhif_scheme_id' => $schemeIdFromVerify,
                     'nhif_facility_code' => $facilityCodeFromVerify,
+                    'member_picture' => $memberPicture,
                 ]);
 
                 $this->auditLog->record('NHIF_VERIFY_CARD_SUCCESS', $insurance, null, [
@@ -737,5 +751,48 @@ class NhifMemberVerificationService
         }
 
         return $response;
+    }
+
+    /**
+     * Retrieve the member picture for biometric verification via NHIF GetMemberPicture.
+     * Optionally updates the given PatientInsurance with the picture.
+     *
+     * @return array{success: bool, picture: string|null, default_picture: string, error: string|null}
+     */
+    public function fetchMemberPicture(string $cardNo, string $verifierId, ?PatientInsurance $insurance = null): array
+    {
+        $defaultPicture = asset('images/default-avatar.svg');
+
+        try {
+            $result = $this->client->getMemberPicture($cardNo, $verifierId);
+            $picture = $result['data']['picture'] ?? null;
+
+            if ($picture && $insurance) {
+                $insurance->update(['nhif_member_picture' => $picture]);
+                $latestVerif = $insurance->latestNhifVerification;
+                if ($latestVerif) {
+                    $latestVerif->update(['member_picture' => $picture]);
+                }
+            }
+
+            return [
+                'success' => filled($picture),
+                'picture' => $picture,
+                'default_picture' => $defaultPicture,
+                'error' => $result['error'] ?? null,
+            ];
+        } catch (Throwable $e) {
+            Log::warning('NHIF fetchMemberPicture exception', [
+                'card_no' => $cardNo,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'picture' => null,
+                'default_picture' => $defaultPicture,
+                'error' => $e->getMessage(),
+            ];
+        }
     }
 }

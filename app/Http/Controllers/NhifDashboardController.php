@@ -17,20 +17,44 @@ class NhifDashboardController extends Controller
 {
     public function index(Request $request): Response
     {
+        abort_unless($request->user()->can('nhif-dashboard.view'), 403);
+
+        $user = $request->user();
+        $hospitalId = $user->hasRole('super-admin') ? null : $user->staff?->hospital_id;
+
         $stats = [
-            'pending_verifications' => NhifMemberVerification::where('verification_status', NhifMemberVerification::STATUS_ERROR)->count(),
-            'today_verifications' => NhifMemberVerification::whereDate('created_at', today())->count(),
-            'pending_eligibility_checks' => NhifEligibilityRecord::where('eligibility_status', NhifEligibilityRecord::STATUS_UNKNOWN)->count(),
-            'today_eligibility_checks' => NhifEligibilityRecord::whereDate('created_at', today())->count(),
-            'pending_preauthorizations' => NhifPreauthorization::where('status', 'pending')->count(),
-            'pending_utilizations' => NhifUtilization::where('status', NhifUtilization::STATUS_PENDING)->count(),
-            'draft_claims' => NhifClaim::where('status', NhifClaim::STATUS_DRAFT)->count(),
-            'submitted_claims' => NhifClaim::where('status', NhifClaim::STATUS_SUBMITTED)->count(),
-            'open_discrepancies' => NhifClaimDiscrepancy::where('status', NhifClaimDiscrepancy::STATUS_OPEN)->count(),
+            'pending_verifications' => NhifMemberVerification::where('verification_status', NhifMemberVerification::STATUS_ERROR)
+                ->when($hospitalId, fn ($q) => $q->where('hospital_id', $hospitalId))
+                ->count(),
+            'today_verifications' => NhifMemberVerification::whereDate('created_at', today())
+                ->when($hospitalId, fn ($q) => $q->where('hospital_id', $hospitalId))
+                ->count(),
+            'pending_eligibility_checks' => NhifEligibilityRecord::where('eligibility_status', NhifEligibilityRecord::STATUS_UNKNOWN)
+                ->when($hospitalId, fn ($q) => $q->where('hospital_id', $hospitalId))
+                ->count(),
+            'today_eligibility_checks' => NhifEligibilityRecord::whereDate('created_at', today())
+                ->when($hospitalId, fn ($q) => $q->where('hospital_id', $hospitalId))
+                ->count(),
+            'pending_preauthorizations' => NhifPreauthorization::where('status', 'pending')
+                ->when($hospitalId, fn ($q) => $q->where('hospital_id', $hospitalId))
+                ->count(),
+            'pending_utilizations' => NhifUtilization::where('status', NhifUtilization::STATUS_PENDING)
+                ->when($hospitalId, fn ($q) => $q->where('hospital_id', $hospitalId))
+                ->count(),
+            'draft_claims' => NhifClaim::where('status', NhifClaim::STATUS_DRAFT)
+                ->when($hospitalId, fn ($q) => $q->where('hospital_id', $hospitalId))
+                ->count(),
+            'submitted_claims' => NhifClaim::where('status', NhifClaim::STATUS_SUBMITTED)
+                ->when($hospitalId, fn ($q) => $q->where('hospital_id', $hospitalId))
+                ->count(),
+            'open_discrepancies' => NhifClaimDiscrepancy::where('status', NhifClaimDiscrepancy::STATUS_OPEN)
+                ->when($hospitalId, fn ($q) => $q->whereHas('claim', fn ($c) => $c->where('hospital_id', $hospitalId)))
+                ->count(),
             'last_sync_at' => NhifPriceSyncLog::where('status', 'completed')->max('completed_at'),
         ];
 
         $recentClaims = NhifClaim::with('hospital')
+            ->when($hospitalId, fn ($q) => $q->where('hospital_id', $hospitalId))
             ->orderByDesc('updated_at')
             ->limit(5)
             ->get()

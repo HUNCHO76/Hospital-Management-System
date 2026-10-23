@@ -639,9 +639,21 @@ class LaboratoryResultService
      *
      * @throws ValidationException
      */
-    protected function syncParameterValues(LaboratoryResult $result, array $parameterValues, Request $request): ?string
+    public function syncParameterValues(LaboratoryResult $result, array $parameterValues, ?Request $request = null): ?string
     {
         $patient = $result->item?->laboratoryOrder?->clinicalEncounter?->patient;
+        $sample = $result->sample;
+        $item = $result->item;
+        $specimenSource = $sample?->specimen_source ?? $item?->specimen_source;
+
+        if (! $specimenSource) {
+            $contextText = strtolower(($sample?->collection_site ?? '').' '.($sample?->collection_notes ?? '').' '.($item?->clinical_note ?? ''));
+            if (str_contains($contextText, 'venous') || str_contains($contextText, 'vbg')) {
+                $specimenSource = 'venous';
+            } elseif (str_contains($contextText, 'arterial') || str_contains($contextText, 'abg')) {
+                $specimenSource = 'arterial';
+            }
+        }
 
         foreach ($parameterValues as $index => $entry) {
             $parameterId = $entry['parameter_id'] ?? null;
@@ -702,8 +714,8 @@ class LaboratoryResultService
             }
 
             // Select the best matching reference range for this parameter + patient
-            // combination, then snapshot it for historical immutability.
-            $range = $patient ? $this->referenceRangeService->selectForPatient($parameter, $patient) : null;
+            // + specimen source combination, then snapshot it for historical immutability.
+            $range = $patient ? $this->referenceRangeService->selectForPatient($parameter, $patient, $specimenSource) : null;
 
             $flag = $this->flagCalculator->flag($parameter, $valueNumeric, $valueCode, $range);
 
@@ -737,11 +749,14 @@ class LaboratoryResultService
     protected function computeAggregateFlag(LaboratoryResult $result): ?string
     {
         $priority = [
+            LaboratoryFlagCalculator::FLAG_CRITICAL_HIGH => 5,
+            LaboratoryFlagCalculator::FLAG_CRITICAL_LOW => 5,
             LaboratoryFlagCalculator::FLAG_CRITICAL => 4,
             LaboratoryFlagCalculator::FLAG_HIGH => 3,
             LaboratoryFlagCalculator::FLAG_LOW => 2,
             LaboratoryFlagCalculator::FLAG_ABNORMAL => 1,
             LaboratoryFlagCalculator::FLAG_NORMAL => 0,
+            LaboratoryFlagCalculator::FLAG_UNCONFIGURED => -1,
         ];
 
         $flags = LaboratoryResultValue::where('laboratory_result_id', $result->id)

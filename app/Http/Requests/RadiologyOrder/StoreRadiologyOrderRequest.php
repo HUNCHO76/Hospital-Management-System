@@ -36,6 +36,7 @@ class StoreRadiologyOrderRequest extends FormRequest
             'priority' => ['nullable', 'string', Rule::in(RadiologyOrder::PRIORITIES)],
             'clinical_indication' => ['nullable', 'string', 'max:2000'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'send_preapproval' => ['nullable', 'boolean'],
         ];
     }
 

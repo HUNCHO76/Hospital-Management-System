@@ -5,13 +5,14 @@ namespace App\Providers;
 use App\Models\NhifClaim;
 use App\Models\NhifPackagePrice;
 use App\Models\User;
-use App\Policies\NhifFolioPolicy;
+use App\Policies\NhifClaimPolicy;
 use App\Policies\NhifPackagePricePolicy;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -32,8 +33,19 @@ class AppServiceProvider extends ServiceProvider
             return $user->hasRole('super-admin') ? true : null;
         });
 
-        Gate::policy(NhifClaim::class, NhifFolioPolicy::class);
+        Gate::policy(NhifClaim::class, NhifClaimPolicy::class);
         Gate::policy(NhifPackagePrice::class, NhifPackagePricePolicy::class);
+
+        Password::defaults(function () {
+            $rule = Password::min(8)
+                ->letters()
+                ->numbers()
+                ->symbols();
+
+            return app()->isProduction()
+                ? $rule->uncompromised()
+                : $rule;
+        });
 
         $this->configureRateLimiters();
     }
@@ -53,6 +65,17 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('auth', function (Request $request) {
             return Limit::perMinute((int) config('api.rate_limits.auth', 5))
                 ->by('auth:'.$request->ip());
+        });
+
+        RateLimiter::for('nhif-verification', function (Request $request) {
+            return Limit::perMinute((int) config('api.rate_limits.nhif_verification', 15))
+                ->by($request->user()?->id ? 'nhif:user:'.$request->user()->id : 'nhif:ip:'.$request->ip())
+                ->response(function (Request $request, array $headers) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Too many NHIF verification requests. Please wait a moment before trying again.',
+                    ], 429, $headers);
+                });
         });
     }
 }

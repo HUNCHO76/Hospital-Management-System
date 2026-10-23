@@ -1,781 +1,858 @@
+import AppearanceToggleDropdown from '@/components/appearance-dropdown';
+import { BrandMark } from '@/components/brand-mark';
+import { Button } from '@/components/ui/button';
+import { brand } from '@/lib/brand';
 import { type SharedData } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
+import {
+    Activity,
+    ArrowRight,
+    Award,
+    BadgeCheck,
+    BedDouble,
+    Building2,
+    CalendarClock,
+    CheckCircle2,
+    ClipboardCheck,
+    FileCheck2,
+    FileSpreadsheet,
+    FileText,
+    FlaskConical,
+    HeartPulse,
+    HelpCircle,
+    Layers,
+    LayoutDashboard,
+    Lock,
+    LogIn,
+    Pill,
+    Receipt,
+    Scan,
+    Search,
+    Shield,
+    ShieldCheck,
+    Sparkles,
+    Stethoscope,
+    Users,
+    UsersRound,
+    Warehouse,
+    Zap,
+} from 'lucide-react';
+import { useMemo, useState } from 'react';
+
+type ModuleCategory = 'all' | 'clinical' | 'diagnostics' | 'finance' | 'operations';
+
+interface SystemModule {
+    id: string;
+    title: string;
+    category: 'clinical' | 'diagnostics' | 'finance' | 'operations';
+    badge: string;
+    icon: typeof Activity;
+    description: string;
+    features: string[];
+    color: string;
+}
 
 export default function Welcome() {
     const { auth } = usePage<SharedData>().props;
+    const [selectedCategory, setSelectedCategory] = useState<ModuleCategory>('all');
+    const [activeWorkflowStep, setActiveWorkflowStep] = useState<number>(0);
+
+    const nhifSteps = [
+        {
+            step: '01',
+            title: 'Biometric & Card Verification',
+            description:
+                'Instant member validation against NHIF national databases with real-time card status, active schemes, and dependent verification.',
+            icon: ShieldCheck,
+            badge: 'Real-time API',
+        },
+        {
+            step: '02',
+            title: 'Pre-Approval & Authorization',
+            description:
+                'Automated clinical pre-authorization checks for procedures, restricted tariffs, package pricing, and specialist consultations.',
+            icon: ClipboardCheck,
+            badge: 'Policy Engine',
+        },
+        {
+            step: '03',
+            title: 'Automated Charge & Tariff Match',
+            description:
+                'Clinical encounters, lab tests, radiology scans, and pharmacy items are auto-mapped to standard NHIF item codes and prices.',
+            icon: FileCheck2,
+            badge: 'ICD-10 & Tariffs',
+        },
+        {
+            step: '04',
+            title: 'Electronic Claim Reconciliation',
+            description:
+                'Batch claim generation, discrepancy detection, monthly submission packages, and automated remittance reconciliation.',
+            icon: FileSpreadsheet,
+            badge: 'Zero-Rejection Engine',
+        },
+    ];
+
+    const modules: SystemModule[] = [
+        {
+            id: 'reception',
+            title: 'Reception & Smart Triage',
+            category: 'clinical',
+            badge: 'Front Desk & Vitals',
+            icon: UsersRound,
+            description:
+                'Unified patient registration, automated queue numbering, appointment scheduling, and digital vital sign capture with pediatric & adult triage thresholds.',
+            features: [
+                'Biometric & National ID / NHIF Lookup',
+                'Vital Signs, BMI & Pain Scale Recording',
+                'Specialty Clinic Queue Routing',
+                'Emergency Triage Flagging',
+            ],
+            color: 'from-amber-500/10 to-orange-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400',
+        },
+        {
+            id: 'clinical',
+            title: 'Clinical Encounters & EMR',
+            category: 'clinical',
+            badge: 'OPD & Consultations',
+            icon: Stethoscope,
+            description:
+                'Comprehensive electronic medical record for physicians: structured SOAP notes, previous medical history, integrated ICD-10 diagnosis tagging, and referral pathways.',
+            features: [
+                'Structured SOAP Clinical Documentation',
+                'Real-time ICD-10 Disease Code Search',
+                'Instant Order Entry (Lab, Radiology, Rx)',
+                'Practitioner Attendance & Biometric Log',
+            ],
+            color: 'from-blue-500/10 to-cyan-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400',
+        },
+        {
+            id: 'laboratory',
+            title: 'Diagnostic Laboratory Hub',
+            category: 'diagnostics',
+            badge: 'Analyzer & Worklist',
+            icon: FlaskConical,
+            description:
+                'End-to-end lab workflow management from barcode sample collection and multi-bench processing to automated reference range validation and digital result release.',
+            features: [
+                'Automated Sample Barcoding & Tracking',
+                'Multi-Bench Worklist Management',
+                'Age & Gender Reference Range Flags',
+                'Consultant Review & Digital Release',
+            ],
+            color: 'from-purple-500/10 to-indigo-500/10 border-purple-500/20 text-purple-600 dark:text-purple-400',
+        },
+        {
+            id: 'radiology',
+            title: 'Radiology & Imaging Suite',
+            category: 'diagnostics',
+            badge: 'PACS & Scheduling',
+            icon: Scan,
+            description:
+                'Integrated radiological examinations workflow with modality scheduling, patient prep tracking, image attachment, and structured radiologist reporting.',
+            features: [
+                'Modality Scheduling & Worklists (X-Ray, USG, CT)',
+                'Reception & Patient Preparation Logs',
+                'Diagnostic Impression Archiving',
+                'NHIF Pre-Approval Verification Gate',
+            ],
+            color: 'from-teal-500/10 to-emerald-500/10 border-teal-500/20 text-teal-600 dark:text-teal-400',
+        },
+        {
+            id: 'pharmacy',
+            title: 'Pharmacy & Smart Dispensary',
+            category: 'diagnostics',
+            badge: 'Prescriptions & Batches',
+            icon: Pill,
+            description:
+                'Digital prescription queue, pharmacist clinical verification, batch & lot expiry monitoring, automated FEFO dispensing, and inventory depletion.',
+            features: [
+                'Pharmacist Clinical Order Verification',
+                'Batch Expiry & FEFO Inventory Control',
+                'Split Co-Pay & Insurance Adjudication',
+                'Automated Stock Depletion & Alerts',
+            ],
+            color: 'from-rose-500/10 to-pink-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400',
+        },
+        {
+            id: 'inpatient',
+            title: 'Inpatient Ward & Bed Management',
+            category: 'clinical',
+            badge: 'Admissions & Care Plans',
+            icon: BedDouble,
+            description:
+                'Complete inpatient lifecycle: admission review and approval, ward and bed occupancy tracking, nurse medication administration records (MAR), and discharge summaries.',
+            features: [
+                'Bed Occupancy & Ward Transfer Tracking',
+                'Multi-Disciplinary Care Plans & Rounds',
+                'Nurse Medication Administration (MAR)',
+                'NHIF Inpatient Pre-Auth & Discharge Claims',
+            ],
+            color: 'from-indigo-500/10 to-sky-500/10 border-indigo-500/20 text-indigo-600 dark:text-indigo-400',
+        },
+        {
+            id: 'billing',
+            title: 'Billing, Cashier & Insurance',
+            category: 'finance',
+            badge: 'Revenue & NHIF Adjudication',
+            icon: Receipt,
+            description:
+                'Real-time point-of-care charge capture, automated patient copay splits, cashier shift opening/closing sessions, multi-tender payment processing, and audit reconciliation.',
+            features: [
+                'Automated Split Billing (Cash vs NHIF/Private)',
+                'Cashier Shift Handover & Balancing',
+                'NHIF Tariff Validation & Price Protection',
+                'Comprehensive Financial Audit Trails',
+            ],
+            color: 'from-emerald-500/10 to-green-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400',
+        },
+        {
+            id: 'procurement',
+            title: 'Stores & Medical Procurement',
+            category: 'operations',
+            badge: 'Supply Chain & Inventory',
+            icon: Warehouse,
+            description:
+                'Central medical stores and ward distribution: departmental stock requisitions, purchase indents, vendor quotation tracking, and goods receipt notes (GRN).',
+            features: [
+                'Departmental Requisitions & Transfers',
+                'Purchase Orders & Vendor Quotations',
+                'Goods Receipt Note (GRN) Verification',
+                'Real-Time Low Stock & Expiry Forecasting',
+            ],
+            color: 'from-amber-600/10 to-yellow-500/10 border-amber-600/20 text-amber-700 dark:text-amber-300',
+        },
+    ];
+
+    const filteredModules = useMemo(() => {
+        if (selectedCategory === 'all') return modules;
+        return modules.filter((m) => m.category === selectedCategory);
+    }, [selectedCategory]);
+
+    const stats = [
+        { label: 'NHIF Electronic Claim Accuracy', value: '99.8%', detail: 'Automated tariff & rule verification' },
+        { label: 'Integrated Hospital Modules', value: '10+', detail: 'From triage to central stores' },
+        { label: 'Diagnostic Turnaround', value: 'Fast-Track', detail: 'Automated lab & radiology worklists' },
+        { label: 'Clinical Readiness', value: '24/7', detail: 'Real-time ward & inpatient tracking' },
+    ];
 
     return (
         <>
-            <Head title="Welcome">
+            <Head title="St. Joseph DMI Hospital Management System & NHIF Integrated Platform">
                 <link rel="preconnect" href="https://fonts.bunny.net" />
-                <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
+                <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600,700" rel="stylesheet" />
             </Head>
-            <div className="flex min-h-screen flex-col items-center bg-[#FDFDFC] p-6 text-[#1b1b18] lg:justify-center lg:p-8 dark:bg-[#0a0a0a]">
-                <header className="mb-6 w-full max-w-[335px] text-sm not-has-[nav]:hidden lg:max-w-4xl">
-                    <nav className="flex items-center justify-end gap-4">
-                        {auth.user ? (
-                            <Link
-                                href={route('dashboard')}
-                                className="inline-block rounded-sm border border-[#19140035] px-5 py-1.5 text-sm leading-normal text-[#1b1b18] hover:border-[#1915014a] dark:border-[#3E3E3A] dark:text-[#EDEDEC] dark:hover:border-[#62605b]"
-                            >
-                                Dashboard
-                            </Link>
-                        ) : (
+
+            <div className="min-h-screen bg-neutral-50 text-neutral-900 selection:bg-amber-500 selection:text-white dark:bg-neutral-950 dark:text-neutral-100">
+                {/* 1. TOP ANNOUNCEMENT BAR */}
+                <div className="border-b border-amber-200/60 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-emerald-500/10 px-4 py-2 text-xs font-medium text-amber-900 dark:border-amber-900/40 dark:text-amber-200">
+                    <div className="mx-auto flex max-w-7xl items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                            <span>St. Joseph DMI Healthcare System • NHIF Smart Electronic Claims Engine v3.1</span>
+                        </div>
+                        <div className="hidden sm:flex items-center gap-4 text-neutral-600 dark:text-neutral-400">
+                            <span>Tanzania NHIF Direct Integration</span>
+                            <span>•</span>
+                            <span>Spatie RBAC Secure</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* 2. STICKY NAVIGATION BAR */}
+                <header className="sticky top-0 z-50 border-b border-neutral-200/80 bg-white/85 backdrop-blur-md dark:border-neutral-800/80 dark:bg-neutral-950/85">
+                    <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+                        {/* Hospital Logo & Brand Title */}
+                        <div className="flex items-center gap-3">
+                            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500/10 p-1.5 ring-1 ring-amber-500/20 dark:bg-amber-500/15">
+                                <BrandMark className="h-full w-full object-contain" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-base font-bold tracking-tight text-neutral-900 dark:text-white">
+                                        {brand.hospitalName}
+                                    </span>
+                                    <span className="hidden rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 sm:inline-block dark:bg-amber-950/60 dark:text-amber-300">
+                                        HMS + NHIF
+                                    </span>
+                                </div>
+                                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                                    Hospital Management System
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Navigation Links */}
+                        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-neutral-600 dark:text-neutral-300">
+                            <a href="#overview" className="transition hover:text-amber-600 dark:hover:text-amber-400">
+                                Overview
+                            </a>
+                            <a href="#nhif-integration" className="transition hover:text-amber-600 dark:hover:text-amber-400">
+                                NHIF Automation
+                            </a>
+                            <a href="#modules" className="transition hover:text-amber-600 dark:hover:text-amber-400">
+                                Clinical Modules
+                            </a>
+                            <a href="#workflow" className="transition hover:text-amber-600 dark:hover:text-amber-400">
+                                Patient Journey
+                            </a>
+                            <a href="#security" className="transition hover:text-amber-600 dark:hover:text-amber-400">
+                                Security & Compliance
+                            </a>
+                        </nav>
+
+                        {/* Action Buttons & Theme Toggle */}
+                        <div className="flex items-center gap-3">
+                            <AppearanceToggleDropdown className="text-neutral-600 dark:text-neutral-400" />
+
+                            {auth.user ? (
+                                <Link
+                                    href={route('dashboard')}
+                                    className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+                                >
+                                    <LayoutDashboard className="h-4 w-4" />
+                                    <span>Dashboard</span>
+                                </Link>
+                            ) : (
                                 <Link
                                     href={route('login')}
-                                    className="inline-block rounded-sm border border-[#19140035] px-5 py-1.5 text-sm leading-normal text-[#1b1b18] hover:border-[#1915014a] dark:border-[#3E3E3A] dark:text-[#EDEDEC] dark:hover:border-[#62605b]"
+                                    className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-amber-600/20 transition hover:bg-amber-500 active:scale-95"
                                 >
-                                    Log in
+                                    <LogIn className="h-4 w-4" />
+                                    <span>Staff Login</span>
                                 </Link>
-                        )}
-                    </nav>
+                            )}
+                        </div>
+                    </div>
                 </header>
-                <div className="flex w-full items-center justify-center opacity-100 transition-opacity duration-750 lg:grow starting:opacity-0">
-                    <main className="flex w-full max-w-[335px] flex-col-reverse lg:max-w-4xl lg:flex-row">
-                        <div className="flex-1 rounded-br-lg rounded-bl-lg bg-white p-6 pb-12 text-[13px] leading-[20px] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] lg:rounded-tl-lg lg:rounded-br-none lg:p-20 dark:bg-[#161615] dark:text-[#EDEDEC] dark:shadow-[inset_0px_0px_0px_1px_#fffaed2d]">
-                            <h1 className="mb-1 font-medium">Let's get started</h1>
-                            <p className="mb-2 text-[#706f6c] dark:text-[#A1A09A]">
-                                Laravel has an incredibly rich ecosystem.
-                                <br />
-                                We suggest you start with the following.
-                            </p>
-                            <ul className="mb-4 flex flex-col lg:mb-6">
-                                <li className="relative flex items-center gap-4 py-2 before:absolute before:top-1/2 before:bottom-0 before:left-[0.4rem] before:border-l before:border-[#e3e3e0] dark:before:border-[#3E3E3A]">
-                                    <span className="relative bg-white py-1 dark:bg-[#161615]">
-                                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-[#e3e3e0] bg-[#FDFDFC] shadow-[0px_0px_1px_0px_rgba(0,0,0,0.03),0px_1px_2px_0px_rgba(0,0,0,0.06)] dark:border-[#3E3E3A] dark:bg-[#161615]">
-                                            <span className="h-1.5 w-1.5 rounded-full bg-[#dbdbd7] dark:bg-[#3E3E3A]" />
-                                        </span>
-                                    </span>
-                                    <span>
-                                        Read the
-                                        <a
-                                            href="https://laravel.com/docs"
-                                            target="_blank"
-                                            className="ml-1 inline-flex items-center space-x-1 font-medium text-[#f53003] underline underline-offset-4 dark:text-[#FF4433]"
+
+                {/* 3. HERO SECTION */}
+                <section id="overview" className="relative overflow-hidden pt-12 pb-20 lg:pt-20 lg:pb-28">
+                    {/* Ambient Glows */}
+                    <div className="pointer-events-none absolute -top-40 right-1/4 -z-10 h-96 w-96 rounded-full bg-amber-500/15 blur-3xl" />
+                    <div className="pointer-events-none absolute top-48 -left-20 -z-10 h-96 w-96 rounded-full bg-emerald-500/10 blur-3xl" />
+
+                    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                        <div className="grid gap-12 lg:grid-cols-12 lg:items-center">
+                            {/* Left Column: Headlines & CTAs */}
+                            <div className="lg:col-span-7">
+                                <div className="inline-flex items-center gap-2 rounded-full border border-amber-300/80 bg-amber-50 px-3.5 py-1 text-xs font-semibold text-amber-900 shadow-sm dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-300">
+                                    <Sparkles className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                                    <span>St. Joseph DMI Healthcare & Insurance Ecosystem</span>
+                                </div>
+
+                                <h1 className="mt-5 text-4xl font-extrabold tracking-tight text-neutral-900 sm:text-5xl lg:text-6xl dark:text-white">
+                                    Intelligent Clinical Care & Seamless{' '}
+                                    <span className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 bg-clip-text text-transparent dark:from-amber-400 dark:via-orange-400 dark:to-amber-500">
+                                        NHIF Claims
+                                    </span>{' '}
+                                    Integration.
+                                </h1>
+
+                                <p className="mt-6 text-lg leading-relaxed text-neutral-600 dark:text-neutral-300">
+                                    Powering <strong>St. Joseph DMI</strong> with a modern digital health infrastructure:
+                                    from outpatient registration and digital triage to computerized laboratory orders,
+                                    radiology examinations, pharmacy dispensing, and real-time electronic NHIF claims
+                                    adjudication.
+                                </p>
+
+                                <div className="mt-8 flex flex-wrap items-center gap-4">
+                                    {auth.user ? (
+                                        <Link
+                                            href={route('dashboard')}
+                                            className="inline-flex items-center gap-2.5 rounded-xl bg-amber-600 px-6 py-3.5 text-base font-semibold text-white shadow-lg shadow-amber-600/25 transition hover:bg-amber-500 active:scale-95"
                                         >
-                                            <span>Documentation</span>
-                                            <svg
-                                                width={10}
-                                                height={11}
-                                                viewBox="0 0 10 11"
-                                                fill="none"
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                className="h-2.5 w-2.5"
-                                            >
-                                                <path
-                                                    d="M7.70833 6.95834V2.79167H3.54167M2.5 8L7.5 3.00001"
-                                                    stroke="currentColor"
-                                                    strokeLinecap="square"
-                                                />
-                                            </svg>
-                                        </a>
-                                    </span>
-                                </li>
-                                <li className="relative flex items-center gap-4 py-2 before:absolute before:top-0 before:bottom-1/2 before:left-[0.4rem] before:border-l before:border-[#e3e3e0] dark:before:border-[#3E3E3A]">
-                                    <span className="relative bg-white py-1 dark:bg-[#161615]">
-                                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-[#e3e3e0] bg-[#FDFDFC] shadow-[0px_0px_1px_0px_rgba(0,0,0,0.03),0px_1px_2px_0px_rgba(0,0,0,0.06)] dark:border-[#3E3E3A] dark:bg-[#161615]">
-                                            <span className="h-1.5 w-1.5 rounded-full bg-[#dbdbd7] dark:bg-[#3E3E3A]" />
-                                        </span>
-                                    </span>
-                                    <span>
-                                        Watch video tutorials at
-                                        <a
-                                            href="https://laracasts.com"
-                                            target="_blank"
-                                            className="ml-1 inline-flex items-center space-x-1 font-medium text-[#f53003] underline underline-offset-4 dark:text-[#FF4433]"
+                                            <span>Enter Hospital Workspace</span>
+                                            <ArrowRight className="h-5 w-5" />
+                                        </Link>
+                                    ) : (
+                                        <Link
+                                            href={route('login')}
+                                            className="inline-flex items-center gap-2.5 rounded-xl bg-amber-600 px-6 py-3.5 text-base font-semibold text-white shadow-lg shadow-amber-600/25 transition hover:bg-amber-500 active:scale-95"
                                         >
-                                            <span>Laracasts</span>
-                                            <svg
-                                                width={10}
-                                                height={11}
-                                                viewBox="0 0 10 11"
-                                                fill="none"
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                className="h-2.5 w-2.5"
-                                            >
-                                                <path
-                                                    d="M7.70833 6.95834V2.79167H3.54167M2.5 8L7.5 3.00001"
-                                                    stroke="currentColor"
-                                                    strokeLinecap="square"
-                                                />
-                                            </svg>
-                                        </a>
-                                    </span>
-                                </li>
-                            </ul>
-                            <ul className="flex gap-3 text-sm leading-normal">
-                                <li>
+                                            <span>Staff Portal Access</span>
+                                            <ArrowRight className="h-5 w-5" />
+                                        </Link>
+                                    )}
+
                                     <a
-                                        href="https://cloud.laravel.com"
-                                        target="_blank"
-                                        className="inline-block rounded-sm border border-black bg-[#1b1b18] px-5 py-1.5 text-sm leading-normal text-white hover:border-black hover:bg-black dark:border-[#eeeeec] dark:bg-[#eeeeec] dark:text-[#1C1C1A] dark:hover:border-white dark:hover:bg-white"
+                                        href="#nhif-integration"
+                                        className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-5 py-3.5 text-base font-medium text-neutral-700 shadow-sm transition hover:bg-neutral-50 hover:text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800 dark:hover:text-white"
                                     >
-                                        Deploy now
+                                        <ShieldCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                                        <span>Explore NHIF Automation</span>
                                     </a>
-                                </li>
-                            </ul>
+                                </div>
+
+                                {/* Certification & Highlights */}
+                                <div className="mt-10 flex flex-wrap items-center gap-6 border-t border-neutral-200/80 pt-6 text-xs text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+                                    <div className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                                        <span>Tanzania NHIF Direct Verification</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                                        <span>ICD-10 Clinical Diagnostics</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                                        <span>Role-Based Audit Logging</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Right Column: Live Clinical System Mockup */}
+                            <div className="lg:col-span-5">
+                                <div className="relative rounded-2xl border border-neutral-200/80 bg-white p-5 shadow-2xl dark:border-neutral-800 dark:bg-neutral-900">
+                                    {/* Mock Window Header */}
+                                    <div className="flex items-center justify-between border-b border-neutral-100 pb-3 dark:border-neutral-800">
+                                        <div className="flex items-center gap-2">
+                                            <div className="h-3 w-3 rounded-full bg-rose-500/80" />
+                                            <div className="h-3 w-3 rounded-full bg-amber-500/80" />
+                                            <div className="h-3 w-3 rounded-full bg-emerald-500/80" />
+                                            <span className="ml-2 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
+                                                Live Encounter & Claim Preview
+                                            </span>
+                                        </div>
+                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                                            NHIF Verified
+                                        </span>
+                                    </div>
+
+                                    {/* Mock Patient Card */}
+                                    <div className="mt-4 rounded-xl bg-neutral-50 p-4 dark:bg-neutral-800/50">
+                                        <div className="flex items-start justify-between">
+                                            <div>
+                                                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                                                    Patient MRN: <strong className="text-neutral-800 dark:text-neutral-200">SJD-2026-08412</strong>
+                                                </p>
+                                                <h4 className="mt-1 text-base font-bold text-neutral-900 dark:text-white">
+                                                    Juma Abdallah Mwenda
+                                                </h4>
+                                                <p className="text-xs text-neutral-500">
+                                                    Male • 42 Yrs • NHIF Card: <strong>23-9081273-01</strong>
+                                                </p>
+                                            </div>
+                                            <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/80 dark:text-amber-300">
+                                                OPD General
+                                            </span>
+                                        </div>
+
+                                        {/* Vitals Ribbon */}
+                                        <div className="mt-3 grid grid-cols-4 gap-2 rounded-lg bg-white p-2.5 text-center text-xs shadow-xs dark:bg-neutral-900">
+                                            <div>
+                                                <span className="text-[10px] text-neutral-400">BP</span>
+                                                <p className="font-semibold text-neutral-800 dark:text-neutral-200">120/80</p>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] text-neutral-400">Pulse</span>
+                                                <p className="font-semibold text-neutral-800 dark:text-neutral-200">74 bpm</p>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] text-neutral-400">Temp</span>
+                                                <p className="font-semibold text-neutral-800 dark:text-neutral-200">36.7 °C</p>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] text-neutral-400">SpO2</span>
+                                                <p className="font-semibold text-emerald-600 dark:text-emerald-400">99%</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Workflow Live Stages */}
+                                    <div className="mt-4 space-y-2.5 text-xs">
+                                        <div className="flex items-center justify-between rounded-lg border border-neutral-200/70 p-2.5 dark:border-neutral-800">
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                                                    <Stethoscope className="h-4 w-4" />
+                                                </div>
+                                                <div>
+                                                    <p className="font-medium text-neutral-800 dark:text-neutral-200">Consultation Encounter</p>
+                                                    <p className="text-[11px] text-neutral-400">Dr. M. Kweka • ICD-10 J06.9</p>
+                                                </div>
+                                            </div>
+                                            <span className="text-emerald-600 font-semibold dark:text-emerald-400">Completed</span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between rounded-lg border border-neutral-200/70 p-2.5 dark:border-neutral-800">
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+                                                    <FlaskConical className="h-4 w-4" />
+                                                </div>
+                                                <div>
+                                                    <p className="font-medium text-neutral-800 dark:text-neutral-200">Laboratory (Full Blood Picture)</p>
+                                                    <p className="text-[11px] text-neutral-400">Automated Bench • Results Released</p>
+                                                </div>
+                                            </div>
+                                            <span className="text-emerald-600 font-semibold dark:text-emerald-400">Released</span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between rounded-lg border border-neutral-200/70 p-2.5 dark:border-neutral-800">
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                                                    <Receipt className="h-4 w-4" />
+                                                </div>
+                                                <div>
+                                                    <p className="font-medium text-neutral-800 dark:text-neutral-200">NHIF Electronic Claim</p>
+                                                    <p className="text-[11px] text-neutral-400">Claim #CLM-TZ-98402 • Tariff Auto-Match</p>
+                                                </div>
+                                            </div>
+                                            <span className="text-emerald-600 font-semibold dark:text-emerald-400">Ready</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Action button inside mockup */}
+                                    <div className="mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+                                        <span className="text-[11px] text-neutral-500">St. Joseph DMI Clinical Core</span>
+                                        <Link
+                                            href={auth.user ? route('dashboard') : route('login')}
+                                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-600 hover:text-amber-500 dark:text-amber-400"
+                                        >
+                                            <span>Open Encounter</span>
+                                            <ArrowRight className="h-3.5 w-3.5" />
+                                        </Link>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div className="relative -mb-px aspect-[335/376] w-full shrink-0 overflow-hidden rounded-t-lg bg-[#fff2f2] lg:mb-0 lg:-ml-px lg:aspect-auto lg:w-[438px] lg:rounded-t-none lg:rounded-r-lg dark:bg-[#1D0002]">
-                            <svg
-                                className="w-full max-w-none translate-y-0 text-[#F53003] opacity-100 transition-all duration-750 dark:text-[#F61500] starting:translate-y-6 starting:opacity-0"
-                                viewBox="0 0 438 104"
-                                fill="none"
-                                xmlns="http://www.w3.org/2000/svg"
-                            >
-                                <path d="M17.2036 -3H0V102.197H49.5189V86.7187H17.2036V-3Z" fill="currentColor" />
-                                <path
-                                    d="M110.256 41.6337C108.061 38.1275 104.945 35.3731 100.905 33.3681C96.8667 31.3647 92.8016 30.3618 88.7131 30.3618C83.4247 30.3618 78.5885 31.3389 74.201 33.2923C69.8111 35.2456 66.0474 37.928 62.9059 41.3333C59.7643 44.7401 57.3198 48.6726 55.5754 53.1293C53.8287 57.589 52.9572 62.274 52.9572 67.1813C52.9572 72.1925 53.8287 76.8995 55.5754 81.3069C57.3191 85.7173 59.7636 89.6241 62.9059 93.0293C66.0474 96.4361 69.8119 99.1155 74.201 101.069C78.5885 103.022 83.4247 103.999 88.7131 103.999C92.8016 103.999 96.8667 102.997 100.905 100.994C104.945 98.9911 108.061 96.2359 110.256 92.7282V102.195H126.563V32.1642H110.256V41.6337ZM108.76 75.7472C107.762 78.4531 106.366 80.8078 104.572 82.8112C102.776 84.8161 100.606 86.4183 98.0637 87.6206C95.5202 88.823 92.7004 89.4238 89.6103 89.4238C86.5178 89.4238 83.7252 88.823 81.2324 87.6206C78.7388 86.4183 76.5949 84.8161 74.7998 82.8112C73.004 80.8078 71.6319 78.4531 70.6856 75.7472C69.7356 73.0421 69.2644 70.1868 69.2644 67.1821C69.2644 64.1758 69.7356 61.3205 70.6856 58.6154C71.6319 55.9102 73.004 53.5571 74.7998 51.5522C76.5949 49.5495 78.738 47.9451 81.2324 46.7427C83.7252 45.5404 86.5178 44.9396 89.6103 44.9396C92.7012 44.9396 95.5202 45.5404 98.0637 46.7427C100.606 47.9451 102.776 49.5487 104.572 51.5522C106.367 53.5571 107.762 55.9102 108.76 58.6154C109.756 61.3205 110.256 64.1758 110.256 67.1821C110.256 70.1868 109.756 73.0421 108.76 75.7472Z"
-                                    fill="currentColor"
-                                />
-                                <path
-                                    d="M242.805 41.6337C240.611 38.1275 237.494 35.3731 233.455 33.3681C229.416 31.3647 225.351 30.3618 221.262 30.3618C215.974 30.3618 211.138 31.3389 206.75 33.2923C202.36 35.2456 198.597 37.928 195.455 41.3333C192.314 44.7401 189.869 48.6726 188.125 53.1293C186.378 57.589 185.507 62.274 185.507 67.1813C185.507 72.1925 186.378 76.8995 188.125 81.3069C189.868 85.7173 192.313 89.6241 195.455 93.0293C198.597 96.4361 202.361 99.1155 206.75 101.069C211.138 103.022 215.974 103.999 221.262 103.999C225.351 103.999 229.416 102.997 233.455 100.994C237.494 98.9911 240.611 96.2359 242.805 92.7282V102.195H259.112V32.1642H242.805V41.6337ZM241.31 75.7472C240.312 78.4531 238.916 80.8078 237.122 82.8112C235.326 84.8161 233.156 86.4183 230.614 87.6206C228.07 88.823 225.251 89.4238 222.16 89.4238C219.068 89.4238 216.275 88.823 213.782 87.6206C211.289 86.4183 209.145 84.8161 207.35 82.8112C205.554 80.8078 204.182 78.4531 203.236 75.7472C202.286 73.0421 201.814 70.1868 201.814 67.1821C201.814 64.1758 202.286 61.3205 203.236 58.6154C204.182 55.9102 205.554 53.5571 207.35 51.5522C209.145 49.5495 211.288 47.9451 213.782 46.7427C216.275 45.5404 219.068 44.9396 222.16 44.9396C225.251 44.9396 228.07 45.5404 230.614 46.7427C233.156 47.9451 235.326 49.5487 237.122 51.5522C238.917 53.5571 240.312 55.9102 241.31 58.6154C242.306 61.3205 242.806 64.1758 242.806 67.1821C242.805 70.1868 242.305 73.0421 241.31 75.7472Z"
-                                    fill="currentColor"
-                                />
-                                <path d="M438 -3H421.694V102.197H438V-3Z" fill="currentColor" />
-                                <path d="M139.43 102.197H155.735V48.2834H183.712V32.1665H139.43V102.197Z" fill="currentColor" />
-                                <path
-                                    d="M324.49 32.1665L303.995 85.794L283.498 32.1665H266.983L293.748 102.197H314.242L341.006 32.1665H324.49Z"
-                                    fill="currentColor"
-                                />
-                                <path
-                                    d="M376.571 30.3656C356.603 30.3656 340.797 46.8497 340.797 67.1828C340.797 89.6597 356.094 104 378.661 104C391.29 104 399.354 99.1488 409.206 88.5848L398.189 80.0226C398.183 80.031 389.874 90.9895 377.468 90.9895C363.048 90.9895 356.977 79.3111 356.977 73.269H411.075C413.917 50.1328 398.775 30.3656 376.571 30.3656ZM357.02 61.0967C357.145 59.7487 359.023 43.3761 376.442 43.3761C393.861 43.3761 395.978 59.7464 396.099 61.0967H357.02Z"
-                                    fill="currentColor"
-                                />
-                            </svg>
-                            <svg
-                                className="relative -mt-[4.9rem] -ml-8 w-[448px] max-w-none lg:-mt-[6.6rem] lg:ml-0 dark:hidden"
-                                viewBox="0 0 440 376"
-                                fill="none"
-                                xmlns="http://www.w3.org/2000/svg"
-                            >
-                                <g className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0">
-                                    <path
-                                        d="M188.263 355.73L188.595 355.73C195.441 348.845 205.766 339.761 219.569 328.477C232.93 317.193 242.978 308.205 249.714 301.511C256.34 294.626 260.867 287.358 263.296 279.708C265.725 272.058 264.565 264.121 259.816 255.896C254.516 246.716 247.062 239.352 237.454 233.805C227.957 228.067 217.908 225.198 207.307 225.198C196.927 225.197 190.136 227.97 186.934 233.516C183.621 238.872 184.726 246.331 190.247 255.894L125.647 255.891C116.371 239.825 112.395 225.481 113.72 212.858C115.265 200.235 121.559 190.481 132.602 183.596C143.754 176.52 158.607 172.982 177.159 172.983C196.594 172.984 215.863 176.523 234.968 183.6C253.961 190.486 271.299 200.241 286.98 212.864C302.661 225.488 315.14 239.833 324.416 255.899C333.03 270.817 336.841 283.918 335.847 295.203C335.075 306.487 331.376 316.336 324.75 324.751C318.346 333.167 308.408 343.494 294.936 355.734L377.094 355.737L405.917 405.656L217.087 405.649L188.263 355.73Z"
-                                        fill="black"
-                                    />
-                                    <path
-                                        d="M9.11884 226.339L-13.7396 226.338L-42.7286 176.132L43.0733 176.135L175.595 405.649L112.651 405.647L9.11884 226.339Z"
-                                        fill="black"
-                                    />
-                                    <path
-                                        d="M188.263 355.73L188.595 355.73C195.441 348.845 205.766 339.761 219.569 328.477C232.93 317.193 242.978 308.205 249.714 301.511C256.34 294.626 260.867 287.358 263.296 279.708C265.725 272.058 264.565 264.121 259.816 255.896C254.516 246.716 247.062 239.352 237.454 233.805C227.957 228.067 217.908 225.198 207.307 225.198C196.927 225.197 190.136 227.97 186.934 233.516C183.621 238.872 184.726 246.331 190.247 255.894L125.647 255.891C116.371 239.825 112.395 225.481 113.72 212.858C115.265 200.235 121.559 190.481 132.602 183.596C143.754 176.52 158.607 172.982 177.159 172.983C196.594 172.984 215.863 176.523 234.968 183.6C253.961 190.486 271.299 200.241 286.98 212.864C302.661 225.488 315.14 239.833 324.416 255.899C333.03 270.817 336.841 283.918 335.847 295.203C335.075 306.487 331.376 316.336 324.75 324.751C318.346 333.167 308.408 343.494 294.936 355.734L377.094 355.737L405.917 405.656L217.087 405.649L188.263 355.73Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                    />
-                                    <path
-                                        d="M9.11884 226.339L-13.7396 226.338L-42.7286 176.132L43.0733 176.135L175.595 405.649L112.651 405.647L9.11884 226.339Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                    />
-                                    <path
-                                        d="M204.592 327.449L204.923 327.449C211.769 320.564 222.094 311.479 235.897 300.196C249.258 288.912 259.306 279.923 266.042 273.23C272.668 266.345 277.195 259.077 279.624 251.427C282.053 243.777 280.893 235.839 276.145 227.615C270.844 218.435 263.39 211.071 253.782 205.524C244.285 199.786 234.236 196.917 223.635 196.916C213.255 196.916 206.464 199.689 203.262 205.235C199.949 210.59 201.054 218.049 206.575 227.612L141.975 227.61C132.699 211.544 128.723 197.2 130.048 184.577C131.593 171.954 137.887 162.2 148.93 155.315C160.083 148.239 174.935 144.701 193.487 144.702C212.922 144.703 232.192 148.242 251.296 155.319C270.289 162.205 287.627 171.96 303.308 184.583C318.989 197.207 331.468 211.552 340.745 227.618C349.358 242.536 353.169 255.637 352.175 266.921C351.403 278.205 347.704 288.055 341.078 296.47C334.674 304.885 324.736 315.213 311.264 327.453L393.422 327.456L422.246 377.375L233.415 377.368L204.592 327.449Z"
-                                        fill="#F8B803"
-                                    />
-                                    <path
-                                        d="M25.447 198.058L2.58852 198.057L-26.4005 147.851L59.4015 147.854L191.923 377.368L128.979 377.365L25.447 198.058Z"
-                                        fill="#F8B803"
-                                    />
-                                    <path
-                                        d="M204.592 327.449L204.923 327.449C211.769 320.564 222.094 311.479 235.897 300.196C249.258 288.912 259.306 279.923 266.042 273.23C272.668 266.345 277.195 259.077 279.624 251.427C282.053 243.777 280.893 235.839 276.145 227.615C270.844 218.435 263.39 211.071 253.782 205.524C244.285 199.786 234.236 196.917 223.635 196.916C213.255 196.916 206.464 199.689 203.262 205.235C199.949 210.59 201.054 218.049 206.575 227.612L141.975 227.61C132.699 211.544 128.723 197.2 130.048 184.577C131.593 171.954 137.887 162.2 148.93 155.315C160.083 148.239 174.935 144.701 193.487 144.702C212.922 144.703 232.192 148.242 251.296 155.319C270.289 162.205 287.627 171.96 303.308 184.583C318.989 197.207 331.468 211.552 340.745 227.618C349.358 242.536 353.169 255.637 352.175 266.921C351.403 278.205 347.704 288.055 341.078 296.47C334.674 304.885 324.736 315.213 311.264 327.453L393.422 327.456L422.246 377.375L233.415 377.368L204.592 327.449Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                    />
-                                    <path
-                                        d="M25.447 198.058L2.58852 198.057L-26.4005 147.851L59.4015 147.854L191.923 377.368L128.979 377.365L25.447 198.058Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                    />
-                                </g>
-                                <g
-                                    style={{ mixBlendMode: 'hard-light' }}
-                                    className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0"
-                                >
-                                    <path
-                                        d="M217.342 305.363L217.673 305.363C224.519 298.478 234.844 289.393 248.647 278.11C262.008 266.826 272.056 257.837 278.792 251.144C285.418 244.259 289.945 236.991 292.374 229.341C294.803 221.691 293.643 213.753 288.895 205.529C283.594 196.349 276.14 188.985 266.532 183.438C257.035 177.7 246.986 174.831 236.385 174.83C226.005 174.83 219.214 177.603 216.012 183.149C212.699 188.504 213.804 195.963 219.325 205.527L154.725 205.524C145.449 189.458 141.473 175.114 142.798 162.491C144.343 149.868 150.637 140.114 161.68 133.229C172.833 126.153 187.685 122.615 206.237 122.616C225.672 122.617 244.942 126.156 264.046 133.233C283.039 140.119 300.377 149.874 316.058 162.497C331.739 175.121 344.218 189.466 353.495 205.532C362.108 220.45 365.919 233.551 364.925 244.835C364.153 256.12 360.454 265.969 353.828 274.384C347.424 282.799 337.486 293.127 324.014 305.367L406.172 305.37L434.996 355.289L246.165 355.282L217.342 305.363Z"
-                                        fill="#F0ACB8"
-                                    />
-                                    <path
-                                        d="M38.197 175.972L15.3385 175.971L-13.6505 125.765L72.1515 125.768L204.673 355.282L141.729 355.279L38.197 175.972Z"
-                                        fill="#F0ACB8"
-                                    />
-                                    <path
-                                        d="M217.342 305.363L217.673 305.363C224.519 298.478 234.844 289.393 248.647 278.11C262.008 266.826 272.056 257.837 278.792 251.144C285.418 244.259 289.945 236.991 292.374 229.341C294.803 221.691 293.643 213.753 288.895 205.529C283.594 196.349 276.14 188.985 266.532 183.438C257.035 177.7 246.986 174.831 236.385 174.83C226.005 174.83 219.214 177.603 216.012 183.149C212.699 188.504 213.804 195.963 219.325 205.527L154.725 205.524C145.449 189.458 141.473 175.114 142.798 162.491C144.343 149.868 150.637 140.114 161.68 133.229C172.833 126.153 187.685 122.615 206.237 122.616C225.672 122.617 244.942 126.156 264.046 133.233C283.039 140.119 300.377 149.874 316.058 162.497C331.739 175.121 344.218 189.466 353.495 205.532C362.108 220.45 365.919 233.551 364.925 244.835C364.153 256.12 360.454 265.969 353.828 274.384C347.424 282.799 337.486 293.127 324.014 305.367L406.172 305.37L434.996 355.289L246.165 355.282L217.342 305.363Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                    />
-                                    <path
-                                        d="M38.197 175.972L15.3385 175.971L-13.6505 125.765L72.1515 125.768L204.673 355.282L141.729 355.279L38.197 175.972Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                    />
-                                </g>
-                                <g
-                                    style={{ mixBlendMode: 'plus-darker' as React.CSSProperties['mixBlendMode'] }}
-                                    className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0"
-                                >
-                                    <path
-                                        d="M230.951 281.792L231.282 281.793C238.128 274.907 248.453 265.823 262.256 254.539C275.617 243.256 285.666 234.267 292.402 227.573C299.027 220.688 303.554 213.421 305.983 205.771C308.412 198.12 307.253 190.183 302.504 181.959C297.203 172.778 289.749 165.415 280.142 159.868C270.645 154.13 260.596 151.26 249.995 151.26C239.615 151.26 232.823 154.033 229.621 159.579C226.309 164.934 227.413 172.393 232.935 181.956L168.335 181.954C159.058 165.888 155.082 151.543 156.407 138.92C157.953 126.298 164.247 116.544 175.289 109.659C186.442 102.583 201.294 99.045 219.846 99.0457C239.281 99.0464 258.551 102.585 277.655 109.663C296.649 116.549 313.986 126.303 329.667 138.927C345.349 151.551 357.827 165.895 367.104 181.961C375.718 196.88 379.528 209.981 378.535 221.265C377.762 232.549 374.063 242.399 367.438 250.814C361.033 259.229 351.095 269.557 337.624 281.796L419.782 281.8L448.605 331.719L259.774 331.712L230.951 281.792Z"
-                                        fill="#F3BEC7"
-                                    />
-                                    <path
-                                        d="M51.8063 152.402L28.9479 152.401L-0.0411453 102.195L85.7608 102.198L218.282 331.711L155.339 331.709L51.8063 152.402Z"
-                                        fill="#F3BEC7"
-                                    />
-                                    <path
-                                        d="M230.951 281.792L231.282 281.793C238.128 274.907 248.453 265.823 262.256 254.539C275.617 243.256 285.666 234.267 292.402 227.573C299.027 220.688 303.554 213.421 305.983 205.771C308.412 198.12 307.253 190.183 302.504 181.959C297.203 172.778 289.749 165.415 280.142 159.868C270.645 154.13 260.596 151.26 249.995 151.26C239.615 151.26 232.823 154.033 229.621 159.579C226.309 164.934 227.413 172.393 232.935 181.956L168.335 181.954C159.058 165.888 155.082 151.543 156.407 138.92C157.953 126.298 164.247 116.544 175.289 109.659C186.442 102.583 201.294 99.045 219.846 99.0457C239.281 99.0464 258.551 102.585 277.655 109.663C296.649 116.549 313.986 126.303 329.667 138.927C345.349 151.551 357.827 165.895 367.104 181.961C375.718 196.88 379.528 209.981 378.535 221.265C377.762 232.549 374.063 242.399 367.438 250.814C361.033 259.229 351.095 269.557 337.624 281.796L419.782 281.8L448.605 331.719L259.774 331.712L230.951 281.792Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                    />
-                                    <path
-                                        d="M51.8063 152.402L28.9479 152.401L-0.0411453 102.195L85.7608 102.198L218.282 331.711L155.339 331.709L51.8063 152.402Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                    />
-                                </g>
-                                <g className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0">
-                                    <path
-                                        d="M188.467 355.363L188.798 355.363C195.644 348.478 205.969 339.393 219.772 328.11C233.133 316.826 243.181 307.837 249.917 301.144C253.696 297.217 256.792 293.166 259.205 288.991C261.024 285.845 262.455 282.628 263.499 279.341C265.928 271.691 264.768 263.753 260.02 255.529C254.719 246.349 247.265 238.985 237.657 233.438C228.16 227.7 218.111 224.831 207.51 224.83C197.13 224.83 190.339 227.603 187.137 233.149C183.824 238.504 184.929 245.963 190.45 255.527L125.851 255.524C116.574 239.458 112.598 225.114 113.923 212.491C114.615 206.836 116.261 201.756 118.859 197.253C122.061 191.704 126.709 187.03 132.805 183.229C143.958 176.153 158.81 172.615 177.362 172.616C196.797 172.617 216.067 176.156 235.171 183.233C254.164 190.119 271.502 199.874 287.183 212.497C302.864 225.121 315.343 239.466 324.62 255.532C333.233 270.45 337.044 283.551 336.05 294.835C335.46 303.459 333.16 311.245 329.151 318.194C327.915 320.337 326.515 322.4 324.953 324.384C318.549 332.799 308.611 343.127 295.139 355.367L377.297 355.37L406.121 405.289L217.29 405.282L188.467 355.363Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M9.32197 225.972L-13.5365 225.971L-42.5255 175.765L43.2765 175.768L175.798 405.282L112.854 405.279L9.32197 225.972Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M345.247 111.915C329.566 99.2919 312.229 89.5371 293.235 82.6512L235.167 183.228C254.161 190.114 271.498 199.869 287.179 212.492L345.247 111.915Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M382.686 154.964C373.41 138.898 360.931 124.553 345.25 111.93L287.182 212.506C302.863 225.13 315.342 239.475 324.618 255.541L382.686 154.964Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M293.243 82.6472C274.139 75.57 254.869 72.031 235.434 72.0303L177.366 172.607C196.801 172.608 216.071 176.147 235.175 183.224L293.243 82.6472Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M394.118 194.257C395.112 182.973 391.301 169.872 382.688 154.953L324.619 255.53C333.233 270.448 337.044 283.55 336.05 294.834L394.118 194.257Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M235.432 72.0311C216.88 72.0304 202.027 75.5681 190.875 82.6442L132.806 183.221C143.959 176.145 158.812 172.607 177.363 172.608L235.432 72.0311Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M265.59 124.25C276.191 124.251 286.24 127.12 295.737 132.858L237.669 233.435C228.172 227.697 218.123 224.828 207.522 224.827L265.59 124.25Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M295.719 132.859C305.326 138.406 312.78 145.77 318.081 154.95L260.013 255.527C254.712 246.347 247.258 238.983 237.651 233.436L295.719 132.859Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M387.218 217.608C391.227 210.66 393.527 202.874 394.117 194.25L336.049 294.827C335.459 303.451 333.159 311.237 329.15 318.185L387.218 217.608Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M245.211 132.577C248.413 127.03 255.204 124.257 265.584 124.258L207.516 224.835C197.136 224.834 190.345 227.607 187.143 233.154L245.211 132.577Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M318.094 154.945C322.842 163.17 324.002 171.107 321.573 178.757L263.505 279.334C265.934 271.684 264.774 263.746 260.026 255.522L318.094 154.945Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M176.925 96.6737C180.127 91.1249 184.776 86.4503 190.871 82.6499L132.803 183.227C126.708 187.027 122.059 191.702 118.857 197.25L176.925 96.6737Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M387.226 217.606C385.989 219.749 384.59 221.813 383.028 223.797L324.96 324.373C326.522 322.39 327.921 320.326 329.157 318.183L387.226 217.606Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M317.269 188.408C319.087 185.262 320.519 182.045 321.562 178.758L263.494 279.335C262.451 282.622 261.019 285.839 259.201 288.985L317.269 188.408Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M245.208 132.573C241.895 137.928 243 145.387 248.522 154.95L190.454 255.527C184.932 245.964 183.827 238.505 187.14 233.15L245.208 132.573Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M176.93 96.6719C174.331 101.175 172.686 106.255 171.993 111.91L113.925 212.487C114.618 206.831 116.263 201.752 118.862 197.249L176.93 96.6719Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M317.266 188.413C314.853 192.589 311.757 196.64 307.978 200.566L249.91 301.143C253.689 297.216 256.785 293.166 259.198 288.99L317.266 188.413Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M464.198 304.708L435.375 254.789L377.307 355.366L406.13 405.285L464.198 304.708Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M353.209 254.787C366.68 242.548 376.618 232.22 383.023 223.805L324.955 324.382C318.55 332.797 308.612 343.124 295.141 355.364L353.209 254.787Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M435.37 254.787L353.212 254.784L295.144 355.361L377.302 355.364L435.37 254.787Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M183.921 154.947L248.521 154.95L190.453 255.527L125.853 255.524L183.921 154.947Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M171.992 111.914C170.668 124.537 174.643 138.881 183.92 154.947L125.852 255.524C116.575 239.458 112.599 225.114 113.924 212.491L171.992 111.914Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M307.987 200.562C301.251 207.256 291.203 216.244 277.842 227.528L219.774 328.105C233.135 316.821 243.183 307.832 249.919 301.139L307.987 200.562Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M15.5469 75.1797L44.5359 125.386L-13.5321 225.963L-42.5212 175.756L15.5469 75.1797Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M277.836 227.536C264.033 238.82 253.708 247.904 246.862 254.789L188.794 355.366C195.64 348.481 205.965 339.397 219.768 328.113L277.836 227.536Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M275.358 304.706L464.189 304.713L406.12 405.29L217.29 405.283L275.358 304.706Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M44.5279 125.39L67.3864 125.39L9.31834 225.967L-13.5401 225.966L44.5279 125.39Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M101.341 75.1911L233.863 304.705L175.795 405.282L43.2733 175.768L101.341 75.1911ZM15.5431 75.19L-42.525 175.767L43.277 175.77L101.345 75.1932L15.5431 75.19Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M246.866 254.784L246.534 254.784L188.466 355.361L188.798 355.361L246.866 254.784Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M246.539 254.781L275.362 304.701L217.294 405.277L188.471 355.358L246.539 254.781Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M67.3906 125.391L170.923 304.698L112.855 405.275L9.32257 225.967L67.3906 125.391Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M170.921 304.699L233.865 304.701L175.797 405.278L112.853 405.276L170.921 304.699Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                </g>
-                                <g
-                                    style={{ mixBlendMode: 'hard-light' }}
-                                    className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0"
-                                >
-                                    <path
-                                        d="M246.544 254.79L246.875 254.79C253.722 247.905 264.046 238.82 277.849 227.537C291.21 216.253 301.259 207.264 307.995 200.57C314.62 193.685 319.147 186.418 321.577 178.768C324.006 171.117 322.846 163.18 318.097 154.956C312.796 145.775 305.342 138.412 295.735 132.865C286.238 127.127 276.189 124.258 265.588 124.257C255.208 124.257 248.416 127.03 245.214 132.576C241.902 137.931 243.006 145.39 248.528 154.953L183.928 154.951C174.652 138.885 170.676 124.541 172 111.918C173.546 99.2946 179.84 89.5408 190.882 82.6559C202.035 75.5798 216.887 72.0421 235.439 72.0428C254.874 72.0435 274.144 75.5825 293.248 82.6598C312.242 89.5457 329.579 99.3005 345.261 111.924C360.942 124.548 373.421 138.892 382.697 154.958C391.311 169.877 395.121 182.978 394.128 194.262C393.355 205.546 389.656 215.396 383.031 223.811C376.627 232.226 366.688 242.554 353.217 254.794L435.375 254.797L464.198 304.716L275.367 304.709L246.544 254.79Z"
-                                        fill="#F0ACB8"
-                                    />
-                                    <path
-                                        d="M246.544 254.79L246.875 254.79C253.722 247.905 264.046 238.82 277.849 227.537C291.21 216.253 301.259 207.264 307.995 200.57C314.62 193.685 319.147 186.418 321.577 178.768C324.006 171.117 322.846 163.18 318.097 154.956C312.796 145.775 305.342 138.412 295.735 132.865C286.238 127.127 276.189 124.258 265.588 124.257C255.208 124.257 248.416 127.03 245.214 132.576C241.902 137.931 243.006 145.39 248.528 154.953L183.928 154.951C174.652 138.885 170.676 124.541 172 111.918C173.546 99.2946 179.84 89.5408 190.882 82.6559C202.035 75.5798 216.887 72.0421 235.439 72.0428C254.874 72.0435 274.144 75.5825 293.248 82.6598C312.242 89.5457 329.579 99.3005 345.261 111.924C360.942 124.548 373.421 138.892 382.697 154.958C391.311 169.877 395.121 182.978 394.128 194.262C393.355 205.546 389.656 215.396 383.031 223.811C376.627 232.226 366.688 242.554 353.217 254.794L435.375 254.797L464.198 304.716L275.367 304.709L246.544 254.79Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                        strokeLinejoin="round"
-                                    />
-                                </g>
-                                <g
-                                    style={{ mixBlendMode: 'hard-light' }}
-                                    className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0"
-                                >
-                                    <path
-                                        d="M67.41 125.402L44.5515 125.401L15.5625 75.1953L101.364 75.1985L233.886 304.712L170.942 304.71L67.41 125.402Z"
-                                        fill="#F0ACB8"
-                                    />
-                                    <path
-                                        d="M67.41 125.402L44.5515 125.401L15.5625 75.1953L101.364 75.1985L233.886 304.712L170.942 304.71L67.41 125.402Z"
-                                        stroke="#1B1B18"
-                                        strokeWidth={1}
-                                    />
-                                </g>
-                            </svg>
-                            <svg
-                                className="relative -mt-[4.9rem] -ml-8 hidden w-[448px] max-w-none lg:-mt-[6.6rem] lg:ml-0 dark:block"
-                                viewBox="0 0 440 376"
-                                fill="none"
-                                xmlns="http://www.w3.org/2000/svg"
-                            >
-                                <g className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0">
-                                    <path
-                                        d="M188.263 355.73L188.595 355.73C195.441 348.845 205.766 339.761 219.569 328.477C232.93 317.193 242.978 308.205 249.714 301.511C256.34 294.626 260.867 287.358 263.296 279.708C265.725 272.058 264.565 264.121 259.816 255.896C254.516 246.716 247.062 239.352 237.454 233.805C227.957 228.067 217.908 225.198 207.307 225.198C196.927 225.197 190.136 227.97 186.934 233.516C183.621 238.872 184.726 246.331 190.247 255.894L125.647 255.891C116.371 239.825 112.395 225.481 113.72 212.858C115.265 200.235 121.559 190.481 132.602 183.596C143.754 176.52 158.607 172.982 177.159 172.983C196.594 172.984 215.863 176.523 234.968 183.6C253.961 190.486 271.299 200.241 286.98 212.864C302.661 225.488 315.14 239.833 324.416 255.899C333.03 270.817 336.841 283.918 335.847 295.203C335.075 306.487 331.376 316.336 324.75 324.751C318.346 333.167 308.408 343.494 294.936 355.734L377.094 355.737L405.917 405.656L217.087 405.649L188.263 355.73Z"
-                                        fill="black"
-                                    />
-                                    <path
-                                        d="M9.11884 226.339L-13.7396 226.338L-42.7286 176.132L43.0733 176.135L175.595 405.649L112.651 405.647L9.11884 226.339Z"
-                                        fill="black"
-                                    />
-                                    <path
-                                        d="M188.263 355.73L188.595 355.73C195.441 348.845 205.766 339.761 219.569 328.477C232.93 317.193 242.978 308.205 249.714 301.511C256.34 294.626 260.867 287.358 263.296 279.708C265.725 272.058 264.565 264.121 259.816 255.896C254.516 246.716 247.062 239.352 237.454 233.805C227.957 228.067 217.908 225.198 207.307 225.198C196.927 225.197 190.136 227.97 186.934 233.516C183.621 238.872 184.726 246.331 190.247 255.894L125.647 255.891C116.371 239.825 112.395 225.481 113.72 212.858C115.265 200.235 121.559 190.481 132.602 183.596C143.754 176.52 158.607 172.982 177.159 172.983C196.594 172.984 215.863 176.523 234.968 183.6C253.961 190.486 271.299 200.241 286.98 212.864C302.661 225.488 315.14 239.833 324.416 255.899C333.03 270.817 336.841 283.918 335.847 295.203C335.075 306.487 331.376 316.336 324.75 324.751C318.346 333.167 308.408 343.494 294.936 355.734L377.094 355.737L405.917 405.656L217.087 405.649L188.263 355.73Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                    />
-                                    <path
-                                        d="M9.11884 226.339L-13.7396 226.338L-42.7286 176.132L43.0733 176.135L175.595 405.649L112.651 405.647L9.11884 226.339Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                    />
-                                    <path
-                                        d="M204.592 327.449L204.923 327.449C211.769 320.564 222.094 311.479 235.897 300.196C249.258 288.912 259.306 279.923 266.042 273.23C272.668 266.345 277.195 259.077 279.624 251.427C282.053 243.777 280.893 235.839 276.145 227.615C270.844 218.435 263.39 211.071 253.782 205.524C244.285 199.786 234.236 196.917 223.635 196.916C213.255 196.916 206.464 199.689 203.262 205.235C199.949 210.59 201.054 218.049 206.575 227.612L141.975 227.61C132.699 211.544 128.723 197.2 130.048 184.577C131.593 171.954 137.887 162.2 148.93 155.315C160.083 148.239 174.935 144.701 193.487 144.702C212.922 144.703 232.192 148.242 251.296 155.319C270.289 162.205 287.627 171.96 303.308 184.583C318.989 197.207 331.468 211.552 340.745 227.618C349.358 242.536 353.169 255.637 352.175 266.921C351.403 278.205 347.704 288.055 341.078 296.47C334.674 304.885 324.736 315.213 311.264 327.453L393.422 327.456L422.246 377.375L233.415 377.368L204.592 327.449Z"
-                                        fill="#391800"
-                                    />
-                                    <path
-                                        d="M25.447 198.058L2.58852 198.057L-26.4005 147.851L59.4015 147.854L191.923 377.368L128.979 377.365L25.447 198.058Z"
-                                        fill="#391800"
-                                    />
-                                    <path
-                                        d="M204.592 327.449L204.923 327.449C211.769 320.564 222.094 311.479 235.897 300.196C249.258 288.912 259.306 279.923 266.042 273.23C272.668 266.345 277.195 259.077 279.624 251.427C282.053 243.777 280.893 235.839 276.145 227.615C270.844 218.435 263.39 211.071 253.782 205.524C244.285 199.786 234.236 196.917 223.635 196.916C213.255 196.916 206.464 199.689 203.262 205.235C199.949 210.59 201.054 218.049 206.575 227.612L141.975 227.61C132.699 211.544 128.723 197.2 130.048 184.577C131.593 171.954 137.887 162.2 148.93 155.315C160.083 148.239 174.935 144.701 193.487 144.702C212.922 144.703 232.192 148.242 251.296 155.319C270.289 162.205 287.627 171.96 303.308 184.583C318.989 197.207 331.468 211.552 340.745 227.618C349.358 242.536 353.169 255.637 352.175 266.921C351.403 278.205 347.704 288.055 341.078 296.47C334.674 304.885 324.736 315.213 311.264 327.453L393.422 327.456L422.246 377.375L233.415 377.368L204.592 327.449Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                    />
-                                    <path
-                                        d="M25.447 198.058L2.58852 198.057L-26.4005 147.851L59.4015 147.854L191.923 377.368L128.979 377.365L25.447 198.058Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                    />
-                                </g>
-                                <g
-                                    className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0"
-                                    style={{ mixBlendMode: 'hard-light' }}
-                                >
-                                    <path
-                                        d="M217.342 305.363L217.673 305.363C224.519 298.478 234.844 289.393 248.647 278.11C262.008 266.826 272.056 257.837 278.792 251.144C285.418 244.259 289.945 236.991 292.374 229.341C294.803 221.691 293.643 213.753 288.895 205.529C283.594 196.349 276.14 188.985 266.532 183.438C257.035 177.7 246.986 174.831 236.385 174.83C226.005 174.83 219.214 177.603 216.012 183.149C212.699 188.504 213.804 195.963 219.325 205.527L154.725 205.524C145.449 189.458 141.473 175.114 142.798 162.491C144.343 149.868 150.637 140.114 161.68 133.229C172.833 126.153 187.685 122.615 206.237 122.616C225.672 122.617 244.942 126.156 264.046 133.233C283.039 140.119 300.377 149.874 316.058 162.497C331.739 175.121 344.218 189.466 353.495 205.532C362.108 220.45 365.919 233.551 364.925 244.835C364.153 256.12 360.454 265.969 353.828 274.384C347.424 282.799 337.486 293.127 324.014 305.367L406.172 305.37L434.996 355.289L246.165 355.282L217.342 305.363Z"
-                                        fill="#733000"
-                                    />
-                                    <path
-                                        d="M38.197 175.972L15.3385 175.971L-13.6505 125.765L72.1515 125.768L204.673 355.282L141.729 355.279L38.197 175.972Z"
-                                        fill="#733000"
-                                    />
-                                    <path
-                                        d="M217.342 305.363L217.673 305.363C224.519 298.478 234.844 289.393 248.647 278.11C262.008 266.826 272.056 257.837 278.792 251.144C285.418 244.259 289.945 236.991 292.374 229.341C294.803 221.691 293.643 213.753 288.895 205.529C283.594 196.349 276.14 188.985 266.532 183.438C257.035 177.7 246.986 174.831 236.385 174.83C226.005 174.83 219.214 177.603 216.012 183.149C212.699 188.504 213.804 195.963 219.325 205.527L154.725 205.524C145.449 189.458 141.473 175.114 142.798 162.491C144.343 149.868 150.637 140.114 161.68 133.229C172.833 126.153 187.685 122.615 206.237 122.616C225.672 122.617 244.942 126.156 264.046 133.233C283.039 140.119 300.377 149.874 316.058 162.497C331.739 175.121 344.218 189.466 353.495 205.532C362.108 220.45 365.919 233.551 364.925 244.835C364.153 256.12 360.454 265.969 353.828 274.384C347.424 282.799 337.486 293.127 324.014 305.367L406.172 305.37L434.996 355.289L246.165 355.282L217.342 305.363Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                    />
-                                    <path
-                                        d="M38.197 175.972L15.3385 175.971L-13.6505 125.765L72.1515 125.768L204.673 355.282L141.729 355.279L38.197 175.972Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                    />
-                                </g>
-                                <g className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0">
-                                    <path
-                                        d="M217.342 305.363L217.673 305.363C224.519 298.478 234.844 289.393 248.647 278.11C262.008 266.826 272.056 257.837 278.792 251.144C285.418 244.259 289.945 236.991 292.374 229.341C294.803 221.691 293.643 213.753 288.895 205.529C283.594 196.349 276.14 188.985 266.532 183.438C257.035 177.7 246.986 174.831 236.385 174.83C226.005 174.83 219.214 177.603 216.012 183.149C212.699 188.504 213.804 195.963 219.325 205.527L154.726 205.524C145.449 189.458 141.473 175.114 142.798 162.491C144.343 149.868 150.637 140.114 161.68 133.229C172.833 126.153 187.685 122.615 206.237 122.616C225.672 122.617 244.942 126.156 264.046 133.233C283.039 140.119 300.377 149.874 316.058 162.497C331.739 175.121 344.218 189.466 353.495 205.532C362.108 220.45 365.919 233.551 364.925 244.835C364.153 256.12 360.454 265.969 353.828 274.384C347.424 282.799 337.486 293.127 324.014 305.367L406.172 305.37L434.996 355.289L246.165 355.282L217.342 305.363Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                    />
-                                    <path
-                                        d="M38.197 175.972L15.3385 175.971L-13.6505 125.765L72.1515 125.768L204.673 355.282L141.729 355.279L38.197 175.972Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                    />
-                                </g>
-                                <g className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0">
-                                    <path
-                                        d="M188.467 355.363L188.798 355.363C195.644 348.478 205.969 339.393 219.772 328.11C233.133 316.826 243.181 307.837 249.917 301.144C253.696 297.217 256.792 293.166 259.205 288.991C261.024 285.845 262.455 282.628 263.499 279.341C265.928 271.691 264.768 263.753 260.02 255.529C254.719 246.349 247.265 238.985 237.657 233.438C228.16 227.7 218.111 224.831 207.51 224.83C197.13 224.83 190.339 227.603 187.137 233.149C183.824 238.504 184.929 245.963 190.45 255.527L125.851 255.524C116.574 239.458 112.598 225.114 113.923 212.491C114.615 206.836 116.261 201.756 118.859 197.253C122.061 191.704 126.709 187.03 132.805 183.229C143.958 176.153 158.81 172.615 177.362 172.616C196.797 172.617 216.067 176.156 235.171 183.233C254.164 190.119 271.502 199.874 287.183 212.497C302.864 225.121 315.343 239.466 324.62 255.532C333.233 270.45 337.044 283.551 336.05 294.835C335.46 303.459 333.16 311.245 329.151 318.194C327.915 320.337 326.515 322.4 324.953 324.384C318.549 332.799 308.611 343.127 295.139 355.367L377.297 355.37L406.121 405.289L217.29 405.282L188.467 355.363Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M9.32197 225.972L-13.5365 225.971L-42.5255 175.765L43.2765 175.768L175.798 405.282L112.854 405.279L9.32197 225.972Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M345.247 111.915C329.566 99.2919 312.229 89.5371 293.235 82.6512L235.167 183.228C254.161 190.114 271.498 199.869 287.179 212.492L345.247 111.915Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M382.686 154.964C373.41 138.898 360.931 124.553 345.25 111.93L287.182 212.506C302.863 225.13 315.342 239.475 324.618 255.541L382.686 154.964Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M293.243 82.6472C274.139 75.57 254.869 72.031 235.434 72.0303L177.366 172.607C196.801 172.608 216.071 176.147 235.175 183.224L293.243 82.6472Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M394.118 194.257C395.112 182.973 391.301 169.872 382.688 154.953L324.619 255.53C333.233 270.448 337.044 283.55 336.05 294.834L394.118 194.257Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M235.432 72.0311C216.88 72.0304 202.027 75.5681 190.875 82.6442L132.806 183.221C143.959 176.145 158.812 172.607 177.363 172.608L235.432 72.0311Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M265.59 124.25C276.191 124.251 286.24 127.12 295.737 132.858L237.669 233.435C228.172 227.697 218.123 224.828 207.522 224.827L265.59 124.25Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M295.719 132.859C305.326 138.406 312.78 145.77 318.081 154.95L260.013 255.527C254.712 246.347 247.258 238.983 237.651 233.436L295.719 132.859Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M387.218 217.608C391.227 210.66 393.527 202.874 394.117 194.25L336.049 294.827C335.459 303.451 333.159 311.237 329.15 318.185L387.218 217.608Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M245.211 132.577C248.413 127.03 255.204 124.257 265.584 124.258L207.516 224.835C197.136 224.834 190.345 227.607 187.143 233.154L245.211 132.577Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M318.094 154.945C322.842 163.17 324.002 171.107 321.573 178.757L263.505 279.334C265.934 271.684 264.774 263.746 260.026 255.522L318.094 154.945Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M176.925 96.6737C180.127 91.1249 184.776 86.4503 190.871 82.6499L132.803 183.227C126.708 187.027 122.059 191.702 118.857 197.25L176.925 96.6737Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M387.226 217.606C385.989 219.749 384.59 221.813 383.028 223.797L324.96 324.373C326.522 322.39 327.921 320.326 329.157 318.183L387.226 217.606Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M317.269 188.408C319.087 185.262 320.519 182.045 321.562 178.758L263.494 279.335C262.451 282.622 261.019 285.839 259.201 288.985L317.269 188.408Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M245.208 132.573C241.895 137.928 243 145.387 248.522 154.95L190.454 255.527C184.932 245.964 183.827 238.505 187.14 233.15L245.208 132.573Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M176.93 96.6719C174.331 101.175 172.686 106.255 171.993 111.91L113.925 212.487C114.618 206.831 116.263 201.752 118.862 197.249L176.93 96.6719Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M317.266 188.413C314.853 192.589 311.757 196.64 307.978 200.566L249.91 301.143C253.689 297.216 256.785 293.166 259.198 288.99L317.266 188.413Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M464.198 304.708L435.375 254.789L377.307 355.366L406.13 405.285L464.198 304.708Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M353.209 254.787C366.68 242.548 376.618 232.22 383.023 223.805L324.955 324.382C318.55 332.797 308.612 343.124 295.141 355.364L353.209 254.787Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M435.37 254.787L353.212 254.784L295.144 355.361L377.302 355.364L435.37 254.787Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M183.921 154.947L248.521 154.95L190.453 255.527L125.853 255.524L183.921 154.947Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M171.992 111.914C170.668 124.537 174.643 138.881 183.92 154.947L125.852 255.524C116.575 239.458 112.599 225.114 113.924 212.491L171.992 111.914Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M307.987 200.562C301.251 207.256 291.203 216.244 277.842 227.528L219.774 328.105C233.135 316.821 243.183 307.832 249.919 301.139L307.987 200.562Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M15.5469 75.1797L44.5359 125.386L-13.5321 225.963L-42.5212 175.756L15.5469 75.1797Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M277.836 227.536C264.033 238.82 253.708 247.904 246.862 254.789L188.794 355.366C195.64 348.481 205.965 339.397 219.768 328.113L277.836 227.536Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M275.358 304.706L464.189 304.713L406.12 405.29L217.29 405.283L275.358 304.706Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M44.5279 125.39L67.3864 125.39L9.31834 225.967L-13.5401 225.966L44.5279 125.39Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M101.341 75.1911L233.863 304.705L175.795 405.282L43.2733 175.768L101.341 75.1911ZM15.5431 75.19L-42.525 175.767L43.277 175.77L101.345 75.1932L15.5431 75.19Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M246.866 254.784L246.534 254.784L188.466 355.361L188.798 355.361L246.866 254.784Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M246.539 254.781L275.362 304.701L217.294 405.277L188.471 355.358L246.539 254.781Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M67.3906 125.391L170.923 304.698L112.855 405.275L9.32257 225.967L67.3906 125.391Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                    <path
-                                        d="M170.921 304.699L233.865 304.701L175.797 405.278L112.853 405.276L170.921 304.699Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="bevel"
-                                    />
-                                </g>
-                                <g
-                                    className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0"
-                                    style={{ mixBlendMode: 'hard-light' }}
-                                >
-                                    <path
-                                        d="M246.544 254.79L246.875 254.79C253.722 247.905 264.046 238.82 277.849 227.537C291.21 216.253 301.259 207.264 307.995 200.57C314.62 193.685 319.147 186.418 321.577 178.768C324.006 171.117 322.846 163.18 318.097 154.956C312.796 145.775 305.342 138.412 295.735 132.865C286.238 127.127 276.189 124.258 265.588 124.257C255.208 124.257 248.416 127.03 245.214 132.576C241.902 137.931 243.006 145.39 248.528 154.953L183.928 154.951C174.652 138.885 170.676 124.541 172 111.918C173.546 99.2946 179.84 89.5408 190.882 82.6559C202.035 75.5798 216.887 72.0421 235.439 72.0428C254.874 72.0435 274.144 75.5825 293.248 82.6598C312.242 89.5457 329.579 99.3005 345.261 111.924C360.942 124.548 373.421 138.892 382.697 154.958C391.311 169.877 395.121 182.978 394.128 194.262C393.355 205.546 389.656 215.396 383.031 223.811C376.627 232.226 366.688 242.554 353.217 254.794L435.375 254.797L464.198 304.716L275.367 304.709L246.544 254.79Z"
-                                        fill="#4B0600"
-                                    />
-                                    <path
-                                        d="M246.544 254.79L246.875 254.79C253.722 247.905 264.046 238.82 277.849 227.537C291.21 216.253 301.259 207.264 307.995 200.57C314.62 193.685 319.147 186.418 321.577 178.768C324.006 171.117 322.846 163.18 318.097 154.956C312.796 145.775 305.342 138.412 295.735 132.865C286.238 127.127 276.189 124.258 265.588 124.257C255.208 124.257 248.416 127.03 245.214 132.576C241.902 137.931 243.006 145.39 248.528 154.953L183.928 154.951C174.652 138.885 170.676 124.541 172 111.918C173.546 99.2946 179.84 89.5408 190.882 82.6559C202.035 75.5798 216.887 72.0421 235.439 72.0428C254.874 72.0435 274.144 75.5825 293.248 82.6598C312.242 89.5457 329.579 99.3005 345.261 111.924C360.942 124.548 373.421 138.892 382.697 154.958C391.311 169.877 395.121 182.978 394.128 194.262C393.355 205.546 389.656 215.396 383.031 223.811C376.627 232.226 366.688 242.554 353.217 254.794L435.375 254.797L464.198 304.716L275.367 304.709L246.544 254.79Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                        strokeLinejoin="round"
-                                    />
-                                </g>
-                                <g
-                                    className="translate-y-0 opacity-100 transition-all delay-300 duration-750 starting:translate-y-4 starting:opacity-0"
-                                    style={{ mixBlendMode: 'hard-light' }}
-                                >
-                                    <path
-                                        d="M67.41 125.402L44.5515 125.401L15.5625 75.1953L101.364 75.1985L233.886 304.712L170.942 304.71L67.41 125.402Z"
-                                        fill="#4B0600"
-                                    />
-                                    <path
-                                        d="M67.41 125.402L44.5515 125.401L15.5625 75.1953L101.364 75.1985L233.886 304.712L170.942 304.71L67.41 125.402Z"
-                                        stroke="#FF750F"
-                                        strokeWidth={1}
-                                    />
-                                </g>
-                            </svg>
-                            <div className="absolute inset-0 rounded-t-lg shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] lg:rounded-t-none lg:rounded-r-lg dark:shadow-[inset_0px_0px_0px_1px_#fffaed2d]" />
+
+                        {/* STATS STRIP */}
+                        <div className="mt-16 grid grid-cols-2 gap-4 rounded-2xl border border-neutral-200/80 bg-white/70 p-6 backdrop-blur-md sm:grid-cols-4 lg:gap-8 dark:border-neutral-800 dark:bg-neutral-900/70">
+                            {stats.map((s, idx) => (
+                                <div key={idx} className="space-y-1">
+                                    <p className="text-3xl font-extrabold text-neutral-900 dark:text-white">{s.value}</p>
+                                    <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">{s.label}</p>
+                                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{s.detail}</p>
+                                </div>
+                            ))}
                         </div>
-                    </main>
-                </div>
-                <div className="hidden h-14.5 lg:block"></div>
+                    </div>
+                </section>
+
+                {/* 4. NHIF INTEGRATION SPOTLIGHT (The Core Differentiator) */}
+                <section id="nhif-integration" className="relative border-y border-neutral-200/80 bg-white py-16 lg:py-24 dark:border-neutral-800 dark:bg-neutral-900/60">
+                    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                        <div className="max-w-2xl">
+                            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300">
+                                <ShieldCheck className="h-4 w-4" />
+                                <span>National Health Insurance Fund (NHIF) Tanzanian Gateway</span>
+                            </div>
+                            <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-neutral-900 sm:text-4xl dark:text-white">
+                                Automated, Error-Free Electronic NHIF Claims
+                            </h2>
+                            <p className="mt-3 text-neutral-600 dark:text-neutral-300">
+                                Manual claims processing causes delayed reimbursements, tariff mismatches, and claim rejections.
+                                St. Joseph DMI HMS embeds NHIF rules directly into every clinical and dispensing decision.
+                            </p>
+                        </div>
+
+                        {/* Interactive Workflow Steps */}
+                        <div className="mt-12 grid gap-6 lg:grid-cols-4">
+                            {nhifSteps.map((step, idx) => {
+                                const IconComponent = step.icon;
+                                const isActive = activeWorkflowStep === idx;
+                                return (
+                                    <div
+                                        key={idx}
+                                        onMouseEnter={() => setActiveWorkflowStep(idx)}
+                                        className={`group relative cursor-pointer rounded-2xl border p-6 transition-all duration-200 ${
+                                            isActive
+                                                ? 'border-emerald-500 bg-emerald-50/40 shadow-md dark:border-emerald-500/60 dark:bg-emerald-950/20'
+                                                : 'border-neutral-200/80 bg-white hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900'
+                                        }`}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-mono text-2xl font-bold text-neutral-300 dark:text-neutral-700">
+                                                {step.step}
+                                            </span>
+                                            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                                                {step.badge}
+                                            </span>
+                                        </div>
+
+                                        <div className="mt-4 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400">
+                                            <IconComponent className="h-6 w-6" />
+                                        </div>
+
+                                        <h3 className="mt-4 text-base font-bold text-neutral-900 dark:text-white">
+                                            {step.title}
+                                        </h3>
+                                        <p className="mt-2 text-xs leading-relaxed text-neutral-600 dark:text-neutral-400">
+                                            {step.description}
+                                        </p>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Feature comparison banner */}
+                        <div className="mt-12 rounded-2xl border border-emerald-500/20 bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent p-6 lg:p-8 dark:border-emerald-500/30">
+                            <div className="grid gap-6 lg:grid-cols-3">
+                                <div>
+                                    <h4 className="font-bold text-neutral-900 dark:text-white">Real-Time Tariff Validation</h4>
+                                    <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
+                                        Procedures, medications, and lab tests automatically sync against NHIF package price sheets to prevent under- or over-billing.
+                                    </p>
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-neutral-900 dark:text-white">ICD-10 Diagnostic Compliance</h4>
+                                    <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
+                                        Clinical notes require validated ICD-10 diagnostic coding mapped to allowable NHIF interventions before claim submission.
+                                    </p>
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-neutral-900 dark:text-white">Monthly Batch Reconciliation</h4>
+                                    <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
+                                        Generate compliant monthly claim export packages with automated checks against patient signatures, prescriptions, and lab proof.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* 5. CLINICAL & OPERATIONAL MODULES (Interactive Filterable Grid) */}
+                <section id="modules" className="py-16 lg:py-24">
+                    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                        <div className="flex flex-col md:flex-row md:items-end md:justify-between">
+                            <div>
+                                <span className="text-xs font-bold tracking-wider uppercase text-amber-600 dark:text-amber-400">
+                                    Hospital Core Architecture
+                                </span>
+                                <h2 className="mt-2 text-3xl font-extrabold tracking-tight text-neutral-900 sm:text-4xl dark:text-white">
+                                    Comprehensive Clinical & Hospital Modules
+                                </h2>
+                                <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+                                    Every department at St. Joseph DMI is connected in a single, high-performance database.
+                                </p>
+                            </div>
+
+                            {/* Category Filter Pills */}
+                            <div className="mt-6 flex flex-wrap gap-2 md:mt-0">
+                                {[
+                                    { key: 'all', label: 'All Modules' },
+                                    { key: 'clinical', label: 'Clinical Care' },
+                                    { key: 'diagnostics', label: 'Diagnostics & Rx' },
+                                    { key: 'finance', label: 'Finance & NHIF' },
+                                    { key: 'operations', label: 'Supply Chain' },
+                                ].map((tab) => (
+                                    <button
+                                        key={tab.key}
+                                        type="button"
+                                        onClick={() => setSelectedCategory(tab.key as ModuleCategory)}
+                                        className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition ${
+                                            selectedCategory === tab.key
+                                                ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
+                                                : 'bg-neutral-200/70 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700'
+                                        }`}
+                                    >
+                                        {tab.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Modules Grid */}
+                        <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                            {filteredModules.map((mod) => {
+                                const IconComponent = mod.icon;
+                                return (
+                                    <div
+                                        key={mod.id}
+                                        className="group relative flex flex-col justify-between rounded-2xl border border-neutral-200/80 bg-white p-6 shadow-xs transition hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900"
+                                    >
+                                        <div>
+                                            <div className="flex items-center justify-between">
+                                                <div className={`flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br ring-1 ${mod.color}`}>
+                                                    <IconComponent className="h-6 w-6" />
+                                                </div>
+                                                <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                                                    {mod.badge}
+                                                </span>
+                                            </div>
+
+                                            <h3 className="mt-5 text-lg font-bold text-neutral-900 dark:text-white">
+                                                {mod.title}
+                                            </h3>
+
+                                            <p className="mt-2 text-xs leading-relaxed text-neutral-600 dark:text-neutral-400">
+                                                {mod.description}
+                                            </p>
+
+                                            <ul className="mt-4 space-y-1.5 border-t border-neutral-100 pt-4 dark:border-neutral-800">
+                                                {mod.features.map((feat, fIdx) => (
+                                                    <li key={fIdx} className="flex items-center gap-2 text-[11px] text-neutral-600 dark:text-neutral-300">
+                                                        <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+                                                        <span className="truncate">{feat}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+
+                                        <div className="mt-6 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+                                            <span className="text-[11px] font-medium text-neutral-400">St. Joseph DMI</span>
+                                            <Link
+                                                href={auth.user ? route('dashboard') : route('login')}
+                                                className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 group-hover:text-amber-500 dark:text-amber-400"
+                                            >
+                                                <span>Access</span>
+                                                <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
+                                            </Link>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </section>
+
+                {/* 6. PATIENT JOURNEY / WORKFLOW BANNER */}
+                <section id="workflow" className="border-t border-neutral-200/80 bg-neutral-100/60 py-16 lg:py-20 dark:border-neutral-800 dark:bg-neutral-900/40">
+                    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                        <div className="text-center max-w-2xl mx-auto">
+                            <span className="text-xs font-bold tracking-wider uppercase text-amber-600 dark:text-amber-400">
+                                End-to-End Continuity
+                            </span>
+                            <h2 className="mt-2 text-3xl font-extrabold tracking-tight text-neutral-900 sm:text-4xl dark:text-white">
+                                The St. Joseph DMI Care Pathway
+                            </h2>
+                            <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+                                Every step in the patient journey triggers automated charge capture, medical recording, and insurance validation.
+                            </p>
+                        </div>
+
+                        <div className="mt-12 grid grid-cols-2 gap-4 md:grid-cols-6">
+                            {[
+                                { step: '1', title: 'Reception & Triage', desc: 'ID check, queue, vitals & NHIF verification' },
+                                { step: '2', title: 'Consultation', desc: 'Physician review, SOAP notes, ICD-10 diagnosis' },
+                                { step: '3', title: 'Diagnostics', desc: 'Automated Lab analyzer & Radiology PACS orders' },
+                                { step: '4', title: 'Pharmacy', desc: 'Rx verification, FEFO batch dispensing' },
+                                { step: '5', title: 'Billing & Cashier', desc: 'Split copay calculation & payment receipt' },
+                                { step: '6', title: 'NHIF Submission', desc: 'Electronic claim generated with zero errors' },
+                            ].map((s, idx) => (
+                                <div key={idx} className="relative rounded-xl border border-neutral-200/80 bg-white p-4 shadow-2xs dark:border-neutral-800 dark:bg-neutral-900">
+                                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-xs font-bold text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
+                                        {s.step}
+                                    </div>
+                                    <h4 className="mt-3 text-sm font-bold text-neutral-900 dark:text-white">{s.title}</h4>
+                                    <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug">{s.desc}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+
+                {/* 7. SECURITY, GOVERNANCE & AUDIT TRAIL */}
+                <section id="security" className="py-16 lg:py-24">
+                    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                        <div className="rounded-3xl border border-neutral-200/80 bg-gradient-to-br from-neutral-900 via-neutral-900 to-neutral-950 p-8 text-white shadow-2xl lg:p-12 dark:border-neutral-800">
+                            <div className="grid gap-8 lg:grid-cols-12 lg:items-center">
+                                <div className="lg:col-span-7">
+                                    <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-300">
+                                        <Lock className="h-3.5 w-3.5" />
+                                        <span>Enterprise Security & Spatie RBAC</span>
+                                    </div>
+                                    <h2 className="mt-4 text-3xl font-extrabold sm:text-4xl text-white">
+                                        Clinical Privacy, Licensing & Strict Financial Governance
+                                    </h2>
+                                    <p className="mt-3 text-sm leading-relaxed text-neutral-300">
+                                        Designed for healthcare compliance: every diagnostic entry, medication dispensation,
+                                        and financial adjustment is tied to authenticated credentials with full audit log trails.
+                                    </p>
+
+                                    <div className="mt-6 grid grid-cols-2 gap-4 text-xs">
+                                        <div className="rounded-xl bg-white/5 p-3.5 border border-white/10">
+                                            <p className="font-semibold text-white">Granular Role Permissions</p>
+                                            <p className="mt-1 text-neutral-400">Doctors, Nurses, Pharmacists, Lab Techs & Billing Cashiers</p>
+                                        </div>
+                                        <div className="rounded-xl bg-white/5 p-3.5 border border-white/10">
+                                            <p className="font-semibold text-white">Practitioner Attendance</p>
+                                            <p className="mt-1 text-neutral-400">NHIF practitioner attendance verification & duty logging</p>
+                                        </div>
+                                        <div className="rounded-xl bg-white/5 p-3.5 border border-white/10">
+                                            <p className="font-semibold text-white">Audit Trails</p>
+                                            <p className="mt-1 text-neutral-400">Immutable logs on sensitive medical and billing records</p>
+                                        </div>
+                                        <div className="rounded-xl bg-white/5 p-3.5 border border-white/10">
+                                            <p className="font-semibold text-white">Data Protection</p>
+                                            <p className="mt-1 text-neutral-400">Encrypted sessions & strict role authorization guards</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="lg:col-span-5 text-center lg:text-right">
+                                    <div className="inline-block rounded-2xl bg-white/5 p-6 border border-white/10 backdrop-blur-sm text-left w-full max-w-sm">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400">
+                                                <Building2 className="h-5 w-5" />
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-white">{brand.hospitalName}</h4>
+                                                <p className="text-xs text-neutral-400">Hospital Management System</p>
+                                            </div>
+                                        </div>
+
+                                        <p className="mt-4 text-xs text-neutral-300">
+                                            Hospital staff, clinicians, and administrators can sign in with their authorized credentials.
+                                        </p>
+
+                                        <Link
+                                            href={auth.user ? route('dashboard') : route('login')}
+                                            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-sm font-bold text-neutral-950 transition hover:bg-amber-400 active:scale-95"
+                                        >
+                                            <LogIn className="h-4 w-4" />
+                                            <span>{auth.user ? 'Go to Dashboard' : 'Sign In to Portal'}</span>
+                                        </Link>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* 8. FOOTER */}
+                <footer className="border-t border-neutral-200/80 bg-white py-12 dark:border-neutral-800 dark:bg-neutral-950">
+                    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                            <div className="flex items-center gap-3">
+                                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10 p-1 ring-1 ring-amber-500/20">
+                                    <BrandMark className="h-full w-full object-contain" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-neutral-900 dark:text-white">
+                                        {brand.hospitalName}
+                                    </p>
+                                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                                        Hospital Management System & NHIF Smart Electronic Claims Engine
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-6 text-xs text-neutral-500 dark:text-neutral-400">
+                                <a href="#overview" className="hover:text-amber-600 dark:hover:text-amber-400">
+                                    Home
+                                </a>
+                                <a href="#nhif-integration" className="hover:text-amber-600 dark:hover:text-amber-400">
+                                    NHIF Integration
+                                </a>
+                                <a href="#modules" className="hover:text-amber-600 dark:hover:text-amber-400">
+                                    Modules
+                                </a>
+                                <Link href={route('login')} className="hover:text-amber-600 dark:hover:text-amber-400">
+                                    Staff Login
+                                </Link>
+                                <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                                    All Systems Operational
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="mt-8 border-t border-neutral-100 pt-6 text-center text-xs text-neutral-400 dark:border-neutral-900">
+                            <p>© {new Date().getFullYear()} {brand.hospitalName}. All rights reserved.</p>
+                        </div>
+                    </div>
+                </footer>
             </div>
         </>
     );

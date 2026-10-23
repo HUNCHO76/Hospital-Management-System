@@ -25,12 +25,55 @@ class MedicationAdministration extends Model
 
     public const STATUS_MISSED = 'missed';
 
+    /** Dose given later than scheduled; counts as a given dose and needs a reason. */
+    public const STATUS_DELAYED = 'delayed';
+
+    /** Dose cancelled / not applicable under the order; needs a reason. */
+    public const STATUS_NOT_APPLICABLE = 'not_applicable';
+
     /** @var list<string> */
     public const STATUSES = [
         self::STATUS_ADMINISTERED,
         self::STATUS_HELD,
         self::STATUS_REFUSED,
         self::STATUS_MISSED,
+        self::STATUS_DELAYED,
+        self::STATUS_NOT_APPLICABLE,
+    ];
+
+    /**
+     * Statuses meaning the medicine actually reached the patient.
+     *
+     * @var list<string>
+     */
+    public const GIVEN_STATUSES = [self::STATUS_ADMINISTERED, self::STATUS_DELAYED];
+
+    /**
+     * Statuses that must carry a documented reason.
+     *
+     * @var list<string>
+     */
+    public const REASON_REQUIRED_STATUSES = [
+        self::STATUS_HELD,
+        self::STATUS_REFUSED,
+        self::STATUS_MISSED,
+        self::STATUS_DELAYED,
+        self::STATUS_NOT_APPLICABLE,
+    ];
+
+    /**
+     * The permission that authorizes recording each status. Administering,
+     * holding, refusal and missed/cancelled doses are separately grantable.
+     *
+     * @var array<string, string>
+     */
+    public const STATUS_PERMISSIONS = [
+        self::STATUS_ADMINISTERED => 'inpatient.medications.administer',
+        self::STATUS_DELAYED => 'inpatient.medications.administer',
+        self::STATUS_HELD => 'inpatient.medications.hold',
+        self::STATUS_REFUSED => 'inpatient.medications.record-refusal',
+        self::STATUS_MISSED => 'inpatient.medications.record-missed',
+        self::STATUS_NOT_APPLICABLE => 'inpatient.medications.record-missed',
     ];
 
     /**
@@ -68,6 +111,8 @@ class MedicationAdministration extends Model
         'notes',
         'corrects_id',
         'correction_reason',
+        'slot_key',
+        'allergy_override_reason',
     ];
 
     protected function casts(): array

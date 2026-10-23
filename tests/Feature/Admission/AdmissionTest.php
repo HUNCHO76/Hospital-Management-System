@@ -5,7 +5,9 @@ use App\Models\Charge;
 use App\Models\ClinicalEncounter;
 use App\Models\Department;
 use App\Models\Hospital;
+use App\Models\NhifAdmission;
 use App\Models\Patient;
+use App\Models\PatientInsurance;
 use App\Models\Practitioner;
 use App\Models\Service;
 use App\Models\Staff;
@@ -13,6 +15,8 @@ use App\Models\User;
 use App\Services\AdmissionService;
 use App\Services\ChargeService;
 use App\Services\InvoiceService;
+use App\Services\NHIF\ClaimCalculationService;
+use App\Services\NHIF\NhifHttpClient;
 use App\Services\PaymentService;
 use Illuminate\Validation\ValidationException;
 
@@ -516,11 +520,11 @@ test('creating an admission automatically resolves nhif_authorization_no from pa
     $ctx = admissionReadyContext();
     $user = userWithRole('nurse');
 
-    \App\Models\PatientInsurance::factory()->create([
+    PatientInsurance::factory()->create([
         'patient_id' => $ctx['patient']->id,
         'nhif_authorization_no' => 'AUTH-AUTO-12345',
-        'status' => \App\Models\PatientInsurance::STATUS_ACTIVE,
-        'verification_status' => \App\Models\PatientInsurance::VERIFICATION_VERIFIED,
+        'status' => PatientInsurance::STATUS_ACTIVE,
+        'verification_status' => PatientInsurance::VERIFICATION_VERIFIED,
     ]);
 
     $admission = app(AdmissionService::class)->create([
@@ -529,7 +533,7 @@ test('creating an admission automatically resolves nhif_authorization_no from pa
         'nhif_ward_type_id' => 21,
     ], requestAs($user));
 
-    $nhifAdm = \App\Models\NhifAdmission::where('admission_id', $admission->id)->first();
+    $nhifAdm = NhifAdmission::where('admission_id', $admission->id)->first();
     expect($nhifAdm)->not->toBeNull()
         ->and($nhifAdm->nhif_authorization_no)->toBe('AUTH-AUTO-12345');
 });
@@ -538,7 +542,7 @@ test('submitNhif records nhif_admission_no and allows resubmitting an already su
     $ctx = admissionReadyContext();
     $user = userWithRole('nurse');
 
-    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient = Mockery::mock(NhifHttpClient::class);
     $mockClient->shouldReceive('admitPatient')->andReturn([
         'success' => true,
         'http_status' => 200,
@@ -549,7 +553,7 @@ test('submitNhif records nhif_admission_no and allows resubmitting an already su
         ],
         'error' => null,
     ]);
-    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+    app()->instance(NhifHttpClient::class, $mockClient);
 
     $admission = app(AdmissionService::class)->create([
         'hospital_id' => $ctx['hospital']->id,
@@ -560,20 +564,61 @@ test('submitNhif records nhif_admission_no and allows resubmitting an already su
 
     // First submission
     $admission = app(AdmissionService::class)->submitNhif($admission, requestAs($user));
-    expect($admission->nhifAdmission->nhif_status)->toBe(\App\Models\NhifAdmission::STATUS_SUBMITTED)
+    expect($admission->nhifAdmission->nhif_status)->toBe(NhifAdmission::STATUS_SUBMITTED)
         ->and($admission->nhifAdmission->nhif_admission_no)->toBe('901627800505');
 
     // Resubmission should be allowed and increment retry count
     $admission = app(AdmissionService::class)->submitNhif($admission, requestAs($user));
-    expect($admission->nhifAdmission->nhif_status)->toBe(\App\Models\NhifAdmission::STATUS_SUBMITTED)
+    expect($admission->nhifAdmission->nhif_status)->toBe(NhifAdmission::STATUS_SUBMITTED)
         ->and($admission->nhifAdmission->nhif_admission_no)->toBe('901627800505')
         ->and($admission->nhifAdmission->retry_count)->toBeGreaterThan(0);
+});
+
+test('confirm automatically submits admission to NHIF with schema-compliant payload', function () {
+    $ctx = admissionReadyContext();
+    $user = userWithRole('nurse');
+
+    $mockClient = Mockery::mock(NhifHttpClient::class);
+    $mockClient->shouldReceive('admitPatient')
+        ->once()
+        ->withArgs(function ($payload) {
+            return $payload['authorizationNo'] === '201627864221'
+                && ! array_key_exists('facilityCode', $payload)
+                && ! array_key_exists('patientFileNo', $payload)
+                && array_key_exists('chargesPerDay', $payload)
+                && array_key_exists('wardTypeID', $payload);
+        })
+        ->andReturn([
+            'success' => true,
+            'http_status' => 200,
+            'data' => [
+                'AdmissionNo' => '901627800505',
+                'AdmissionID' => '579ac53f-3a2a-48a1-8d30-1b0507ef788c',
+                'FullName' => 'Ivy Smith',
+            ],
+            'error' => null,
+        ]);
+    app()->instance(NhifHttpClient::class, $mockClient);
+
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'nhif_authorization_no' => '201627864221',
+        'nhif_ward_type_id' => 21,
+    ], requestAs($user));
+
+    $admission = approvedAdmission($admission, $user);
+    $admission = app(AdmissionService::class)->confirm($admission, requestAs($user));
+
+    expect($admission->status)->toBe(Admission::STATUS_ACTIVE)
+        ->and($admission->nhifAdmission->nhif_status)->toBe(NhifAdmission::STATUS_SUBMITTED)
+        ->and($admission->nhifAdmission->nhif_admission_no)->toBe('901627800505');
 });
 
 test('NhifAdmissionController lookup retrieves details using GetAdmissionDetailsByAuthorizationNo endpoint and accepts authorizationNo parameter', function () {
     $user = userWithRole('nurse');
 
-    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient = Mockery::mock(NhifHttpClient::class);
     $mockClient->shouldReceive('getAdmissionDetailsByAuthorizationNo')
         ->with('201627864221')
         ->once()
@@ -595,7 +640,7 @@ test('NhifAdmissionController lookup retrieves details using GetAdmissionDetails
             ],
             'error' => null,
         ]);
-    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+    app()->instance(NhifHttpClient::class, $mockClient);
 
     $response = $this->actingAs($user)->getJson(route('nhif.admissions.lookup', ['authorizationNo' => '201627864221']));
 
@@ -619,7 +664,7 @@ test('NhifAdmissionController sync updates local NhifAdmission record with live 
         'nhif_ward_type_id' => 21,
     ], requestAs($user));
 
-    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient = Mockery::mock(NhifHttpClient::class);
     $mockClient->shouldReceive('getAdmissionDetailsByAuthorizationNo')
         ->with('201627864221')
         ->once()
@@ -637,7 +682,7 @@ test('NhifAdmissionController sync updates local NhifAdmission record with live 
             ],
             'error' => null,
         ]);
-    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+    app()->instance(NhifHttpClient::class, $mockClient);
 
     $response = $this->actingAs($user)->postJson(route('nhif.admissions.sync'), [
         'admission_id' => $admission->id,
@@ -652,7 +697,7 @@ test('NhifAdmissionController sync updates local NhifAdmission record with live 
 
     $admission->refresh();
     expect($admission->nhifAdmission->nhif_admission_no)->toBe('901627800505')
-        ->and($admission->nhifAdmission->nhif_status)->toBe(\App\Models\NhifAdmission::STATUS_SUBMITTED)
+        ->and($admission->nhifAdmission->nhif_status)->toBe(NhifAdmission::STATUS_SUBMITTED)
         ->and($admission->nhifAdmission->nhif_facility_code)->toBe('01141')
         ->and($admission->nhifAdmission->nhif_practitioner_no)->toBe('MCT20240997');
 });
@@ -676,7 +721,7 @@ test('an approved admission with an NHIF admission number can be confirmed witho
     // Stamped with NHIF Admission Number
     $admission->nhifAdmission->update([
         'nhif_admission_no' => '901627800505',
-        'nhif_status' => \App\Models\NhifAdmission::STATUS_SUBMITTED,
+        'nhif_status' => NhifAdmission::STATUS_SUBMITTED,
     ]);
 
     $admission = approvedAdmission($admission, $admin);
@@ -727,7 +772,7 @@ test('discharging an active admission with an NHIF admission number automaticall
 
     $admission->nhifAdmission->update([
         'nhif_admission_no' => '901627800505',
-        'nhif_status' => \App\Models\NhifAdmission::STATUS_SUBMITTED,
+        'nhif_status' => NhifAdmission::STATUS_SUBMITTED,
     ]);
 
     $admission->update([
@@ -735,7 +780,7 @@ test('discharging an active admission with an NHIF admission number automaticall
         'admitted_at' => now(),
     ]);
 
-    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient = Mockery::mock(NhifHttpClient::class);
     $mockClient->shouldReceive('dischargePatient')
         ->once()
         ->with(Mockery::on(function ($payload) {
@@ -751,7 +796,7 @@ test('discharging an active admission with an NHIF admission number automaticall
             'data' => ['success' => true],
             'error' => null,
         ]);
-    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+    app()->instance(NhifHttpClient::class, $mockClient);
 
     $response = $this->actingAs($nurse)->post(route('admissions.discharge', $admission->id), [
         'discharge_type' => 'routine',
@@ -784,7 +829,7 @@ test('discharging an active admission when NHIF fails still discharges locally a
 
     $admission->nhifAdmission->update([
         'nhif_admission_no' => '901627800505',
-        'nhif_status' => \App\Models\NhifAdmission::STATUS_SUBMITTED,
+        'nhif_status' => NhifAdmission::STATUS_SUBMITTED,
     ]);
 
     $admission->update([
@@ -792,7 +837,7 @@ test('discharging an active admission when NHIF fails still discharges locally a
         'admitted_at' => now(),
     ]);
 
-    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient = Mockery::mock(NhifHttpClient::class);
     $mockClient->shouldReceive('dischargePatient')
         ->once()
         ->andReturn([
@@ -801,7 +846,7 @@ test('discharging an active admission when NHIF fails still discharges locally a
             'data' => [],
             'error' => 'NHIF ServiceHub timeout',
         ]);
-    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+    app()->instance(NhifHttpClient::class, $mockClient);
 
     $response = $this->actingAs($nurse)->post(route('admissions.discharge', $admission->id), [
         'discharge_type' => 'routine',
@@ -834,7 +879,7 @@ test('submitDischargeNhif route retries NHIF discharge submission', function () 
 
     $admission->nhifAdmission->update([
         'nhif_admission_no' => '901627800505',
-        'nhif_status' => \App\Models\NhifAdmission::STATUS_SUBMITTED,
+        'nhif_status' => NhifAdmission::STATUS_SUBMITTED,
         'nhif_discharge_status' => 'failed',
         'nhif_discharge_error' => 'Previous error',
     ]);
@@ -846,7 +891,7 @@ test('submitDischargeNhif route retries NHIF discharge submission', function () 
         'discharge_reason' => 'Left against advice',
     ]);
 
-    $mockClient = Mockery::mock(\App\Services\NHIF\NhifHttpClient::class);
+    $mockClient = Mockery::mock(NhifHttpClient::class);
     $mockClient->shouldReceive('dischargePatient')
         ->once()
         ->with(Mockery::on(function ($payload) {
@@ -859,7 +904,7 @@ test('submitDischargeNhif route retries NHIF discharge submission', function () 
             'data' => ['success' => true],
             'error' => null,
         ]);
-    app()->instance(\App\Services\NHIF\NhifHttpClient::class, $mockClient);
+    app()->instance(NhifHttpClient::class, $mockClient);
 
     $response = $this->actingAs($admin)->post(route('admissions.submit-nhif-discharge', $admission->id));
 
@@ -870,5 +915,90 @@ test('submitDischargeNhif route retries NHIF discharge submission', function () 
         ->and($admission->nhifAdmission->nhif_discharge_type_id)->toBe(2);
 });
 
+test('submitDischargeNhif formats dateDischarged as Y-m-dTH:i:s and saves hospital nhif_facility_code', function () {
+    $ctx = admissionReadyContext();
+    $ctx['hospital']->update(['nhif_facility_code' => '01141']);
+    $admin = userWithRole('super-admin');
 
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'nhif_authorization_no' => '201627864221',
+        'charges_per_day' => 20000,
+    ], requestAs($admin));
 
+    $admission->nhifAdmission->update([
+        'nhif_admission_no' => '101627800525',
+        'nhif_status' => NhifAdmission::STATUS_SUBMITTED,
+    ]);
+
+    $admission->update([
+        'status' => Admission::STATUS_DISCHARGED,
+        'discharged_at' => now(),
+        'discharge_type' => 'routine',
+        'discharge_reason' => 'Recovered',
+    ]);
+
+    $mockClient = Mockery::mock(NhifHttpClient::class);
+    $mockClient->shouldReceive('dischargePatient')
+        ->once()
+        ->with(Mockery::on(function ($payload) {
+            return $payload['admissionNo'] === '101627800525'
+                && ! str_contains($payload['dateDischarged'], '+')
+                && preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/', $payload['dateDischarged']);
+        }))
+        ->andReturn([
+            'success' => true,
+            'http_status' => 200,
+            'data' => ['success' => true, 'FacilityCode' => '01141'],
+            'error' => null,
+        ]);
+    app()->instance(NhifHttpClient::class, $mockClient);
+
+    $response = $this->actingAs($admin)->post(route('admissions.submit-nhif-discharge', $admission->id));
+    $response->assertRedirect();
+
+    $admission->refresh();
+    expect($admission->nhifAdmission->nhif_facility_code)->toBe('01141');
+});
+
+test('ClaimCalculationService collects inpatient bed charges and medications for admission context without SQL error', function () {
+    $ctx = admissionReadyContext();
+    $ctx['hospital']->update(['nhif_facility_code' => '01141']);
+    $user = userWithRole('super-admin');
+
+    PatientInsurance::factory()->create([
+        'patient_id' => $ctx['patient']->id,
+        'nhif_authorization_no' => '801627864520',
+        'card_number' => 'CARD-0010',
+        'nhif_facility_code' => '01141',
+        'membership_number' => 'MEM0010',
+    ]);
+
+    $admission = app(AdmissionService::class)->create([
+        'hospital_id' => $ctx['hospital']->id,
+        'patient_id' => $ctx['patient']->id,
+        'practitioner_id' => $ctx['practitioner']->id,
+        'nhif_authorization_no' => '801627864520',
+        'charges_per_day' => 25000,
+        'ward_type' => 'Normal Ward',
+        'diagnosis_at_admission' => 'Acute gastroenteritis',
+    ], requestAs($user));
+
+    $admission->update([
+        'status' => Admission::STATUS_ACTIVE,
+        'admitted_at' => now()->subDays(2),
+        'charges_per_day' => 25000,
+    ]);
+
+    $calc = app(ClaimCalculationService::class);
+    $readiness = $calc->validateClaimReadiness($admission);
+
+    expect($readiness['facility_code'])->toBe('01141');
+
+    $bedItem = collect($readiness['items'])->firstWhere('nhif_item_code', '21');
+    expect($bedItem)->not->toBeNull()
+        ->and((float) $bedItem['unit_price'])->toBe(25000.0)
+        ->and($bedItem['quantity'])->toBeGreaterThanOrEqual(2)
+        ->and((float) $bedItem['amount_claimed'])->toBeGreaterThanOrEqual(50000.0);
+});

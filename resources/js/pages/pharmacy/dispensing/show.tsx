@@ -52,10 +52,19 @@ export default function PharmacyDispensingShow({
     canComplete,
     canCancel,
     prescriptionFinancialStatus = 'authorized',
+    nhifPreApprovalStatus = null,
     patientAccountId = null,
     nhifUtilizations = [],
-}: PharmacyDispensingShowProps & { prescriptionFinancialStatus?: string; patientAccountId?: number | null }) {
+}: PharmacyDispensingShowProps & {
+    prescriptionFinancialStatus?: string;
+    nhifPreApprovalStatus?: { status: string; label: string; blocked: boolean; message: string } | null;
+    patientAccountId?: number | null;
+}) {
+    const isNhifSentNotIssued = prescriptionFinancialStatus === 'nhif_sent_not_issued';
+    const isNhifPendingRequest = prescriptionFinancialStatus === 'nhif_pending_request';
     const isPaymentRequired = prescriptionFinancialStatus === 'payment_required';
+    const isBlocked = isPaymentRequired || isNhifSentNotIssued || isNhifPendingRequest;
+
     const patientName = prescription.patient
         ? [prescription.patient.first_name, prescription.patient.middle_name, prescription.patient.last_name].filter(Boolean).join(' ')
         : '—';
@@ -109,6 +118,56 @@ export default function PharmacyDispensingShow({
             <Head title={`Dispense ${prescription.prescription_number}`} />
 
             <div className="flex flex-col gap-6 p-4">
+                {isNhifSentNotIssued && (
+                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 font-bold text-sm">
+                                    <span>NHIF Pre-Approval Status: Request sent but not issued</span>
+                                    <Badge variant="outline" className="border-amber-500 bg-amber-500/20 text-amber-800 dark:text-amber-300 font-medium">
+                                        Request sent but not issued
+                                    </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Medication dispensing is blocked because the NHIF pre-approval request has been sent but is not yet issued. Please issue the pre-approval request in the patient encounter before dispensing medications.
+                                </p>
+                            </div>
+                            {prescription.clinical_encounter_id && (
+                                <Button size="sm" variant="default" className="bg-amber-700 hover:bg-amber-800 text-white" asChild>
+                                    <Link href={route('clinical-encounters.show', prescription.clinical_encounter_id)}>
+                                        Open Patient Encounter
+                                    </Link>
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {isNhifPendingRequest && (
+                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 font-bold text-sm">
+                                    <span>NHIF Pre-Approval Status: Pre-approval Required</span>
+                                    <Badge variant="outline" className="border-amber-500 bg-amber-500/20 text-amber-800 dark:text-amber-300 font-medium">
+                                        Pre-approval Required
+                                    </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Medication dispensing is blocked because NHIF pre-approval has not been requested yet. Please submit and issue the pre-approval request in the patient encounter first.
+                                </p>
+                            </div>
+                            {prescription.clinical_encounter_id && (
+                                <Button size="sm" variant="default" className="bg-amber-700 hover:bg-amber-800 text-white" asChild>
+                                    <Link href={route('clinical-encounters.show', prescription.clinical_encounter_id)}>
+                                        Open Patient Encounter
+                                    </Link>
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {isPaymentRequired && (
                     <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300">
                         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -153,7 +212,19 @@ export default function PharmacyDispensingShow({
                             />
                         )}
                         {!inProgress && canStart && prescription.fulfillment_status !== 'dispensed' && (
-                            <Button onClick={startDispensing} disabled={isPaymentRequired} title={isPaymentRequired ? 'Payment required before dispensing' : undefined}>
+                            <Button
+                                onClick={startDispensing}
+                                disabled={isBlocked}
+                                title={
+                                    isNhifSentNotIssued
+                                        ? 'NHIF pre-approval request has been sent but is not yet issued'
+                                        : isNhifPendingRequest
+                                        ? 'NHIF pre-approval required before dispensing'
+                                        : isPaymentRequired
+                                        ? 'Payment required before dispensing'
+                                        : undefined
+                                }
+                            >
                                 <PlayCircle className="h-4 w-4" />
                                 Start Dispensing
                             </Button>

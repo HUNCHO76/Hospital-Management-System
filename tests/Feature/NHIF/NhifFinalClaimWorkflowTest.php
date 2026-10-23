@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\ClinicalEncounter;
+use App\Models\Consultation;
 use App\Models\Department;
 use App\Models\DiagnosisCode;
 use App\Models\Dispensing;
@@ -12,9 +13,8 @@ use App\Models\LaboratoryOrderItem;
 use App\Models\LaboratoryResult;
 use App\Models\LaboratoryTest;
 use App\Models\Medication;
-use App\Models\NhifBillConfirmation;
 use App\Models\NhifClaim;
-use App\Models\NhifClaimItem;
+use App\Models\NhifMemberVerification;
 use App\Models\NhifPreApprovalSession;
 use App\Models\NhifPreApprovalSessionItem;
 use App\Models\Patient;
@@ -737,13 +737,13 @@ test('24. Claim submission uses authorized VisitTypeID from verification record 
     $ctx = finalClaimContext();
 
     // Record verification with VisitTypeID = 2 (Inpatient authorization)
-    \App\Models\NhifMemberVerification::create([
+    NhifMemberVerification::create([
         'patient_insurance_id' => $ctx['insurance']->id,
         'identifier_type' => 'CardNo',
         'identifier_value' => $ctx['insurance']->card_number,
         'nhif_operation' => 'VerifyCard',
         'nhif_authorization_no' => $ctx['insurance']->nhif_authorization_no,
-        'verification_status' => \App\Models\NhifMemberVerification::STATUS_VERIFIED,
+        'verification_status' => NhifMemberVerification::STATUS_VERIFIED,
         'verify_card_request' => [
             'cardNo' => $ctx['insurance']->card_number,
             'visitTypeID' => 2,
@@ -751,14 +751,14 @@ test('24. Claim submission uses authorized VisitTypeID from verification record 
     ]);
 
     $session = createPreApprovalSession($ctx);
-    \App\Models\NhifPreApprovalSessionItem::create([
+    NhifPreApprovalSessionItem::create([
         'nhif_pre_approval_session_id' => $session->id,
-        'source_type' => \App\Models\NhifPreApprovalSessionItem::SOURCE_LAB,
+        'source_type' => NhifPreApprovalSessionItem::SOURCE_LAB,
         'nhif_item_code' => '20001',
         'nhif_item_name' => 'Full Blood Count',
         'quantity' => 1,
         'unit_price' => 10000.0,
-        'approval_status' => \App\Models\NhifPreApprovalSessionItem::APPROVAL_STATUS_ISSUED,
+        'approval_status' => NhifPreApprovalSessionItem::APPROVAL_STATUS_ISSUED,
     ]);
 
     $folioService = app(NhifFolioService::class);
@@ -773,16 +773,16 @@ test('24. Claim submission uses authorized VisitTypeID from verification record 
     expect($payload['DateAdmitted'])->not->toBeNull();
 });
 
-test('25. Claim readiness preview succeeds for in-progress encounter with completed consultation', function () {
+test('25. Claim readiness preview verifies clinical encounter completion lifecycle', function () {
     $ctx = finalClaimContext();
     $ctx['encounter']->update(['status' => ClinicalEncounter::STATUS_IN_PROGRESS]);
 
     // Create consultation for this encounter
-    \App\Models\Consultation::create([
+    Consultation::create([
         'clinical_encounter_id' => $ctx['encounter']->id,
         'practitioner_id' => $ctx['practitioner']->id,
         'created_by' => $ctx['user']->id,
-        'status' => \App\Models\Consultation::STATUS_COMPLETED,
+        'status' => Consultation::STATUS_COMPLETED,
         'completed_at' => now(),
         'completed_by' => $ctx['user']->id,
         'chief_complaint' => 'Fever and cough',
@@ -792,15 +792,17 @@ test('25. Claim readiness preview succeeds for in-progress encounter with comple
     ]);
 
     $calculator = app(ClaimCalculationService::class);
-    $readiness = $calculator->validateClaimReadiness($ctx['encounter']);
+    $readinessInProgress = $calculator->validateClaimReadiness($ctx['encounter']);
 
-    expect($readiness['is_ready'])->toBeTrue();
-    $checklist = collect($readiness['checklist'])->firstWhere('key', 'services_completed');
-    expect($checklist['passed'])->toBeTrue();
+    // In-progress encounter must require doctor completion
+    expect($readinessInProgress['is_ready'])->toBeFalse();
+    $checklistInProgress = collect($readinessInProgress['checklist'])->firstWhere('key', 'services_completed');
+    expect($checklistInProgress['passed'])->toBeFalse();
+
+    // Once completed, readiness passes
+    $ctx['encounter']->update(['status' => ClinicalEncounter::STATUS_COMPLETED, 'ended_at' => now()]);
+    $readinessCompleted = $calculator->validateClaimReadiness($ctx['encounter']->fresh());
+    expect($readinessCompleted['is_ready'])->toBeTrue();
+    $checklistCompleted = collect($readinessCompleted['checklist'])->firstWhere('key', 'services_completed');
+    expect($checklistCompleted['passed'])->toBeTrue();
 });
-
-
-
-
-
-

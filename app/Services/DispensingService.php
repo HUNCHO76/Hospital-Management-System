@@ -8,6 +8,7 @@ use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
 use App\Models\PrescriptionVerification;
 use App\Services\NHIF\NHIFClinicalUtilizationService;
+use App\Services\NHIF\NhifOrderPreApprovalService;
 use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -43,6 +44,8 @@ use Illuminate\Validation\ValidationException;
  */
 class DispensingService
 {
+    protected NhifOrderPreApprovalService $nhifOrderPreApproval;
+
     public function __construct(
         protected AuditLogService $auditLog,
         protected StockService $stockService,
@@ -50,7 +53,10 @@ class DispensingService
         protected FinancialAuthorizationService $financialAuth,
         protected NHIFPreauthorizationService $nhifPreauth,
         protected NHIFClinicalUtilizationService $nhifUtilization,
-    ) {}
+        ?NhifOrderPreApprovalService $nhifOrderPreApproval = null,
+    ) {
+        $this->nhifOrderPreApproval = $nhifOrderPreApproval ?? app(NhifOrderPreApprovalService::class);
+    }
 
     /**
      * Open a new dispensing event for a verified prescription.
@@ -76,6 +82,12 @@ class DispensingService
 
             // Step 69: NHIF preauthorization gate
             $this->nhifPreauth->assertPreauthorizedForSources(PrescriptionOrderItem::class, $activeItemIds);
+
+            // NHIF online OCS pre-approval issuance check
+            $isNhifCovered = $this->nhifOrderPreApproval->isOrderNhifCovered($order);
+            if ($isNhifCovered) {
+                $this->nhifOrderPreApproval->assertPrescriptionOrderCanDispense($order);
+            }
 
             // Step 62: financial authorization gate — items whose charge was
             // captured must be paid. No-charge rule: items where capture was

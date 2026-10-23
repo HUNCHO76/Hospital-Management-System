@@ -12,6 +12,7 @@ use App\Models\NhifClaimItem;
 use App\Models\NhifMonthlySubmission;
 use App\Models\NhifUtilization;
 use App\Models\PatientInsurance;
+use App\Services\AuditLogService;
 use App\Services\NHIF\ClaimCalculationService;
 use App\Services\NHIF\NhifFolioService;
 use App\Services\NHIF\NhifMonthlyClaimService;
@@ -23,7 +24,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class NhifClaimController extends Controller
 {
@@ -32,7 +33,18 @@ class NhifClaimController extends Controller
 
     public function index(Request $request): Response
     {
+        $this->authorize('viewAny', NhifClaim::class);
+
+        $user = $request->user();
         $claims = NhifClaim::with(['hospital', 'patient'])
+            ->when(! $user->hasRole('super-admin'), function ($query) use ($user) {
+                $hospitalId = $user->staff?->hospital_id;
+                if ($hospitalId) {
+                    $query->where('hospital_id', $hospitalId);
+                } else {
+                    $query->whereRaw('0 = 1');
+                }
+            })
             ->when($request->status, fn ($q, $s) => $q->where('status', $s))
             ->when($request->claim_type, fn ($q, $t) => $q->where('claim_type', $t))
             ->when($request->search, fn ($q, $s) => $q->where('claim_number', 'like', "%{$s}%"))
@@ -72,6 +84,8 @@ class NhifClaimController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
+        $this->authorize('create', NhifClaim::class);
+
         $data = $request->validate([
             'hospital_id' => ['required', 'integer', 'exists:hospitals,id'],
             'patient_id' => ['required', 'integer', 'exists:patients,id'],
@@ -79,6 +93,8 @@ class NhifClaimController extends Controller
             'claim_type' => ['required', 'in:outpatient,inpatient'],
             'attendance_date' => ['required', 'date'],
         ]);
+
+        $this->authorize('createInto', [NhifClaim::class, (int) $data['hospital_id']]);
 
         $claim = NhifClaim::create(array_merge($data, [
             'status' => NhifClaim::STATUS_DRAFT,
@@ -92,6 +108,8 @@ class NhifClaimController extends Controller
 
     public function show(Request $request, NhifClaim $nhifClaim): Response
     {
+        $this->authorize('view', $nhifClaim);
+
         $nhifClaim->load(['hospital', 'patient', 'patientInsurance', 'activeItems.utilization', 'documents', 'submissionAttempts', 'reconciliations']);
 
         return Inertia::render('nhif/claims/show', [
@@ -151,6 +169,8 @@ class NhifClaimController extends Controller
 
     public function regenerate(Request $request, NhifClaim $nhifClaim): RedirectResponse
     {
+        $this->authorize('update', $nhifClaim);
+
         if ($nhifClaim->isCancelled()) {
             return back()->with('error', 'Cannot regenerate a cancelled claim.');
         }
@@ -167,6 +187,8 @@ class NhifClaimController extends Controller
 
     public function validateClaim(Request $request, NhifClaim $nhifClaim): RedirectResponse
     {
+        $this->authorize('update', $nhifClaim);
+
         if (! in_array($nhifClaim->status, [NhifClaim::STATUS_DRAFT, NhifClaim::STATUS_REJECTED], true)) {
             return back()->with('error', 'Only draft or rejected claims can be validated.');
         }
@@ -183,6 +205,8 @@ class NhifClaimController extends Controller
 
     public function finalize(Request $request, NhifClaim $nhifClaim): RedirectResponse
     {
+        $this->authorize('finalize', $nhifClaim);
+
         if ($nhifClaim->status !== NhifClaim::STATUS_VALIDATED) {
             return back()->with('error', 'Only validated claims can be finalized.');
         }
@@ -199,6 +223,8 @@ class NhifClaimController extends Controller
 
     public function submit(Request $request, NhifClaim $nhifClaim, NhifFolioService $folioService): RedirectResponse
     {
+        $this->authorize('submit', $nhifClaim);
+
         if (! $nhifClaim->isSubmittable()) {
             return back()->with('error', 'Claim cannot be submitted in its current state ('.$nhifClaim->status.').');
         }
@@ -229,7 +255,7 @@ class NhifClaimController extends Controller
 
     public function sign(Request $request, NhifClaim $nhifClaim, NhifFolioService $folioService): RedirectResponse|JsonResponse
     {
-        $this->authorize('update', $nhifClaim);
+        $this->authorize('sign', $nhifClaim);
 
         $data = $request->validate([
             'signature_method' => ['nullable', 'string', 'max:50'],
@@ -350,7 +376,10 @@ class NhifClaimController extends Controller
     protected function resolveContextFromRequest(Request $request): ClinicalEncounter|Admission
     {
         if ($request->filled('clinical_encounter_id')) {
-            return ClinicalEncounter::findOrFail($request->integer('clinical_encounter_id'));
+            $enc = ClinicalEncounter::findOrFail($request->integer('clinical_encounter_id'));
+            $linkedAdm = $enc->resolved_admission ?? ($enc->admission_id ? Admission::find($enc->admission_id) : Admission::where('clinical_encounter_id', $enc->id)->latest()->first());
+
+            return $linkedAdm ?? $enc;
         }
 
         if ($request->filled('admission_id')) {
@@ -358,7 +387,10 @@ class NhifClaimController extends Controller
         }
 
         if ($request->filled('encounter_id')) {
-            return ClinicalEncounter::findOrFail($request->integer('encounter_id'));
+            $enc = ClinicalEncounter::findOrFail($request->integer('encounter_id'));
+            $linkedAdm = $enc->resolved_admission ?? ($enc->admission_id ? Admission::find($enc->admission_id) : Admission::where('clinical_encounter_id', $enc->id)->latest()->first());
+
+            return $linkedAdm ?? $enc;
         }
 
         throw ValidationException::withMessages([
@@ -368,6 +400,8 @@ class NhifClaimController extends Controller
 
     public function receipt(Request $request, NhifClaim $nhifClaim, NhifFolioService $folioService): RedirectResponse
     {
+        $this->authorize('receipt', $nhifClaim);
+
         if ($nhifClaim->status !== NhifClaim::STATUS_SUBMITTED) {
             return back()->with('error', 'Receipt can only be retrieved for submitted folios.');
         }
@@ -577,7 +611,18 @@ class NhifClaimController extends Controller
 
     public function billConfirmation(Request $request): Response
     {
+        $this->authorize('billConfirmation', NhifClaim::class);
+
+        $user = $request->user();
         $confirmations = NhifBillConfirmation::with(['hospital', 'patientInsurance.patient'])
+            ->when(! $user->hasRole('super-admin'), function ($query) use ($user) {
+                $hospitalId = $user->staff?->hospital_id;
+                if ($hospitalId) {
+                    $query->where('hospital_id', $hospitalId);
+                } else {
+                    $query->whereRaw('0 = 1');
+                }
+            })
             ->orderByDesc('created_at')
             ->paginate(25)
             ->withQueryString()
@@ -600,12 +645,16 @@ class NhifClaimController extends Controller
 
     public function requestBillConfirmation(Request $request, NhifFolioService $folioService): RedirectResponse
     {
+        $this->authorize('billConfirmation', NhifClaim::class);
+
         $data = $request->validate([
             'patient_insurance_id' => ['required', 'integer', 'exists:patient_insurances,id'],
             'hospital_id' => ['required', 'integer', 'exists:hospitals,id'],
             'attendance_date' => ['required', 'date'],
             'total_amount' => ['required', 'numeric', 'min:0'],
         ]);
+
+        $this->authorize('createInto', [NhifClaim::class, (int) $data['hospital_id']]);
 
         $insurance = PatientInsurance::findOrFail($data['patient_insurance_id']);
         $hospital = Hospital::findOrFail($data['hospital_id']);
@@ -706,6 +755,8 @@ class NhifClaimController extends Controller
 
     public function addItem(Request $request, NhifClaim $nhifClaim): RedirectResponse
     {
+        $this->authorize('update', $nhifClaim);
+
         if (! in_array($nhifClaim->status, [NhifClaim::STATUS_DRAFT, NhifClaim::STATUS_VALIDATED], true)) {
             return back()->with('error', 'Items can only be added to draft or validated claims.');
         }
@@ -715,6 +766,8 @@ class NhifClaimController extends Controller
         ]);
 
         $utilization = NhifUtilization::findOrFail($data['nhif_utilization_id']);
+        abort_unless((int) $utilization->hospital_id === (int) $nhifClaim->hospital_id, 422, 'Utilization belongs to a different facility.');
+
         $lineNo = $nhifClaim->items()->count() + 1;
 
         NhifClaimItem::create([
@@ -736,6 +789,9 @@ class NhifClaimController extends Controller
 
     public function removeItem(Request $request, NhifClaim $nhifClaim, NhifClaimItem $nhifClaimItem): RedirectResponse
     {
+        $this->authorize('update', $nhifClaim);
+        abort_unless($nhifClaimItem->nhif_claim_id === $nhifClaim->id, 404);
+
         if (! in_array($nhifClaim->status, [NhifClaim::STATUS_DRAFT, NhifClaim::STATUS_VALIDATED], true)) {
             return back()->with('error', 'Items can only be removed from draft or validated claims.');
         }
@@ -745,8 +801,10 @@ class NhifClaimController extends Controller
         return back()->with('success', 'Item removed from claim.');
     }
 
-    public function uploadDocument(Request $request, NhifClaim $nhifClaim): RedirectResponse
+    public function uploadDocument(Request $request, NhifClaim $nhifClaim, AuditLogService $auditLogService): RedirectResponse
     {
+        $this->authorize('uploadDocument', $nhifClaim);
+
         $request->validate([
             'document' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png'],
         ]);
@@ -754,31 +812,58 @@ class NhifClaimController extends Controller
         $file = $request->file('document');
         $path = $file->store('nhif/claims/'.$nhifClaim->id, 'local');
 
-        NhifClaimDocument::create([
+        $document = NhifClaimDocument::create([
             'nhif_claim_id' => $nhifClaim->id,
             'hospital_id' => $nhifClaim->hospital_id,
             'path' => $path,
             'original_name' => $file->getClientOriginalName(),
             'mime_type' => $file->getMimeType(),
             'size_bytes' => $file->getSize(),
+            'checksum' => hash_file('sha256', $file->getRealPath()),
             'uploaded_by' => $request->user()->id,
         ]);
+
+        $auditLogService->record('nhif_claim.document_uploaded', $document, null, [
+            'nhif_claim_id' => $nhifClaim->id,
+            'original_name' => $document->original_name,
+            'size_bytes' => $document->size_bytes,
+        ], $request);
 
         return back()->with('success', 'Document uploaded.');
     }
 
-    public function downloadDocument(Request $request, NhifClaim $nhifClaim, NhifClaimDocument $nhifClaimDocument): BinaryFileResponse
+    public function downloadDocument(Request $request, NhifClaim $nhifClaim, NhifClaimDocument $nhifClaimDocument, AuditLogService $auditLogService): StreamedResponse
     {
+        $this->authorize('downloadDocument', [$nhifClaim, $nhifClaimDocument]);
+        abort_unless($nhifClaimDocument->nhif_claim_id === $nhifClaim->id, 404);
         abort_unless(Storage::disk('local')->exists($nhifClaimDocument->path), 404);
 
-        return response()->download(
-            Storage::disk('local')->path($nhifClaimDocument->path),
-            $nhifClaimDocument->original_name
+        $auditLogService->record('nhif_claim.document_downloaded', $nhifClaimDocument, null, [
+            'nhif_claim_id' => $nhifClaim->id,
+            'document_id' => $nhifClaimDocument->id,
+            'original_name' => $nhifClaimDocument->original_name,
+        ], $request);
+
+        return Storage::disk('local')->response(
+            $nhifClaimDocument->path,
+            $nhifClaimDocument->original_name,
+            [
+                'Content-Type' => $nhifClaimDocument->mime_type ?? 'application/octet-stream',
+            ]
         );
     }
 
-    public function destroyDocument(Request $request, NhifClaim $nhifClaim, NhifClaimDocument $nhifClaimDocument): RedirectResponse
+    public function destroyDocument(Request $request, NhifClaim $nhifClaim, NhifClaimDocument $nhifClaimDocument, AuditLogService $auditLogService): RedirectResponse
     {
+        $this->authorize('deleteDocument', [$nhifClaim, $nhifClaimDocument]);
+        abort_unless($nhifClaimDocument->nhif_claim_id === $nhifClaim->id, 404);
+
+        $auditLogService->record('nhif_claim.document_deleted', $nhifClaimDocument, [
+            'nhif_claim_id' => $nhifClaim->id,
+            'document_id' => $nhifClaimDocument->id,
+            'original_name' => $nhifClaimDocument->original_name,
+        ], null, $request);
+
         Storage::disk('local')->delete($nhifClaimDocument->path);
         $nhifClaimDocument->delete();
 
@@ -790,13 +875,22 @@ class NhifClaimController extends Controller
      */
     public function eligibleVisits(Request $request): JsonResponse
     {
+        $this->authorize('create', NhifClaim::class);
+
         $search = trim((string) $request->input('search', ''));
         $user = $request->user();
-        $hospitalId = $user->staff?->hospital_id ?? Hospital::first()?->id;
+        if ($user->hasRole('super-admin')) {
+            $hospitalId = $request->integer('hospital_id') ?: Hospital::first()?->id;
+        } else {
+            $hospitalId = $user->staff?->hospital_id;
+            abort_unless($hospitalId, 403, 'User is not assigned to a facility.');
+        }
 
-        // 1. Clinical Encounters
+        // 1. Clinical Encounters (Outpatient encounters; inpatient encounters are presented via Admissions)
         $encounters = ClinicalEncounter::query()
             ->with(['patient.insurances', 'department', 'practitioner'])
+            ->whereNull('admission_id')
+            ->whereDoesntHave('linkedAdmission')
             ->whereHas('patient.insurances', function ($q) {
                 $q->whereNotNull('nhif_authorization_no')
                     ->where('nhif_authorization_no', '!=', '');
@@ -839,7 +933,10 @@ class NhifClaimController extends Controller
                     'department' => $enc->department?->name ?? 'OPD',
                     'date' => $enc->started_at?->format('Y-m-d H:i') ?? $enc->created_at->format('Y-m-d H:i'),
                     'status' => $enc->status,
-                    'is_completed' => in_array($enc->status, [ClinicalEncounter::STATUS_COMPLETED], true),
+                    'is_completed' => $enc->status === ClinicalEncounter::STATUS_COMPLETED,
+                    'completion_warning' => $enc->status !== ClinicalEncounter::STATUS_COMPLETED
+                        ? 'Doctor should complete Clinical Encounters for the patient before sending claim'
+                        : null,
                     'existing_claim' => $existingClaim ? [
                         'id' => $existingClaim->id,
                         'claim_number' => $existingClaim->claim_number,
@@ -878,7 +975,12 @@ class NhifClaimController extends Controller
                     ?? $adm->patient?->activeNhifInsurance()
                     ?? $adm->patient?->insurances()->whereNotNull('nhif_authorization_no')->latest()->first();
 
-                $existingClaim = NhifClaim::where('admission_id', $adm->id)->where('status', '!=', NhifClaim::STATUS_CANCELLED)->latest()->first();
+                $existingClaim = NhifClaim::where(function ($q) use ($adm) {
+                    $q->where('admission_id', $adm->id);
+                    if ($adm->clinical_encounter_id) {
+                        $q->orWhere('clinical_encounter_id', $adm->clinical_encounter_id);
+                    }
+                })->where('status', '!=', NhifClaim::STATUS_CANCELLED)->latest()->first();
 
                 return [
                     'id' => $adm->id,

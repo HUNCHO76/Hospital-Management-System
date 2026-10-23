@@ -96,6 +96,21 @@ class ClinicalNote extends Model
         'correction_reason',
         'cancelled_at',
         'cancellation_reason',
+        'note_category',
+    ];
+
+    /**
+     * Structured categories for nursing notes (optional on other note types).
+     *
+     * @var list<string>
+     */
+    public const NURSING_CATEGORIES = [
+        'initial_assessment',
+        'progress',
+        'response_to_treatment',
+        'intake_output',
+        'safety_observation',
+        'doctor_communication',
     ];
 
     /**

@@ -14,6 +14,7 @@ use App\Services\DispensingSearchService;
 use App\Services\DispensingService;
 use App\Services\FinancialAuthorizationService;
 use App\Services\NHIF\NHIFClinicalUtilizationService;
+use App\Services\NHIF\NhifOrderPreApprovalService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -51,8 +52,12 @@ class DispensingController extends Controller
         ];
     }
 
-    public function index(Request $request, DispensingSearchService $search, FinancialAuthorizationService $financialAuth): Response
-    {
+    public function index(
+        Request $request,
+        DispensingSearchService $search,
+        FinancialAuthorizationService $financialAuth,
+        NhifOrderPreApprovalService $nhifPreApproval
+    ): Response {
         $this->authorize('viewDispensingQueue', PrescriptionOrder::class);
 
         $filters = $request->only(['search', 'status', 'date_from', 'date_to']);
@@ -61,7 +66,7 @@ class DispensingController extends Controller
         $search->scopeToHospital($query, $this->scopedHospitalId($request));
 
         $paginator = $query->paginate(20)->withQueryString();
-        $financialStatuses = $this->batchPrescriptionFinancialStatuses($paginator->getCollection(), $financialAuth);
+        $financialStatuses = $this->batchPrescriptionFinancialStatuses($paginator->getCollection(), $financialAuth, $nhifPreApproval);
 
         $prescriptions = $paginator->through(fn (PrescriptionOrder $order) => array_merge(
             (new PrescriptionDispensingResource($order))->resolve($request),
@@ -78,10 +83,22 @@ class DispensingController extends Controller
      * @param  Collection<int, PrescriptionOrder>  $orders
      * @return array<int, string>
      */
-    private function batchPrescriptionFinancialStatuses(Collection $orders, FinancialAuthorizationService $financialAuth): array
-    {
+    private function batchPrescriptionFinancialStatuses(
+        Collection $orders,
+        FinancialAuthorizationService $financialAuth,
+        NhifOrderPreApprovalService $nhifPreApproval
+    ): array {
+        $nhifStatuses = $nhifPreApproval->batchPrescriptionOrderStatuses($orders);
+        $result = [];
         $itemIdsByOrderId = [];
+
         foreach ($orders as $order) {
+            if (isset($nhifStatuses[$order->id])) {
+                $result[$order->id] = $nhifStatuses[$order->id]['status'];
+
+                continue;
+            }
+
             $itemIdsByOrderId[$order->id] = $order->items
                 ->where('status', '!=', PrescriptionOrderItem::STATUS_CANCELLED)
                 ->pluck('id')
@@ -91,7 +108,7 @@ class DispensingController extends Controller
         $allItemIds = collect(array_values($itemIdsByOrderId))->flatten()->all();
 
         if (empty($allItemIds)) {
-            return array_fill_keys(array_keys($itemIdsByOrderId), FinancialAuthorizationService::STATUS_AUTHORIZED);
+            return $result + array_fill_keys(array_keys($itemIdsByOrderId), FinancialAuthorizationService::STATUS_AUTHORIZED);
         }
 
         $chargesByItemId = Charge::query()
@@ -100,7 +117,6 @@ class DispensingController extends Controller
             ->get()
             ->keyBy('source_id');
 
-        $result = [];
         foreach ($itemIdsByOrderId as $orderId => $itemIds) {
             $status = FinancialAuthorizationService::STATUS_AUTHORIZED;
             foreach ($itemIds as $itemId) {
@@ -128,11 +144,18 @@ class DispensingController extends Controller
             ->pluck('id')
             ->all();
 
+        $nhifPreApproval = app(NhifOrderPreApprovalService::class);
+        $nhifStatus = $nhifPreApproval->statusForPrescriptionOrder($prescriptionOrder);
+
         $prescriptionFinancialStatus = FinancialAuthorizationService::STATUS_AUTHORIZED;
-        foreach ($activeItemIds as $itemId) {
-            if ($financialAuth->statusForSourceRequired(PrescriptionOrderItem::class, $itemId) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
-                $prescriptionFinancialStatus = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
-                break;
+        if ($nhifStatus !== null) {
+            $prescriptionFinancialStatus = $nhifStatus['status'];
+        } else {
+            foreach ($activeItemIds as $itemId) {
+                if ($financialAuth->statusForSourceRequired(PrescriptionOrderItem::class, $itemId) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
+                    $prescriptionFinancialStatus = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
+                    break;
+                }
             }
         }
 
@@ -147,6 +170,7 @@ class DispensingController extends Controller
         return Inertia::render('pharmacy/dispensing/show', [
             'prescription' => (new PrescriptionDispensingResource($prescriptionOrder))->resolve($request),
             'prescriptionFinancialStatus' => $prescriptionFinancialStatus,
+            'nhifPreApprovalStatus' => $nhifStatus,
             'patientAccountId' => $patientAccountId,
             'canStart' => $request->user()->can('startDispensing', $prescriptionOrder),
             'canComplete' => $request->user()->can('completeDispensing', $prescriptionOrder),

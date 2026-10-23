@@ -23,6 +23,7 @@ import {
     laboratorySampleStatusLabel,
     laboratorySampleStatusVariant,
     laboratorySpecimenContainerLabel,
+    laboratorySpecimenSourceLabel,
     laboratorySpecimenTypeLabel,
 } from '@/lib/laboratory-status';
 import { type BreadcrumbItem } from '@/types';
@@ -79,7 +80,12 @@ export default function LaboratorySampleShow({ sample }: LaboratorySampleShowPro
                         </Button>
 
                         {canCollectSample(sample.status) && can('laboratory-samples.collect') && (
-                            <CollectSampleDialog sampleId={sample.id} sampleNumber={sample.sample_number} trigger={<Button>Collect</Button>} />
+                            <CollectSampleDialog
+                                sampleId={sample.id}
+                                sampleNumber={sample.sample_number}
+                                initialSpecimenSource={sample.specimen_source ?? null}
+                                trigger={<Button>Collect</Button>}
+                            />
                         )}
 
                         {canReceiveSample(sample.status) && can('laboratory-samples.receive') && (
@@ -141,6 +147,14 @@ export default function LaboratorySampleShow({ sample }: LaboratorySampleShowPro
                                     <dt className="text-muted-foreground">Container</dt>
                                     <dd>{sample.container_type ? laboratorySpecimenContainerLabel[sample.container_type] : '—'}</dd>
                                 </div>
+                                {sample.specimen_source && (
+                                    <div className="flex justify-between gap-4">
+                                        <dt className="text-muted-foreground">Specimen Source</dt>
+                                        <dd className="capitalize font-medium">
+                                            {laboratorySpecimenSourceLabel[sample.specimen_source] ?? sample.specimen_source}
+                                        </dd>
+                                    </div>
+                                )}
                                 <div className="flex justify-between gap-4">
                                     <dt className="text-muted-foreground">Collection Site</dt>
                                     <dd>{sample.collection_site ?? '—'}</dd>

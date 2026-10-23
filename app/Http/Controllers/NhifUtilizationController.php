@@ -12,7 +12,18 @@ class NhifUtilizationController extends Controller
 {
     public function index(Request $request): Response
     {
+        abort_unless($request->user()->can('nhif-utilization.view'), 403);
+
+        $user = $request->user();
         $utilizations = NhifUtilization::with(['hospital', 'patient', 'patientInsurance'])
+            ->when(! $user->hasRole('super-admin'), function ($query) use ($user) {
+                $hospitalId = $user->staff?->hospital_id;
+                if ($hospitalId) {
+                    $query->where('hospital_id', $hospitalId);
+                } else {
+                    $query->whereRaw('0 = 1');
+                }
+            })
             ->when($request->status, fn ($q, $s) => $q->where('status', $s))
             ->when($request->module, fn ($q, $m) => $q->where('module', $m))
             ->when($request->search, fn ($q, $s) => $q->where('utilization_number', 'like', "%{$s}%"))
@@ -59,6 +70,9 @@ class NhifUtilizationController extends Controller
 
     public function show(Request $request, NhifUtilization $nhifUtilization): Response
     {
+        abort_unless($request->user()->can('nhif-utilization.view'), 403);
+        $this->assertAuthorizedFacility($request, (int) $nhifUtilization->hospital_id);
+
         $nhifUtilization->load(['hospital', 'patient', 'patientInsurance', 'nhifServiceMapping', 'nhifPreauthorization', 'claimItem']);
 
         return Inertia::render('nhif/utilizations/show', [
@@ -97,6 +111,9 @@ class NhifUtilizationController extends Controller
 
     public function submit(Request $request, NhifUtilization $nhifUtilization): RedirectResponse
     {
+        abort_unless($request->user()->can('nhif-utilization.submit'), 403);
+        $this->assertAuthorizedFacility($request, (int) $nhifUtilization->hospital_id);
+
         if (! $nhifUtilization->isSubmittable()) {
             return back()->with('error', 'This utilization cannot be submitted (status: '.$nhifUtilization->status.').');
         }
@@ -112,6 +129,9 @@ class NhifUtilizationController extends Controller
 
     public function attachAuthorization(Request $request, NhifUtilization $nhifUtilization): RedirectResponse
     {
+        abort_unless($request->user()->can('nhif-utilization.submit'), 403);
+        $this->assertAuthorizedFacility($request, (int) $nhifUtilization->hospital_id);
+
         $data = $request->validate([
             'nhif_preauthorization_id' => ['required', 'integer', 'exists:nhif_preauthorizations,id'],
         ]);
@@ -123,6 +143,9 @@ class NhifUtilizationController extends Controller
 
     public function reconcile(Request $request, NhifUtilization $nhifUtilization): RedirectResponse
     {
+        abort_unless($request->user()->can('nhif-utilization.reconcile'), 403);
+        $this->assertAuthorizedFacility($request, (int) $nhifUtilization->hospital_id);
+
         $data = $request->validate([
             'nhif_approved_amount' => ['required', 'numeric', 'min:0'],
         ]);
@@ -133,5 +156,16 @@ class NhifUtilizationController extends Controller
         ]);
 
         return back()->with('success', 'Utilization reconciled.');
+    }
+
+    protected function assertAuthorizedFacility(Request $request, int $hospitalId): void
+    {
+        $user = $request->user();
+        if ($user->hasRole('super-admin')) {
+            return;
+        }
+
+        $staff = $user->staff;
+        abort_unless($staff && (int) $staff->hospital_id === $hospitalId, 403, 'You are not authorized to access utilizations for another facility.');
     }
 }

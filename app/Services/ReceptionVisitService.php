@@ -126,15 +126,6 @@ class ReceptionVisitService
             }
             $this->nhifSchemeEligibility->assertEligible((int) $insurance->nhif_scheme_id, $nhifItemCode);
 
-            if (! empty($data['practitioner_id'])) {
-                $practitioner = Practitioner::query()->find($data['practitioner_id']);
-                if ($practitioner && ! $practitioner->isNhifConfigured()) {
-                    throw ValidationException::withMessages([
-                        'practitioner_id' => 'The selected practitioner does not have an NHIF practitioner number registered. Please assign an NHIF practitioner number in the practitioner profile before creating an NHIF-billed visit.',
-                    ]);
-                }
-            }
-
             $department = Department::find($data['department_id']);
             $hospitalId = $department?->hospital_id ?? 0;
 
@@ -148,6 +139,25 @@ class ReceptionVisitService
             if (! $resolvedServiceId) {
                 $resolvedServiceId = Service::where('code', $nhifItemCode)->value('id')
                     ?? Service::where('code', 'CONSULT-GP')->value('id');
+            }
+
+            if (! empty($data['practitioner_id'])) {
+                $practitioner = Practitioner::query()->with('consultationService')->find($data['practitioner_id']);
+                if ($practitioner && ! $practitioner->isNhifConfigured()) {
+                    throw ValidationException::withMessages([
+                        'practitioner_id' => 'The selected practitioner does not have an NHIF practitioner number registered. Please assign an NHIF practitioner number in the practitioner profile before creating an NHIF-billed visit.',
+                    ]);
+                }
+
+                if ($practitioner && $practitioner->consultation_service_id) {
+                    $matchesService = ($practitioner->consultation_service_id === $resolvedServiceId)
+                        || ($practitioner->consultationService?->code === $nhifItemCode);
+                    if (! $matchesService) {
+                        throw ValidationException::withMessages([
+                            'practitioner_id' => 'The selected practitioner is not assigned to the selected consultation service.',
+                        ]);
+                    }
+                }
             }
 
             $nhifPreAuthResult = $this->nhifConsultationAuth->preAuthorize(

@@ -9,15 +9,18 @@ use App\Models\NhifPreApprovalSession;
 use App\Models\NhifPreApprovalSessionItem;
 use App\Models\NhifSchemeService;
 use App\Models\PatientInsurance;
+use App\Models\Practitioner;
 use App\Models\PrescriptionOrderItem;
+use App\Models\RadiologyOrderItem;
+use App\Models\RadiologyProcedure;
 use Illuminate\Http\Request;
 
 /**
- * Prepares and submits NHIF pre-approval for laboratory and medication
- * items ordered within a clinical encounter.
+ * Prepares and submits NHIF pre-approval for laboratory, medication, and
+ * radiology items ordered within a clinical encounter.
  *
- * Uses LaboratoryTest.nhif_code and Medication.nhif_code directly
- * (not NhifServiceMapping) and fetches prices from the NHIF
+ * Uses LaboratoryTest.nhif_code, Medication.nhif_code, and
+ * RadiologyProcedure.nhif_code directly and fetches prices from the NHIF
  * GetPricePackageByItemCode API.
  */
 class NhifEncounterPreApprovalService
@@ -28,34 +31,37 @@ class NhifEncounterPreApprovalService
     ) {}
 
     /**
-     * Collect lab/medication items from the encounter that have NHIF codes
+     * Collect lab/medication/radiology items from the encounter that have NHIF codes
      * and don't yet have a pre-approval session item, then fetch their
      * NHIF prices.
      *
-     * @return array{lab_items: list<array>, medication_items: list<array>}
+     * @return array{lab_items: list<array>, medication_items: list<array>, radiology_items: list<array>}
      */
     public function prepareItems(ClinicalEncounter $encounter, PatientInsurance $insurance): array
     {
         $facilityCode = $insurance->nhif_facility_code;
         if (blank($facilityCode)) {
-            return ['lab_items' => [], 'medication_items' => []];
+            return ['lab_items' => [], 'medication_items' => [], 'radiology_items' => []];
         }
 
         $this->autoMapUnmappedLabTests($encounter, $insurance);
         $this->autoMapUnmappedMedications($encounter, $insurance);
+        $this->autoMapUnmappedRadiologyProcedures($encounter, $insurance);
 
         $existingSourceKeys = $this->existingSessionItemKeys($encounter->id);
 
         $labItems = $this->collectLabItems($encounter, $existingSourceKeys);
         $medItems = $this->collectMedicationItems($encounter, $existingSourceKeys);
+        $radItems = $this->collectRadiologyItems($encounter, $existingSourceKeys);
 
         $allCodes = array_unique(array_merge(
             array_column($labItems, 'nhif_item_code'),
             array_column($medItems, 'nhif_item_code'),
+            array_column($radItems, 'nhif_item_code'),
         ));
 
         if (empty($allCodes)) {
-            return ['lab_items' => [], 'medication_items' => []];
+            return ['lab_items' => [], 'medication_items' => [], 'radiology_items' => []];
         }
 
         $prices = $this->client->fetchBulkPrices($facilityCode, $allCodes);
@@ -70,7 +76,12 @@ class NhifEncounterPreApprovalService
         }
         unset($item);
 
-        return ['lab_items' => $labItems, 'medication_items' => $medItems];
+        foreach ($radItems as &$item) {
+            $item['unit_price'] = $prices[$item['nhif_item_code']] ?? null;
+        }
+        unset($item);
+
+        return ['lab_items' => $labItems, 'medication_items' => $medItems, 'radiology_items' => $radItems];
     }
 
     /**
@@ -81,6 +92,7 @@ class NhifEncounterPreApprovalService
      *
      * @param  list<int>  $labOrderItemIds
      * @param  list<int>  $prescriptionOrderItemIds
+     * @param  list<int>  $radiologyOrderItemIds
      */
     public function createAndSubmitFromSelection(
         PatientInsurance $insurance,
@@ -90,15 +102,16 @@ class NhifEncounterPreApprovalService
         Request $request,
         ?string $clinicalNotes = null,
         ?string $practitionerNo = null,
+        array $radiologyOrderItemIds = [],
     ): NhifPreApprovalSession {
         if (blank($practitionerNo)) {
-             $practitionerNo = $request->user()->staff?->practitioner?->nhif_practitioner_no;
+            $practitionerNo = $request->user()->staff?->practitioner?->nhif_practitioner_no;
         }
 
         if (blank($practitionerNo)) {
-            $practitionerNo = \App\Models\Practitioner::query()
+            $practitionerNo = Practitioner::query()
                 ->whereHas('staff', fn ($q) => $q->where('hospital_id', $encounter->hospital_id))
-                ->where('status', \App\Models\Practitioner::STATUS_ACTIVE)
+                ->where('status', Practitioner::STATUS_ACTIVE)
                 ->whereNotNull('nhif_practitioner_no')
                 ->where('nhif_practitioner_no', '!=', '')
                 ->value('nhif_practitioner_no');
@@ -152,6 +165,31 @@ class NhifEncounterPreApprovalService
                     'nhif_item_code' => $nhifCode,
                     'nhif_item_name' => $item->medication_name_snapshot,
                     'quantity' => $item->quantity ?? 1,
+                    'unit_price' => 0,
+                    '_fetch_price_code' => $nhifCode,
+                ];
+            }
+        }
+
+        if (! empty($radiologyOrderItemIds)) {
+            $radItems = RadiologyOrderItem::query()
+                ->whereIn('id', $radiologyOrderItemIds)
+                ->whereHas('radiologyOrder', fn ($q) => $q->where('clinical_encounter_id', $encounter->id))
+                ->with('radiologyProcedure:id,name,code,nhif_code')
+                ->get();
+
+            foreach ($radItems as $item) {
+                $nhifCode = $item->radiologyProcedure?->nhif_code;
+                if (blank($nhifCode)) {
+                    continue;
+                }
+
+                $sessionItems[] = [
+                    'source_type' => NhifPreApprovalSessionItem::SOURCE_RADIOLOGY,
+                    'source_id' => $item->id,
+                    'nhif_item_code' => $nhifCode,
+                    'nhif_item_name' => $item->procedure_name,
+                    'quantity' => 1,
                     'unit_price' => 0,
                     '_fetch_price_code' => $nhifCode,
                 ];
@@ -381,6 +419,103 @@ class NhifEncounterPreApprovalService
 
             if ($match) {
                 $test->update(['nhif_code' => $match->item_code]);
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, true>  $existingKeys
+     * @return list<array{source_type: string, source_id: int, nhif_item_code: string, nhif_item_name: string, quantity: int, unit_price: null, needs_mapping?: bool, radiology_procedure_id?: int}>
+     */
+    private function collectRadiologyItems(ClinicalEncounter $encounter, array $existingKeys): array
+    {
+        $encounter->loadMissing('radiologyOrders.items.radiologyProcedure');
+        $items = [];
+
+        foreach ($encounter->radiologyOrders as $order) {
+            foreach ($order->items as $item) {
+                if ($item->status === 'cancelled') {
+                    continue;
+                }
+
+                $key = NhifPreApprovalSessionItem::SOURCE_RADIOLOGY.":{$item->id}";
+                if (isset($existingKeys[$key])) {
+                    continue;
+                }
+
+                $nhifCode = $item->radiologyProcedure?->nhif_code;
+
+                $items[] = [
+                    'source_type' => NhifPreApprovalSessionItem::SOURCE_RADIOLOGY,
+                    'source_id' => $item->id,
+                    'nhif_item_code' => $nhifCode ?? '',
+                    'nhif_item_name' => $item->procedure_name,
+                    'quantity' => 1,
+                    'unit_price' => null,
+                    'needs_mapping' => blank($nhifCode),
+                    'radiology_procedure_id' => $item->radiology_procedure_id,
+                ];
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * Best-effort auto-mapping: for each radiology procedure in the encounter
+     * that lacks an nhif_code, try to find a matching NHIF catalog item
+     * (item_type_id = 5, Diagnostic Examinations) and set the code.
+     */
+    private function autoMapUnmappedRadiologyProcedures(ClinicalEncounter $encounter, PatientInsurance $insurance): void
+    {
+        if (! $insurance->nhif_scheme_id) {
+            return;
+        }
+
+        $encounter->loadMissing('radiologyOrders.items.radiologyProcedure');
+
+        $unmappedProcedures = collect();
+        foreach ($encounter->radiologyOrders as $order) {
+            foreach ($order->items as $item) {
+                $proc = $item->radiologyProcedure;
+                if ($proc && blank($proc->nhif_code) && ! $unmappedProcedures->has($proc->id)) {
+                    $unmappedProcedures->put($proc->id, $proc);
+                }
+            }
+        }
+
+        if ($unmappedProcedures->isEmpty()) {
+            return;
+        }
+
+        foreach ($unmappedProcedures as $proc) {
+            $name = $proc->name;
+
+            // Strategy 1: exact or name prefix match in item_type_id = 5
+            $match = NhifSchemeService::catalog()
+                ->where('item_type_id', 5)
+                ->where('scheme_id', $insurance->nhif_scheme_id)
+                ->where('item_name', 'like', "{$name}%")
+                ->selectRaw('DISTINCT item_code, item_name')
+                ->first();
+
+            // Strategy 2: Search key words (e.g. "Chest", "X-Ray", "Abdomen", "Pelvis", "Ultrasound", "CT", "MRI")
+            if (! $match) {
+                $cleanName = (string) preg_replace('/[^\w\s]/', ' ', $name);
+                $words = array_values(array_filter(explode(' ', $cleanName), fn ($w) => strlen($w) > 2));
+                if (count($words) >= 2) {
+                    $q = NhifSchemeService::catalog()
+                        ->where('item_type_id', 5)
+                        ->where('scheme_id', $insurance->nhif_scheme_id);
+                    foreach (array_slice($words, 0, 3) as $word) {
+                        $q->where('item_name', 'like', "%{$word}%");
+                    }
+                    $match = $q->selectRaw('DISTINCT item_code, item_name')->first();
+                }
+            }
+
+            if ($match) {
+                $proc->update(['nhif_code' => $match->item_code]);
             }
         }
     }

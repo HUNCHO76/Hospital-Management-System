@@ -47,6 +47,7 @@ export interface ReceptionPractitioner {
     practitioner_type: string | null;
     nhif_practitioner_no: string | null;
     staff?: { first_name: string; last_name: string };
+    consultation_service?: { id: number; code: string; name: string } | null;
 }
 
 export interface ConsultationCharge {
@@ -135,6 +136,7 @@ export interface NhifConsultationService {
     item_type_id: number | null;
     type_name: string | null;
     unit_price: string | null;
+    service_id?: number | null;
 }
 
 export interface NhifInsuranceSummary {

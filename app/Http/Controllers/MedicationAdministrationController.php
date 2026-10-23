@@ -45,22 +45,40 @@ class MedicationAdministrationController extends Controller
             'hospital:id,name',
         ]);
 
-        // All inpatient encounters for this admission (for encounter selector)
+        // All encounters related to this admission episode (originating encounter + inpatient ward rounds)
+        $admissionWindowStart = ($admission->admitted_at ?? $admission->created_at)->copy()->subHours(24);
         $encounters = ClinicalEncounter::query()
-            ->where('admission_id', $admission->id)
-            ->where('encounter_type', 'inpatient')
+            ->where(function ($query) use ($admission, $admissionWindowStart) {
+                $query->where('admission_id', $admission->id);
+                if ($admission->clinical_encounter_id) {
+                    $query->orWhere('id', $admission->clinical_encounter_id);
+                }
+                $query->orWhere(function ($q) use ($admission, $admissionWindowStart) {
+                    $q->where('patient_id', $admission->patient_id)
+                        ->where('created_at', '>=', $admissionWindowStart)
+                        ->when($admission->discharged_at, fn ($sub) => $sub->where('created_at', '<=', $admission->discharged_at));
+                });
+            })
             ->orderByDesc('created_at')
-            ->get(['id', 'encounter_number', 'status', 'started_at']);
+            ->get(['id', 'encounter_number', 'encounter_type', 'status', 'started_at', 'admission_id']);
 
-        // All active prescription orders across all inpatient encounters
+        // Auto-link any unlinked encounters in this episode to the admission
+        $unlinkedEncounters = $encounters->filter(fn ($e) => empty($e->admission_id));
+        if ($unlinkedEncounters->isNotEmpty()) {
+            ClinicalEncounter::whereIn('id', $unlinkedEncounters->pluck('id'))->update(['admission_id' => $admission->id]);
+        }
+
+        $admissionEncounterIds = $encounters->pluck('id')->toArray();
+
+        // All active prescription orders across all admission encounters
         $prescriptionOrders = PrescriptionOrder::query()
-            ->whereHas('clinicalEncounter', fn ($q) => $q->where('admission_id', $admission->id)->where('encounter_type', 'inpatient'))
+            ->whereIn('clinical_encounter_id', $admissionEncounterIds)
             ->where('status', PrescriptionOrder::STATUS_ACTIVE)
             ->with([
                 'items' => fn ($q) => $q->where('status', PrescriptionOrderItem::STATUS_ACTIVE),
                 'items.medication:id,generic_name,brand_name,code',
                 'items.dispensingItems',
-                'clinicalEncounter:id,encounter_number,started_at',
+                'clinicalEncounter:id,encounter_number,encounter_type,started_at',
             ])
             ->get();
 

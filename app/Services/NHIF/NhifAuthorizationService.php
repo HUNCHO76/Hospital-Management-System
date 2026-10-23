@@ -91,7 +91,7 @@ class NhifAuthorizationService
         }
 
         if ($insurance->isAuthorizationExpired()) {
-            return $this->result('not_covered', null, 'Patient NHIF authorization has expired (>24 hours). Re-verification required.', null, 'Authorization expired (>24h).', null);
+            return $this->result('not_covered', null, 'Patient NHIF authorization has expired (>24 hours). Please send patient to reception for re-verification.', null, 'Authorization expired (>24h).', null);
         }
 
         // Scheme eligibility check (skipped when nhif_scheme_id is null — graceful degradation).

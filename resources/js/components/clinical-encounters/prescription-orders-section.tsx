@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useToast } from '@/hooks/use-toast';
 import {
     prescriptionDurationUnitLabel,
     prescriptionFrequencyLabel,
@@ -28,8 +29,11 @@ import {
     type PrescriptionOrderFormData,
     type PrescriptionRoute,
 } from '@/types/prescription';
+import { BiometricIssueDialog } from '@/components/nhif/biometric-issue-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { type NhifInsuranceSummary, type NhifPreApprovalSession } from '@/types/nhif';
 import { Link, router, useForm } from '@inertiajs/react';
-import { AlertTriangle, ClipboardPlus, LoaderCircle, Plus, RotateCcw, XCircle } from 'lucide-react';
+import { AlertTriangle, ClipboardPlus, Fingerprint, LoaderCircle, Plus, RotateCcw, Send, XCircle } from 'lucide-react';
 import { type FormEventHandler, useState } from 'react';
 
 interface PrescriptionOrdersSectionProps {
@@ -37,6 +41,10 @@ interface PrescriptionOrdersSectionProps {
     consultation: Consultation | null;
     prescriptionOrders: PrescriptionOrder[];
     medicationSafetyRules: Record<number, MedicationSafetyWarning[]>;
+    nhifEligible?: boolean;
+    nhifInsurance?: NhifInsuranceSummary | null;
+    nhifPreApprovalSessions?: NhifPreApprovalSession[];
+    patientName?: string;
 }
 
 const FREQUENCIES = Object.keys(prescriptionFrequencyLabel) as PrescriptionFrequency[];
@@ -77,7 +85,16 @@ function itemSummary(item: {
  * has no diagnosis requirement, since an urgent prescription must not be
  * blocked on a final diagnosis not yet being entered.
  */
-export function PrescriptionOrdersSection({ encounterId, consultation, prescriptionOrders, medicationSafetyRules }: PrescriptionOrdersSectionProps) {
+export function PrescriptionOrdersSection({
+    encounterId,
+    consultation,
+    prescriptionOrders,
+    medicationSafetyRules,
+    nhifEligible,
+    nhifInsurance,
+    nhifPreApprovalSessions,
+    patientName,
+}: PrescriptionOrdersSectionProps) {
     const { can } = usePermissions();
     const consultationEngaged = consultation?.status === 'in_progress' || consultation?.status === 'completed';
 
@@ -94,16 +111,44 @@ export function PrescriptionOrdersSection({ encounterId, consultation, prescript
         );
     }
 
+    const hasPendingNhif = Boolean(
+        nhifEligible &&
+        prescriptionOrders.some(
+            (order) =>
+                order.nhif_pre_approval?.status === 'nhif_pending_request' ||
+                order.nhif_pre_approval?.status === 'nhif_sent_not_issued'
+        )
+    );
+
     return (
         <Card>
             <CardHeader>
                 <CardTitle className="text-base">Prescriptions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
+                {hasPendingNhif && (
+                    <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-900 dark:text-amber-200 text-sm">
+                        <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                        <div className="space-y-1">
+                            <p className="font-medium">NHIF Pre-Approval Required</p>
+                            <p className="text-xs text-muted-foreground">
+                                Prescriptions for NHIF patients must have their pre-approval requested and issued with biometric verification before pharmacy verification and dispensing.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 {prescriptionOrders.length > 0 ? (
                     <ul className="divide-sidebar-border/70 dark:divide-sidebar-border divide-y">
                         {prescriptionOrders.map((order) => (
-                            <PrescriptionOrderRow key={order.id} encounterId={encounterId} order={order} />
+                            <PrescriptionOrderRow
+                                key={order.id}
+                                encounterId={encounterId}
+                                order={order}
+                                nhifEligible={nhifEligible}
+                                nhifInsurance={nhifInsurance}
+                                sessions={nhifPreApprovalSessions}
+                            />
                         ))}
                     </ul>
                 ) : (
@@ -111,17 +156,67 @@ export function PrescriptionOrdersSection({ encounterId, consultation, prescript
                 )}
 
                 {can('prescription-orders.create') && (
-                    <AddPrescriptionOrderForm encounterId={encounterId} medicationSafetyRules={medicationSafetyRules} />
+                    <AddPrescriptionOrderForm
+                        encounterId={encounterId}
+                        medicationSafetyRules={medicationSafetyRules}
+                        nhifEligible={nhifEligible}
+                    />
                 )}
             </CardContent>
         </Card>
     );
 }
 
-function PrescriptionOrderRow({ encounterId, order }: { encounterId: number; order: PrescriptionOrder }) {
+function PrescriptionOrderRow({
+    encounterId,
+    order,
+    nhifEligible,
+    nhifInsurance,
+    sessions,
+}: {
+    encounterId: number;
+    order: PrescriptionOrder;
+    nhifEligible?: boolean;
+    nhifInsurance?: NhifInsuranceSummary | null;
+    sessions?: NhifPreApprovalSession[];
+}) {
     const { can } = usePermissions();
+    const { toast } = useToast();
     const mutable = order.status === 'active';
     const verification = order.verification;
+    const [submittingPreApproval, setSubmittingPreApproval] = useState(false);
+    const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+
+    const preApproval = order.nhif_pre_approval;
+    const activeItemIds = order.items.filter((item) => item.status === 'active').map((item) => item.id);
+    const sessionId = preApproval?.session_id ?? sessions?.find((s) => s.items.some((i) => i.source_type === 'medication' && activeItemIds.includes(i.source_id)))?.id;
+
+    const sendPreApproval = () => {
+        if (nhifInsurance?.is_authorization_expired) {
+            toast({
+                variant: 'error',
+                description: "Patient NHIF authorization has expired (>24 hours). Please send the patient to reception to re-verify their NHIF card.",
+            });
+            return;
+        }
+
+        setSubmittingPreApproval(true);
+        router.post(
+            route('clinical-encounters.nhif-pre-approval.store', encounterId),
+            {
+                prescription_order_item_ids: activeItemIds,
+                clinical_notes: order.clinical_notes || undefined,
+            },
+            {
+                preserveScroll: true,
+                onError: (errors) => {
+                    const message = (errors.nhif_authorization_no as string) || Object.values(errors)[0] || 'Failed to submit pre-approval';
+                    toast({ variant: 'error', description: String(message) });
+                },
+                onFinish: () => setSubmittingPreApproval(false),
+            }
+        );
+    };
 
     const resubmit = () => {
         router.post(route('pharmacy-verification.resubmit', order.id), {}, { preserveScroll: true });
@@ -140,9 +235,46 @@ function PrescriptionOrderRow({ encounterId, order }: { encounterId: number; ord
                             {prescriptionVerificationStatusLabel[verification.status]}
                         </Badge>
                     )}
+                    {preApproval && (
+                        <Badge
+                            variant="outline"
+                            className={
+                                preApproval.status === 'authorized'
+                                    ? 'border-green-500/50 text-green-700 dark:text-green-400 font-medium'
+                                    : 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium'
+                            }
+                        >
+                            {preApproval.label}
+                        </Badge>
+                    )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                    {preApproval?.status === 'nhif_pending_request' && mutable && can('prescription-orders.update') && (
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1 border-amber-500 text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30 font-medium"
+                            onClick={sendPreApproval}
+                            disabled={submittingPreApproval || Boolean(nhifInsurance?.is_authorization_expired)}
+                            title={nhifInsurance?.is_authorization_expired ? 'Patient authorization expired. Send patient to reception to re-verify.' : undefined}
+                        >
+                            <Send className="h-3.5 w-3.5" />
+                            {submittingPreApproval ? 'Sending Request...' : 'Send Pre-Approval Request'}
+                        </Button>
+                    )}
+
+                    {preApproval?.status === 'nhif_sent_not_issued' && sessionId && (
+                        <Button
+                            size="sm"
+                            className="gap-1 bg-amber-600 hover:bg-amber-700 text-white dark:bg-amber-700 font-medium"
+                            onClick={() => setIssueDialogOpen(true)}
+                        >
+                            <Fingerprint className="h-3.5 w-3.5" />
+                            Issue Pre-Approval
+                        </Button>
+                    )}
+
                     {verification?.status === 'returned' && mutable && can('prescription-orders.update') && (
                         <Button size="sm" variant="outline" onClick={resubmit}>
                             <RotateCcw className="h-4 w-4" />
@@ -198,6 +330,14 @@ function PrescriptionOrderRow({ encounterId, order }: { encounterId: number; ord
                 </span>
                 {order.status === 'cancelled' && order.cancellation_reason && <span>Cancelled: {order.cancellation_reason}</span>}
             </div>
+
+            {sessionId && (
+                <BiometricIssueDialog
+                    open={issueDialogOpen}
+                    onOpenChange={setIssueDialogOpen}
+                    issueUrl={route('clinical-encounters.nhif-pre-approval.issue', [encounterId, sessionId])}
+                />
+            )}
         </li>
     );
 }
@@ -218,13 +358,16 @@ interface DraftItem {
 function AddPrescriptionOrderForm({
     encounterId,
     medicationSafetyRules,
+    nhifEligible,
 }: {
     encounterId: number;
     medicationSafetyRules: Record<number, MedicationSafetyWarning[]>;
+    nhifEligible?: boolean;
 }) {
     const { data, setData, post, processing, errors, reset } = useForm<PrescriptionOrderFormData>({
         items: [],
         clinical_notes: '',
+        send_preapproval: nhifEligible ? true : undefined,
     });
     const [addedItems, setAddedItems] = useState<DraftItem[]>([]);
     const [itemJustifications, setItemJustifications] = useState<Record<number, string>>({});
@@ -491,6 +634,20 @@ function AddPrescriptionOrderForm({
                 />
                 <InputError message={errors.clinical_notes} />
             </div>
+
+            {nhifEligible && (
+                <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-sm">
+                    <Checkbox
+                        id="send_preapproval"
+                        checked={data.send_preapproval !== false}
+                        onCheckedChange={(checked) => setData('send_preapproval', Boolean(checked))}
+                    />
+                    <label htmlFor="send_preapproval" className="cursor-pointer select-none text-xs">
+                        <span className="font-semibold text-foreground">Submit NHIF Pre-Approval Request immediately</span>
+                        <span className="block text-muted-foreground">Automatically packages medications and sends pre-approval request to NHIF upon writing prescription.</span>
+                    </label>
+                </div>
+            )}
 
             <div className="flex justify-end">
                 <Button type="submit" size="sm" disabled={processing || data.items.length === 0}>

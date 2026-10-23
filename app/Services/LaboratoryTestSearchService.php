@@ -59,6 +59,20 @@ class LaboratoryTestSearchService
             $query->where('status', $filters['status']);
         }
 
+        $hasParameters = $filters['has_parameters'] ?? null;
+        if ($hasParameters === 'with') {
+            $query->has('parameters');
+        } elseif ($hasParameters === 'without') {
+            $query->doesntHave('parameters');
+        }
+
+        $scheme = $filters['scheme'] ?? null;
+        if ($scheme === 'nhif') {
+            $query->whereNotNull('nhif_code');
+        } elseif ($scheme === 'normal') {
+            $query->whereNull('nhif_code');
+        }
+
         $search = trim((string) ($filters['search'] ?? ''));
 
         if ($search !== '') {

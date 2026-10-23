@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { NhifClaimFinalizeDialog } from '@/components/nhif/nhif-claim-finalize-dialog';
 import { Link } from '@inertiajs/react';
 import axios from 'axios';
-import { CheckCircle2, Clock, FilePlus2, Loader2, Plus, Search, ShieldCheck, User } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, FilePlus2, Loader2, Plus, Search, ShieldCheck, User } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface EligibleVisit {
@@ -189,6 +189,19 @@ export function NhifNewClaimDialog({ trigger }: NhifNewClaimDialogProps) {
                                                         <Link href={route('nhif.claims.show', v.existing_claim.id)}>
                                                             View #{v.existing_claim.claim_number}
                                                         </Link>
+                                                    </Button>
+                                                ) : v.type === 'encounter' && !v.is_completed ? (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="gap-1 border-amber-500/40 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400"
+                                                        onClick={() => {
+                                                            alert('Doctor should complete Clinical Encounters for the patient before sending claim.');
+                                                        }}
+                                                        title="Doctor should complete Clinical Encounters for the patient before sending claim"
+                                                    >
+                                                        <AlertCircle className="h-3.5 w-3.5" />
+                                                        Complete Encounter First
                                                     </Button>
                                                 ) : (
                                                     <NhifClaimFinalizeDialog

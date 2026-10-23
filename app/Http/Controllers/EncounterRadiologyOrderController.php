@@ -9,9 +9,11 @@ use App\Http\Requests\RadiologyOrder\UpdateRadiologyOrderRequest;
 use App\Models\ClinicalEncounter;
 use App\Models\RadiologyOrder;
 use App\Models\RadiologyOrderItem;
+use App\Services\NHIF\NhifEncounterPreApprovalService;
 use App\Services\RadiologyOrderService;
 use App\Services\RadiologySchedulingService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Radiology orders are presented as part of the clinical encounter screen,
@@ -22,13 +24,45 @@ use Illuminate\Http\RedirectResponse;
  */
 class EncounterRadiologyOrderController extends Controller
 {
-    public function store(StoreRadiologyOrderRequest $request, ClinicalEncounter $clinicalEncounter, RadiologyOrderService $service): RedirectResponse
-    {
+    public function store(
+        StoreRadiologyOrderRequest $request,
+        ClinicalEncounter $clinicalEncounter,
+        RadiologyOrderService $service,
+        NhifEncounterPreApprovalService $nhifPreApproval,
+    ): RedirectResponse {
         $this->authorize('create', [RadiologyOrder::class, $clinicalEncounter]);
 
-        $service->create($clinicalEncounter, $request->validated(), $request);
+        $order = $service->create($clinicalEncounter, $request->validated(), $request);
 
-        return back()->with('success', 'Radiology order placed.');
+        $insurance = $clinicalEncounter->patient?->currentNhifInsurance();
+        $autoPreApproval = $request->boolean('send_preapproval', true);
+        $preApprovalMessage = null;
+
+        if ($insurance && $autoPreApproval) {
+            try {
+                $itemIds = $order->items->where('status', '!=', RadiologyOrderItem::STATUS_CANCELLED)->pluck('id')->all();
+                $session = $nhifPreApproval->createAndSubmitFromSelection(
+                    $insurance,
+                    $clinicalEncounter,
+                    [],
+                    [],
+                    $request,
+                    $order->clinical_indication ?? $order->notes,
+                    $clinicalEncounter->practitioner?->nhif_practitioner_no,
+                    $itemIds,
+                );
+                $preApprovalMessage = "NHIF Pre-Approval request submitted (#{$session->id}). Please issue the pre-approval request.";
+            } catch (\Throwable $e) {
+                Log::warning('Automatic NHIF pre-approval submission failed for radiology', [
+                    'radiology_order_id' => $order->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $message = $preApprovalMessage ? "Radiology order placed. {$preApprovalMessage}" : 'Radiology order placed.';
+
+        return back()->with('success', $message);
     }
 
     public function update(UpdateRadiologyOrderRequest $request, ClinicalEncounter $clinicalEncounter, RadiologyOrder $radiologyOrder, RadiologyOrderService $service): RedirectResponse

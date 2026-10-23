@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\RadiologyOrder;
+use App\Services\NHIF\NhifOrderPreApprovalService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -59,6 +60,7 @@ class RadiologyOrderResource extends JsonResource
                 'id' => $encounter->id,
                 'encounter_number' => $encounter->encounter_number,
             ] : null,
+            'nhif_pre_approval' => app(NhifOrderPreApprovalService::class)->statusForRadiologyOrder($this->resource),
             'created_at' => optional($this->created_at)->toIso8601String(),
         ];
     }

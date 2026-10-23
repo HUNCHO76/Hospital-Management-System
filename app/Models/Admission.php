@@ -233,7 +233,12 @@ class Admission extends Model
     public function inpatientEncounters(): HasMany
     {
         return $this->hasMany(ClinicalEncounter::class, 'admission_id')
-            ->where('encounter_type', 'inpatient')
+            ->orderBy('created_at');
+    }
+
+    public function encounters(): HasMany
+    {
+        return $this->hasMany(ClinicalEncounter::class, 'admission_id')
             ->orderBy('created_at');
     }
 
@@ -278,6 +283,41 @@ class Admission extends Model
     public function nhifClaims(): HasMany
     {
         return $this->hasMany(NhifClaim::class);
+    }
+
+    public function maternityProfiles(): HasMany
+    {
+        return $this->hasMany(MaternityProfile::class);
+    }
+
+    public function maternityProfile(): HasOne
+    {
+        return $this->hasOne(MaternityProfile::class)->latestOfMany();
+    }
+
+    public function partographEntries(): HasMany
+    {
+        return $this->hasMany(PartographEntry::class)->orderBy('recorded_at');
+    }
+
+    public function deliveryRecords(): HasMany
+    {
+        return $this->hasMany(DeliveryRecord::class);
+    }
+
+    public function procedureOrders(): HasMany
+    {
+        return $this->hasMany(ProcedureOrder::class)->orderByDesc('created_at');
+    }
+
+    public function surgicalCases(): HasMany
+    {
+        return $this->hasMany(SurgicalCase::class)->orderByDesc('created_at');
+    }
+
+    public function bedsideProcedureEvents(): HasMany
+    {
+        return $this->hasMany(BedsideProcedureEvent::class)->orderByDesc('performed_at');
     }
 
     public function canTransitionTo(string $status): bool

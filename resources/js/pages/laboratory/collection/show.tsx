@@ -1,5 +1,6 @@
 import { CancelSampleDialog } from '@/components/laboratory/cancel-sample-dialog';
 import { CollectSampleDialog } from '@/components/laboratory/collect-sample-dialog';
+import { ConfigureTestSpecimenDialog } from '@/components/laboratory/configure-test-specimen-dialog';
 import { RecollectSampleDialog } from '@/components/laboratory/recollect-sample-dialog';
 import { RegisterSampleForm } from '@/components/laboratory/register-sample-form';
 import { RejectProcessingDialog } from '@/components/laboratory/reject-processing-dialog';
@@ -32,7 +33,7 @@ import {
 import { type BreadcrumbItem } from '@/types';
 import { type LaboratoryOrder, type LaboratorySample, type LaboratorySpecimenContainer, type LaboratorySpecimenType } from '@/types/laboratory';
 import { Head, Link, router } from '@inertiajs/react';
-import { Printer, XCircle } from 'lucide-react';
+import { AlertCircle, Printer, Settings, XCircle } from 'lucide-react';
 
 interface LaboratoryCollectionShowProps {
     order: LaboratoryOrder;
@@ -68,10 +69,22 @@ export default function LaboratoryCollectionShow({
     specimenTypes,
     specimenContainers,
     orderFinancialStatus = 'authorized',
+    nhifPreApprovalStatus = null,
     patientAccountId = null,
-}: LaboratoryCollectionShowProps & { orderFinancialStatus?: string; patientAccountId?: number | null }) {
+}: LaboratoryCollectionShowProps & {
+    orderFinancialStatus?: string;
+    nhifPreApprovalStatus?: { status: string; label: string; blocked: boolean; message: string } | null;
+    patientAccountId?: number | null;
+}) {
     const { can } = usePermissions();
+    const isNhifSentNotIssued = orderFinancialStatus === 'nhif_sent_not_issued';
+    const isNhifPendingRequest = orderFinancialStatus === 'nhif_pending_request';
     const isPaymentRequired = orderFinancialStatus === 'payment_required';
+    const isCancelled = order.status === 'cancelled' || orderFinancialStatus === 'cancelled';
+    const allItemsCancelled = order.items.length > 0 && order.items.every((item) => item.status === 'cancelled');
+    const isBlocked = isPaymentRequired || isNhifSentNotIssued || isNhifPendingRequest || isCancelled || allItemsCancelled;
+    const hasUnconfiguredItems = order.items.some((item) => item.status === 'ordered' && !item.specimen_type);
+
     const patientName = order.patient
         ? [order.patient.first_name, order.patient.middle_name, order.patient.last_name].filter(Boolean).join(' ')
         : '—';
@@ -87,6 +100,56 @@ export default function LaboratoryCollectionShow({
             <Head title={`Collect — ${order.order_number}`} />
 
             <div className="flex flex-col gap-6 p-4">
+                {isNhifSentNotIssued && (
+                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 font-bold text-sm">
+                                    <span>NHIF Pre-Approval Status: Request sent but not issued</span>
+                                    <Badge variant="outline" className="border-amber-500 bg-amber-500/20 text-amber-800 dark:text-amber-300 font-medium">
+                                        Request sent but not issued
+                                    </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Sample collection is blocked because the NHIF pre-approval request has been sent but is not yet issued. Please issue the pre-approval request in the patient encounter before collecting samples.
+                                </p>
+                            </div>
+                            {order.clinical_encounter_id && (
+                                <Button size="sm" variant="default" className="bg-amber-700 hover:bg-amber-800 text-white" asChild>
+                                    <Link href={route('clinical-encounters.show', order.clinical_encounter_id)}>
+                                        Open Patient Encounter
+                                    </Link>
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {isNhifPendingRequest && (
+                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 font-bold text-sm">
+                                    <span>NHIF Pre-Approval Status: Pre-approval Required</span>
+                                    <Badge variant="outline" className="border-amber-500 bg-amber-500/20 text-amber-800 dark:text-amber-300 font-medium">
+                                        Pre-approval Required
+                                    </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Sample collection is blocked because NHIF pre-approval has not been requested yet. Please submit and issue the pre-approval request in the patient encounter first.
+                                </p>
+                            </div>
+                            {order.clinical_encounter_id && (
+                                <Button size="sm" variant="default" className="bg-amber-700 hover:bg-amber-800 text-white" asChild>
+                                    <Link href={route('clinical-encounters.show', order.clinical_encounter_id)}>
+                                        Open Patient Encounter
+                                    </Link>
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {isPaymentRequired && (
                     <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300">
                         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -166,21 +229,71 @@ export default function LaboratoryCollectionShow({
                                     </span>
                                     <div className="flex items-center gap-2 text-xs">
                                         <span className="text-muted-foreground">
-                                            {item.specimen_type ? laboratorySpecimenTypeLabel[item.specimen_type] : 'Not configured'}
-                                            {item.specimen_container ? ` / ${laboratorySpecimenContainerLabel[item.specimen_container]}` : ''}
+                                            {item.specimen_type ? (
+                                                <>
+                                                    {laboratorySpecimenTypeLabel[item.specimen_type]}
+                                                    {item.specimen_container ? ` / ${laboratorySpecimenContainerLabel[item.specimen_container]}` : ''}
+                                                </>
+                                            ) : (
+                                                <span className="font-semibold text-amber-600 dark:text-amber-400">Not configured</span>
+                                            )}
                                         </span>
+                                        {can('laboratory-tests.update') && (
+                                            <ConfigureTestSpecimenDialog
+                                                testId={item.laboratory_test_id}
+                                                testCode={item.test_code}
+                                                testName={item.test_name}
+                                                currentSpecimenType={item.specimen_type}
+                                                currentSpecimenContainer={item.specimen_container}
+                                                specimenTypes={specimenTypes}
+                                                specimenContainers={specimenContainers}
+                                                trigger={
+                                                    <Button
+                                                        type="button"
+                                                        variant={item.specimen_type ? 'ghost' : 'outline'}
+                                                        size="sm"
+                                                        className={`h-6 px-2 text-xs ${
+                                                            !item.specimen_type
+                                                                ? 'border-amber-500/50 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400'
+                                                                : 'text-muted-foreground hover:text-foreground'
+                                                        }`}
+                                                    >
+                                                        <Settings className="mr-1 h-3 w-3" />
+                                                        {item.specimen_type ? 'Edit' : 'Configure Specimen'}
+                                                    </Button>
+                                                }
+                                            />
+                                        )}
                                         <Badge variant={laboratoryOrderStatusVariant[item.status]}>{laboratoryOrderStatusLabel[item.status]}</Badge>
                                     </div>
                                 </li>
                             ))}
                         </ul>
 
-                        {can('laboratory-samples.collect') && !isPaymentRequired && (
-                            <RegisterSampleForm orderId={order.id} items={order.items} />
+                        {hasUnconfiguredItems && !allItemsCancelled && !isCancelled && (
+                            <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+                                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                                <div>
+                                    <span className="font-semibold">Specimen requirement missing:</span> One or more tests in this order have no specimen type configured. Click{' '}
+                                    <span className="font-semibold">Configure Specimen</span> above to set the required specimen and enable sample collection.
+                                </div>
+                            </div>
                         )}
-                        {isPaymentRequired && (
+
+                        {allItemsCancelled || isCancelled ? (
+                            <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                                All laboratory tests in this order have been cancelled. Specimen collection is not available.
+                            </div>
+                        ) : can('laboratory-samples.collect') && !isBlocked ? (
+                            <RegisterSampleForm orderId={order.id} items={order.items} />
+                        ) : null}
+                        {isBlocked && !allItemsCancelled && !isCancelled && (
                             <div className="mt-4 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
-                                Sample collection registration is disabled because this order requires payment clearance.
+                                {isNhifSentNotIssued
+                                    ? 'Sample collection registration is disabled because NHIF pre-approval request has been sent but is not yet issued.'
+                                    : isNhifPendingRequest
+                                    ? 'Sample collection registration is disabled because NHIF pre-approval is required.'
+                                    : 'Sample collection registration is disabled because this order requires payment clearance.'}
                             </div>
                         )}
                     </CardContent>
@@ -240,10 +353,11 @@ export default function LaboratoryCollectionShow({
                                                     </Button>
                                                 )}
 
-                                                {canCollectSample(sample.status) && can('laboratory-samples.collect') && (
+                                                {canCollectSample(sample.status) && can('laboratory-samples.collect') && !isBlocked && (
                                                     <CollectSampleDialog
                                                         sampleId={sample.id}
                                                         sampleNumber={sample.sample_number}
+                                                        initialSpecimenSource={sample.specimen_source ?? null}
                                                         trigger={<Button size="sm">Collect</Button>}
                                                     />
                                                 )}

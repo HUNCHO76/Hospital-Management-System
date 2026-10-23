@@ -5,7 +5,10 @@ namespace App\Services;
 use App\Models\Admission;
 use App\Models\ClinicalEncounter;
 use App\Models\MedicationAdministration;
+use App\Models\PatientAllergy;
+use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -27,7 +30,7 @@ class MedicationAdministrationService
     ) {}
 
     /**
-     * Record a medication administration event (administer / hold / refuse / miss).
+     * Record a medication administration event (administer / hold / refuse / miss / delay / not_applicable).
      *
      * @param  array{
      *     prescription_order_item_id: int,
@@ -40,7 +43,9 @@ class MedicationAdministrationService
      *     is_prn?: bool,
      *     dispensing_item_id?: int|null,
      *     scheduled_at?: string|null,
+     *     slot_key?: string|null,
      *     reason?: string|null,
+     *     allergy_override_reason?: string|null,
      *     notes?: string|null,
      * }  $data
      *
@@ -54,16 +59,94 @@ class MedicationAdministrationService
 
             $this->assertAdmissionActive($admission);
 
-            $item = PrescriptionOrderItem::with('prescriptionOrder')->findOrFail($data['prescription_order_item_id']);
+            $item = PrescriptionOrderItem::with(['prescriptionOrder', 'medication'])->findOrFail($data['prescription_order_item_id']);
 
             $this->assertItemBelongsToAdmission($item, $admission);
 
             $encounter = ClinicalEncounter::findOrFail($data['clinical_encounter_id']);
 
-            if ((int) $encounter->admission_id !== (int) $admission->id) {
+            $belongsToAdmission = (int) $encounter->admission_id === (int) $admission->id
+                || (int) $encounter->id === (int) $admission->clinical_encounter_id;
+
+            if (! $belongsToAdmission) {
+                $admissionWindowStart = ($admission->admitted_at ?? $admission->created_at)->copy()->subHours(24);
+                $belongsToAdmission = (int) $encounter->patient_id === (int) $admission->patient_id
+                    && $encounter->created_at >= $admissionWindowStart
+                    && (! $admission->discharged_at || $encounter->created_at <= $admission->discharged_at);
+            }
+
+            if (! $belongsToAdmission) {
                 throw ValidationException::withMessages([
                     'clinical_encounter_id' => 'The encounter does not belong to this admission.',
                 ]);
+            }
+
+            if (empty($encounter->admission_id)) {
+                $encounter->update(['admission_id' => $admission->id]);
+            }
+
+            // Reason check
+            if (in_array($data['status'], MedicationAdministration::REASON_REQUIRED_STATUSES, true) && empty(trim((string) ($data['reason'] ?? '')))) {
+                throw ValidationException::withMessages([
+                    'reason' => "A documented reason is required when a dose is {$data['status']}.",
+                ]);
+            }
+
+            // Allergy safety check for given doses
+            if (in_array($data['status'], MedicationAdministration::GIVEN_STATUSES, true)) {
+                $allergies = PatientAllergy::query()
+                    ->where('patient_id', $admission->patient_id)
+                    ->where('status', PatientAllergy::STATUS_ACTIVE)
+                    ->get();
+
+                $matchingAllergy = null;
+                foreach ($allergies as $allergy) {
+                    if ($allergy->medication_id && (int) $allergy->medication_id === (int) $item->medication_id) {
+                        $matchingAllergy = $allergy;
+                        break;
+                    }
+                    $generic = strtolower((string) ($item->medication?->generic_name ?? $item->medication_name_snapshot));
+                    $brand = strtolower((string) ($item->medication?->brand_name ?? ''));
+                    $allergen = strtolower((string) $allergy->allergen);
+                    if ($allergen !== '' && (str_contains($generic, $allergen) || ($brand !== '' && str_contains($brand, $allergen)))) {
+                        $matchingAllergy = $allergy;
+                        break;
+                    }
+                }
+
+                if ($matchingAllergy && empty(trim((string) ($data['allergy_override_reason'] ?? '')))) {
+                    throw ValidationException::withMessages([
+                        'allergy_override_reason' => "Patient has a documented allergy to {$matchingAllergy->allergen} ({$matchingAllergy->severity}). An explicit clinical override reason is required to administer.",
+                    ]);
+                }
+            }
+
+            // Timing checks
+            $adminTime = Carbon::parse($data['administered_at']);
+            $futureTolerance = config('mar.future_tolerance_minutes', 5);
+            if ($adminTime->isAfter(now()->addMinutes($futureTolerance))) {
+                throw ValidationException::withMessages([
+                    'administered_at' => 'Medication administration time cannot be in the future.',
+                ]);
+            }
+
+            // Duplicate dose check via slot_key
+            $slotKey = $data['slot_key'] ?? null;
+            if (! $slotKey && ! empty($data['scheduled_at']) && empty($data['is_prn'])) {
+                $slotKey = "item:{$item->id}:".Carbon::parse($data['scheduled_at'])->format('YmdHi');
+            }
+
+            if ($slotKey) {
+                $duplicate = MedicationAdministration::query()
+                    ->where('slot_key', $slotKey)
+                    ->whereNull('corrects_id')
+                    ->first();
+
+                if ($duplicate) {
+                    throw ValidationException::withMessages([
+                        'scheduled_at' => 'This scheduled dose has already been recorded. Use the correction workflow if an amendment is required.',
+                    ]);
+                }
             }
 
             $mar = MedicationAdministration::create([
@@ -75,12 +158,14 @@ class MedicationAdministrationService
                 'status' => $data['status'],
                 'scheduled_at' => $data['scheduled_at'] ?? null,
                 'administered_at' => $data['administered_at'],
+                'slot_key' => $slotKey,
                 'dose' => $data['dose'],
                 'dose_unit' => $data['dose_unit'],
                 'route' => $data['route'],
                 'is_prn' => $data['is_prn'] ?? false,
                 'administered_by' => $request->user()->id,
                 'reason' => $data['reason'] ?? null,
+                'allergy_override_reason' => $data['allergy_override_reason'] ?? null,
                 'notes' => $data['notes'] ?? null,
             ]);
 
@@ -88,7 +173,7 @@ class MedicationAdministrationService
                 'medication_administration.recorded',
                 $mar,
                 null,
-                ['status' => $mar->status, 'admission_id' => $admission->id],
+                ['status' => $mar->status, 'admission_id' => $admission->id, 'slot_key' => $slotKey],
                 $request,
             );
 
@@ -189,12 +274,44 @@ class MedicationAdministrationService
             ]);
         }
 
+        if ($order->status !== PrescriptionOrder::STATUS_ACTIVE) {
+            throw ValidationException::withMessages([
+                'prescription_order_item_id' => 'Cannot record administration for an inactive prescription order.',
+            ]);
+        }
+
+        if ($item->status !== PrescriptionOrderItem::STATUS_ACTIVE) {
+            throw ValidationException::withMessages([
+                'prescription_order_item_id' => 'Cannot record administration for a cancelled prescription item.',
+            ]);
+        }
+
         $encounter = ClinicalEncounter::find($order->clinical_encounter_id);
 
-        if (! $encounter || (int) $encounter->admission_id !== (int) $admission->id) {
+        if (! $encounter) {
             throw ValidationException::withMessages([
                 'prescription_order_item_id' => 'This prescription item does not belong to the given admission.',
             ]);
+        }
+
+        $belongsToAdmission = (int) $encounter->admission_id === (int) $admission->id
+            || (int) $encounter->id === (int) $admission->clinical_encounter_id;
+
+        if (! $belongsToAdmission) {
+            $admissionWindowStart = ($admission->admitted_at ?? $admission->created_at)->copy()->subHours(24);
+            $belongsToAdmission = (int) $encounter->patient_id === (int) $admission->patient_id
+                && $encounter->created_at >= $admissionWindowStart
+                && (! $admission->discharged_at || $encounter->created_at <= $admission->discharged_at);
+        }
+
+        if (! $belongsToAdmission) {
+            throw ValidationException::withMessages([
+                'prescription_order_item_id' => 'This prescription item does not belong to the given admission.',
+            ]);
+        }
+
+        if (empty($encounter->admission_id)) {
+            $encounter->update(['admission_id' => $admission->id]);
         }
     }
 }

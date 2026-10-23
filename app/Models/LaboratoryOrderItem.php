@@ -83,6 +83,7 @@ class LaboratoryOrderItem extends Model
         'test_code',
         'test_name',
         'clinical_note',
+        'specimen_source',
         'status',
         'cancelled_at',
         'cancelled_by',

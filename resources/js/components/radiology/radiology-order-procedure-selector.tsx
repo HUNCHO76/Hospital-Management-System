@@ -8,6 +8,7 @@ interface RadiologyOrderProcedureSelectorProps {
     selected: RadiologyProcedureSearchResult[];
     onChange: (procedures: RadiologyProcedureSearchResult[]) => void;
     disabled?: boolean;
+    clinicalEncounterId?: number | null;
 }
 
 /**
@@ -19,7 +20,7 @@ interface RadiologyOrderProcedureSelectorProps {
  * procedure is a no-op client-side; the service is the real duplicate
  * guard.
  */
-export function RadiologyOrderProcedureSelector({ selected, onChange, disabled }: RadiologyOrderProcedureSelectorProps) {
+export function RadiologyOrderProcedureSelector({ selected, onChange, disabled, clinicalEncounterId }: RadiologyOrderProcedureSelectorProps) {
     const addProcedure = (procedure: RadiologyProcedureSearchResult) => {
         if (selected.some((p) => p.id === procedure.id)) {
             return;
@@ -34,7 +35,7 @@ export function RadiologyOrderProcedureSelector({ selected, onChange, disabled }
 
     return (
         <div className="space-y-2">
-            <RadiologyProcedureSearch selected={null} onSelect={addProcedure} disabled={disabled} />
+            <RadiologyProcedureSearch selected={null} onSelect={addProcedure} disabled={disabled} clinicalEncounterId={clinicalEncounterId} />
 
             {selected.length > 0 && (
                 <ul className="flex flex-wrap gap-2">

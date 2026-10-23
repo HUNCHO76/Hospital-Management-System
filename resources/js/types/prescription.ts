@@ -118,6 +118,14 @@ export interface PrescriptionOrder {
     patient: PrescriptionOrderPatient | null;
     encounter: PrescriptionOrderEncounter | null;
     department: PrescriptionOrderDepartment | null;
+    nhif_pre_approval?: {
+        status: string;
+        label: string;
+        blocked: boolean;
+        message: string;
+        session_id?: number | null;
+        can_issue?: boolean;
+    } | null;
     created_at: string;
 }
 
@@ -150,7 +158,8 @@ export interface PrescriptionOrderFormData {
         safety_override_justification: string;
     }[];
     clinical_notes: string;
-    [key: string]: string | PrescriptionOrderFormData['items'];
+    send_preapproval?: boolean;
+    [key: string]: string | boolean | undefined | PrescriptionOrderFormData['items'];
 }
 
 export interface PrescriptionOrderFilters {

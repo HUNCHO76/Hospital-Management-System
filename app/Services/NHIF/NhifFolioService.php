@@ -11,7 +11,9 @@ use App\Models\NhifClaim;
 use App\Models\NhifClaimItem;
 use App\Models\NhifClaimSubmissionAttempt;
 use App\Models\NhifFolioDisease;
+use App\Models\NhifMemberVerification;
 use App\Models\PatientInsurance;
+use App\Models\User;
 use App\Services\AuditLogService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -158,15 +160,19 @@ class NhifFolioService
             $primaryDiagnosis = $readiness['primary_diagnosis'];
             $practitioner = $readiness['attending_practitioner'];
 
-            $attendanceDate = $context instanceof Admission
-                ? ($context->admitted_at?->toDateString() ?? now()->toDateString())
+            $linkedAdmission = $context instanceof Admission
+                ? $context
+                : ($context->resolved_admission ?? ($context->admission_id ? Admission::find($context->admission_id) : Admission::where('clinical_encounter_id', $context->id)->latest()->first()));
+
+            $attendanceDate = $linkedAdmission
+                ? ($linkedAdmission->admitted_at?->toDateString() ?? now()->toDateString())
                 : ($context->started_at?->toDateString() ?? now()->toDateString());
 
-            $admittedAt = $context instanceof Admission 
-                ? $context->admitted_at 
+            $admittedAt = $linkedAdmission
+                ? $linkedAdmission->admitted_at
                 : ($patientTypeCode === 'IN' ? ($context->started_at ?? now()) : null);
-            $dischargedAt = $context instanceof Admission 
-                ? $context->discharged_at 
+            $dischargedAt = $linkedAdmission
+                ? $linkedAdmission->discharged_at
                 : ($patientTypeCode === 'IN' ? ($context->ended_at ?? null) : null);
 
             $practitionerNo = $practitioner['practitioner_no'] ?? null;
@@ -181,9 +187,9 @@ class NhifFolioService
                 'hospital_id' => $hospital->id,
                 'patient_id' => $patient->id,
                 'patient_insurance_id' => $insurance->id,
-                'clinical_encounter_id' => $context instanceof ClinicalEncounter ? $context->id : null,
-                'admission_id' => $context instanceof Admission ? $context->id : null,
-                'claim_type' => $claimType,
+                'clinical_encounter_id' => $context instanceof ClinicalEncounter ? $context->id : ($context->clinical_encounter_id ?? null),
+                'admission_id' => $linkedAdmission ? $linkedAdmission->id : null,
+                'claim_type' => $linkedAdmission ? NhifClaim::TYPE_INPATIENT : $claimType,
                 'status' => NhifClaim::STATUS_READY,
                 'facility_code' => $facilityCode,
                 'card_no' => $insurance->card_number,
@@ -676,16 +682,32 @@ class NhifFolioService
         }
 
         // 1b. Inpatient pre-check: NHIF requires DateDischarged (strictly after DateAdmitted, not in the future)
-        // for VisitTypeID=2 authorizations. Without it NHIF fails with "Nullable object must have a value."
+        // for inpatient claims. Without DateDischarged NHIF fails with 500 "Nullable object must have a value."
         $preview = $this->buildFolioPayload($claim);
-        if ((int) ($preview['VisitTypeID'] ?? 0) === 2 && empty($preview['DateDischarged'])) {
-            throw ValidationException::withMessages([
-                'visit_type' => 'Authorization '.$claim->authorization_no.' was issued as an INPATIENT visit (VisitTypeID 2). '
-                    .'NHIF requires a discharge date later than the admission date ('.($preview['DateAdmitted'] ?? 'N/A').'), '
-                    .'so same-day visits cannot be claimed under it. If the patient was not admitted, cancel this claim, '
-                    .'re-verify the card with Visit Type "Normal Visit" (1) and finalize again. If the patient was admitted, '
-                    .'submit after discharge on a later day.',
-            ]);
+        $isIpdClaim = ($preview['PatientTypeCode'] ?? '') === 'IN'
+            || (int) ($preview['VisitTypeID'] ?? 0) === 2;
+
+        if ($isIpdClaim) {
+            if (empty($preview['DateDischarged'])) {
+                throw ValidationException::withMessages([
+                    'discharged_at' => 'Inpatient claim requires the patient to be discharged before finalizing. '
+                        .'NHIF requires a non-null discharge date for inpatient claims.',
+                ]);
+            }
+
+            if (! empty($preview['DateAdmitted']) && $preview['DateDischarged'] === $preview['DateAdmitted']) {
+                throw ValidationException::withMessages([
+                    'discharged_at' => 'NHIF rule violation: Date Discharged ('.$preview['DateDischarged'].') cannot be equal to Date Admitted ('.$preview['DateAdmitted'].'). '
+                        .'NHIF requires inpatient claims to have an admission stay of at least 1 day. '
+                        .'For same-day emergency or observation visits, claim under an outpatient/normal visit.',
+                ]);
+            }
+
+            if (! empty($preview['DateDischarged']) && $preview['DateDischarged'] > now()->toDateString()) {
+                throw ValidationException::withMessages([
+                    'discharged_at' => 'Discharge date cannot be in the future ('.$preview['DateDischarged'].').',
+                ]);
+            }
         }
 
         // 2. SignFolio
@@ -704,12 +726,16 @@ class NhifFolioService
         $claim = $this->submit($claim, $request);
         if ($claim->status === NhifClaim::STATUS_SUBMISSION_FAILED) {
             $lastAttempt = $claim->submissionAttempts()->latest()->first();
+            $errorMsg = $lastAttempt?->error_message ?? 'SubmitFolio failed at NHIF.';
+            if (str_contains($errorMsg, 'Submission for this month is already closed')) {
+                $errorMsg = 'Monthly submission for period '.$claim->folio_year.'-'.str_pad((string) $claim->folio_month, 2, '0', STR_PAD_LEFT).' is already closed at NHIF (OCS_SubmitMonthlyClaim was previously executed for this facility).';
+            }
 
             return [
                 'success' => false,
                 'step' => 'submit',
                 'claim' => $claim,
-                'error' => $lastAttempt?->error_message ?? 'SubmitFolio failed at NHIF.',
+                'error' => $errorMsg,
                 'data' => $lastAttempt?->raw_response ?? [],
             ];
         }
@@ -752,7 +778,7 @@ class NhifFolioService
         $patient = $claim->patient;
         $insurance = $claim->patientInsurance;
 
-        $user = \App\Models\User::find($claim->created_by);
+        $user = User::find($claim->created_by);
         $authorName = $user?->name ?? 'Super Administrator';
         if (strlen($authorName) < 3) {
             $authorName = 'Super Administrator';
@@ -772,11 +798,36 @@ class NhifFolioService
         };
         $isIpd = $patientTypeCode === 'IN' || $visitTypeId === 2;
 
+        $isSameDayDischarge = false;
+        if ($isIpd && ! empty($claim->admitted_at) && ! empty($claim->discharged_at)) {
+            $admittedDate = Carbon::parse($claim->admitted_at)->toDateString();
+            $dischargedDate = Carbon::parse($claim->discharged_at)->toDateString();
+            if ($admittedDate === $dischargedDate) {
+                $isSameDayDischarge = true;
+            }
+        }
+
+        // If the patient was admitted and discharged on the same calendar day (<24h, 0 nights)
+        // and visit is authorized as a Normal Visit (VisitTypeID=1), NHIF strictly forbids
+        // PatientTypeCode='IN' ("Date Discharged cannot be equal to Date Admitted").
+        // Auto-adapt to Day Case / Outpatient (PatientTypeCode='OUT') so clinical services
+        // (medications, labs, procedures) can be successfully claimed without date rejection.
+        if ($isSameDayDischarge && $visitTypeId === 1) {
+            $patientTypeCode = 'OUT';
+            $isIpd = false;
+        }
+
         $aggregatedItems = [];
         $totalClaimed = 0.0;
         foreach ($claim->activeItems as $item) {
             $code = (string) $item->nhif_item_code;
             if (empty($code)) {
+                continue;
+            }
+
+            // NHIF statutory rule: Overnight bed accommodation fees (Item Code 21, 22, 23)
+            // cannot be claimed for same-day outpatient/observation visits (0 nights stayed).
+            if ($isSameDayDischarge && in_array($code, ['21', '22', '23'], true)) {
                 continue;
             }
 
@@ -884,11 +935,7 @@ class NhifFolioService
             $dateAdmitted = $claim->admitted_at ? Carbon::parse($claim->admitted_at)->toDateString() : ($claim->attendance_date ? Carbon::parse($claim->attendance_date)->toDateString() : now()->toDateString());
 
             if ($claim->discharged_at) {
-                $disDate = Carbon::parse($claim->discharged_at)->toDateString();
-                // NHIF rule: DateDischarged cannot be equal to DateAdmitted (must be strictly after)
-                if ($disDate > $dateAdmitted) {
-                    $dateDischarged = $disDate;
-                }
+                $dateDischarged = Carbon::parse($claim->discharged_at)->toDateString();
             }
         }
 
@@ -945,18 +992,15 @@ class NhifFolioService
         // 2. Check the authoritative verification record matching authorization number
         $insurance = $insurance ?? ($context instanceof NhifClaim ? $context->patientInsurance : null);
         if ($insurance) {
-            $authNo = $insurance->nhif_authorization_no ?? ($context instanceof NhifClaim ? $context->authorization_no : null);
+            $authNo = ($context instanceof NhifClaim && filled($context->authorization_no) ? $context->authorization_no : null)
+                ?? $insurance->nhif_authorization_no;
 
-            $verification = \App\Models\NhifMemberVerification::query()
+            $verification = NhifMemberVerification::query()
                 ->where('patient_insurance_id', $insurance->id)
-                ->where('verification_status', \App\Models\NhifMemberVerification::STATUS_VERIFIED)
+                ->where('verification_status', NhifMemberVerification::STATUS_VERIFIED)
                 ->when(filled($authNo), fn ($q) => $q->where('nhif_authorization_no', $authNo))
                 ->latest()
-                ->first()
-                ?? \App\Models\NhifMemberVerification::query()
-                    ->where('patient_insurance_id', $insurance->id)
-                    ->latest()
-                    ->first();
+                ->first();
 
             if ($verification) {
                 $reqPayload = $verification->verify_card_request ?? $verification->request_data ?? [];

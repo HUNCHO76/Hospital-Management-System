@@ -117,6 +117,8 @@ class LaboratoryTestController extends Controller
         $test = LaboratoryTest::where('nhif_code', $itemCode)->first();
 
         if (! $test) {
+            $specimenConfig = $this->inferSpecimenRequirements($itemName);
+
             $test = LaboratoryTest::create([
                 'code' => 'NHIF-'.$itemCode,
                 'name' => $itemName,
@@ -124,6 +126,9 @@ class LaboratoryTestController extends Controller
                 'status' => LaboratoryTest::STATUS_ACTIVE,
                 'result_type' => 'text',
                 'default_priority' => 'routine',
+                'specimen_type' => $specimenConfig['specimen_type'],
+                'specimen_container' => $specimenConfig['specimen_container'],
+                'collection_notes' => $specimenConfig['collection_notes'],
             ]);
         }
 
@@ -139,19 +144,42 @@ class LaboratoryTestController extends Controller
      */
     public function index(Request $request): Response
     {
-        $filters = $request->only(['search', 'category_id', 'department_id', 'specimen_type', 'result_type', 'status']);
+        $filters = $request->only([
+            'search',
+            'category_id',
+            'department_id',
+            'specimen_type',
+            'result_type',
+            'status',
+            'has_parameters',
+            'scheme',
+        ]);
 
         $tests = $this->search->query($filters)
-            ->with(['category:id,name,code', 'department:id,name,code'])
+            ->with([
+                'category:id,name,code',
+                'department:id,name,code',
+                'parameters' => fn ($q) => $q->orderBy('display_order'),
+            ])
+            ->withCount('parameters')
             ->orderBy('name')
             ->paginate(15)
             ->withQueryString();
 
+        $stats = [
+            'total_tests' => LaboratoryTest::count(),
+            'with_parameters' => LaboratoryTest::has('parameters')->count(),
+            'without_parameters' => LaboratoryTest::doesntHave('parameters')->count(),
+            'nhif_tests' => LaboratoryTest::whereNotNull('nhif_code')->count(),
+        ];
+
         return Inertia::render('laboratory/tests/index', [
             'tests' => $tests,
             'filters' => $filters,
+            'stats' => $stats,
             'categories' => LaboratoryTestCategory::active()->orderBy('name')->get(['id', 'name', 'code']),
             'specimenTypes' => LaboratoryTest::SPECIMEN_TYPES,
+            'specimenContainers' => LaboratoryTest::SPECIMEN_CONTAINERS,
             'resultTypes' => LaboratoryTest::RESULT_TYPES,
         ]);
     }
@@ -211,7 +239,15 @@ class LaboratoryTestController extends Controller
      */
     public function update(UpdateLaboratoryTestRequest $request, LaboratoryTest $laboratoryTest, LaboratoryTestService $service): RedirectResponse
     {
-        $service->update($laboratoryTest, $request->validated(), $request);
+        $validated = $request->validated();
+        $redirectTo = $validated['redirect_to'] ?? null;
+        unset($validated['redirect_to']);
+
+        $service->update($laboratoryTest, $validated, $request);
+
+        if ($redirectTo) {
+            return redirect($redirectTo)->with('success', 'Laboratory test updated.');
+        }
 
         return to_route('laboratory-tests.show', $laboratoryTest)->with('success', 'Laboratory test updated.');
     }
@@ -258,7 +294,7 @@ class LaboratoryTestController extends Controller
             return null;
         }
 
-        $insurance = $encounter->patient?->activeNhifInsurance();
+        $insurance = $encounter->patient?->currentNhifInsurance();
 
         return $insurance?->nhif_scheme_id ? (int) $insurance->nhif_scheme_id : null;
     }
@@ -274,6 +310,133 @@ class LaboratoryTestController extends Controller
             'specimenTypes' => LaboratoryTest::SPECIMEN_TYPES,
             'specimenContainers' => LaboratoryTest::SPECIMEN_CONTAINERS,
             'resultTypes' => LaboratoryTest::RESULT_TYPES,
+        ];
+    }
+
+    /**
+     * Infer sensible clinical specimen requirements from a laboratory test name
+     * when auto-resolving an NHIF catalog item into the local catalog.
+     * Guaranteed to never return null for specimen_type.
+     *
+     * @return array{specimen_type: string, specimen_container: string, collection_notes: ?string}
+     */
+    protected function inferSpecimenRequirements(string $itemName): array
+    {
+        $normalized = strtolower(trim($itemName));
+
+        // Arterial / Venous Blood Gases
+        if (preg_match('/\b(abg|vbg|arterial blood gas|venous blood gas|blood gas|blood gases)\b/i', $normalized)) {
+            return [
+                'specimen_type' => 'whole_blood',
+                'specimen_container' => 'other',
+                'collection_notes' => 'Heparinized blood gas syringe',
+            ];
+        }
+
+        // Whole blood / CBC / Hemogram / Sickling / Malaria / Blood film
+        if (preg_match('/\b(cbc|fbc|full blood count|hemogram|haemogram|blood film|malaria|mrdt|sickling|hb electrophoresis|esr|cd4|hemoglobin|haemoglobin)\b/i', $normalized)) {
+            return [
+                'specimen_type' => 'whole_blood',
+                'specimen_container' => 'edta_tube',
+                'collection_notes' => null,
+            ];
+        }
+
+        // Coagulation / Plasma tests
+        if (preg_match('/\b(pt|inr|aptt|coagulation|fibrinogen|d-dimer|ddimer|prothrombin)\b/i', $normalized)) {
+            return [
+                'specimen_type' => 'plasma',
+                'specimen_container' => 'plain_tube',
+                'collection_notes' => null,
+            ];
+        }
+
+        // Serum / Chemistry / Immunology / Serology / Hormones / Electrolytes / LFT / RFT
+        if (preg_match('/\b(serum|electrolyte|lft|rft|urea|creatinine|uric acid|lipid|cholesterol|bilirubin|ast|alt|alp|crp|troponin|cardiac|tsh|t3|t4|psa|hiv|vdrl|hbsag|hcv|hepatitis|widal|brucella)\b/i', $normalized)) {
+            return [
+                'specimen_type' => 'serum',
+                'specimen_container' => 'plain_tube',
+                'collection_notes' => null,
+            ];
+        }
+
+        // Urine
+        if (preg_match('/\b(urine|urinalysis|microalbumin|proteinuria|glucosuria|pregnancy test|upt)\b/i', $normalized)) {
+            return [
+                'specimen_type' => 'urine',
+                'specimen_container' => 'sterile_container',
+                'collection_notes' => null,
+            ];
+        }
+
+        // Stool
+        if (preg_match('/\b(stool|faeces|feces|occult blood|fob|ova|parasite|coprology)\b/i', $normalized)) {
+            return [
+                'specimen_type' => 'stool',
+                'specimen_container' => 'universal_container',
+                'collection_notes' => null,
+            ];
+        }
+
+        // Sputum
+        if (preg_match('/\b(sputum|afb|acid fast|tb|genexpert|tuberculosis)\b/i', $normalized)) {
+            return [
+                'specimen_type' => 'sputum',
+                'specimen_container' => 'sterile_container',
+                'collection_notes' => null,
+            ];
+        }
+
+        // Swabs
+        if (preg_match('/\b(swab|throat swab|wound swab|high vaginal swab|hvs|urethral swab|nasopharyngeal)\b/i', $normalized)) {
+            return [
+                'specimen_type' => 'swab',
+                'specimen_container' => 'swab_transport_medium',
+                'collection_notes' => null,
+            ];
+        }
+
+        // CSF
+        if (preg_match('/\b(csf|cerebrospinal|lumbar puncture)\b/i', $normalized)) {
+            return [
+                'specimen_type' => 'csf',
+                'specimen_container' => 'sterile_container',
+                'collection_notes' => null,
+            ];
+        }
+
+        // Body fluids
+        if (preg_match('/\b(fluid|ascitic|pleural|peritoneal|synovial|pericardial)\b/i', $normalized)) {
+            return [
+                'specimen_type' => 'body_fluid',
+                'specimen_container' => 'sterile_container',
+                'collection_notes' => null,
+            ];
+        }
+
+        // Tissue / Biopsy
+        if (preg_match('/\b(tissue|biopsy|histology|histopathology|cytology|pap smear)\b/i', $normalized)) {
+            return [
+                'specimen_type' => 'tissue',
+                'specimen_container' => 'sterile_container',
+                'collection_notes' => null,
+            ];
+        }
+
+        // Generic blood mentions
+        if (str_contains($normalized, 'blood')) {
+            return [
+                'specimen_type' => 'whole_blood',
+                'specimen_container' => 'edta_tube',
+                'collection_notes' => null,
+            ];
+        }
+
+        // Safe universal fallback
+        return [
+            'specimen_type' => 'other',
+            'specimen_container' => 'other',
+            'collection_notes' => null,
         ];
     }
 }

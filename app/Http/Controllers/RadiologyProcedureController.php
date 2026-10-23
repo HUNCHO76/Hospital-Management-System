@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\Radiology\StoreRadiologyProcedureRequest;
 use App\Http\Requests\Radiology\UpdateRadiologyProcedureRequest;
+use App\Models\ClinicalEncounter;
 use App\Models\Department;
+use App\Models\NhifSchemeService;
 use App\Models\RadiologyProcedure;
 use App\Services\RadiologyProcedureSearchService;
 use App\Services\RadiologyProcedureService;
@@ -44,16 +46,108 @@ class RadiologyProcedureController extends Controller
         $search = $request->string('search')->trim()->toString();
 
         if (mb_strlen($search) < 2) {
-            return response()->json(['data' => []]);
+            return response()->json(['data' => [], 'nhif_catalog' => []]);
         }
+
+        $nhifSchemeId = $this->resolveNhifSchemeId($request);
 
         $procedures = $this->search->query(['search' => $search, 'status' => RadiologyProcedure::STATUS_ACTIVE])
             ->orderBy('sort_order')
             ->orderBy('name')
             ->limit(10)
-            ->get(['id', 'code', 'name', 'modality', 'preparation_type']);
+            ->get(['id', 'code', 'name', 'modality', 'preparation_type', 'nhif_code']);
 
-        return response()->json(['data' => $procedures]);
+        $nhifCatalog = [];
+
+        if ($nhifSchemeId !== null) {
+            $catalogItems = NhifSchemeService::catalog()
+                ->where('item_type_id', 5)
+                ->where('scheme_id', $nhifSchemeId)
+                ->where(function ($q) use ($search) {
+                    $q->where('item_name', 'like', "%{$search}%")
+                        ->orWhere('item_code', 'like', "%{$search}%");
+                })
+                ->selectRaw('DISTINCT item_code, item_name')
+                ->orderBy('item_name')
+                ->limit(15)
+                ->get();
+
+            $mappedProcedures = RadiologyProcedure::where('status', RadiologyProcedure::STATUS_ACTIVE)
+                ->whereNotNull('nhif_code')
+                ->whereIn('nhif_code', $catalogItems->pluck('item_code'))
+                ->get(['id', 'code', 'name', 'modality', 'nhif_code'])
+                ->keyBy('nhif_code');
+
+            $nhifCatalog = $catalogItems->map(function ($item) use ($mappedProcedures) {
+                $localProc = $mappedProcedures->get($item->item_code);
+
+                return [
+                    'item_code' => $item->item_code,
+                    'item_name' => $item->item_name,
+                    'local_procedure' => $localProc ? [
+                        'id' => $localProc->id,
+                        'code' => $localProc->code,
+                        'name' => $localProc->name,
+                        'modality' => $localProc->modality,
+                    ] : null,
+                ];
+            })->values();
+        }
+
+        return response()->json([
+            'data' => $procedures,
+            'nhif_catalog' => $nhifCatalog,
+            'nhif_filtered' => $nhifSchemeId !== null,
+        ]);
+    }
+
+    /**
+     * Resolve an NHIF catalog item_code to a local RadiologyProcedure. If a
+     * procedure with that nhif_code already exists it is returned; otherwise a
+     * new active procedure is created from the catalog item's name and code.
+     */
+    public function resolveNhifItem(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', RadiologyProcedure::class);
+
+        $request->validate([
+            'item_code' => ['required', 'string', 'max:50'],
+            'item_name' => ['required', 'string', 'max:255'],
+        ]);
+
+        $itemCode = $request->input('item_code');
+        $itemName = $request->input('item_name');
+
+        $procedure = RadiologyProcedure::where('nhif_code', $itemCode)->first();
+
+        if (! $procedure) {
+            $modality = 'xray';
+            $upperName = strtoupper($itemName);
+            if (str_contains($upperName, 'USS') || str_contains($upperName, 'ULTRASOUND') || str_contains($upperName, 'SONO')) {
+                $modality = 'ultrasound';
+            } elseif (str_contains($upperName, 'CT') || str_contains($upperName, 'CAT')) {
+                $modality = 'ct';
+            } elseif (str_contains($upperName, 'MRI') || str_contains($upperName, 'RESONANCE')) {
+                $modality = 'mri';
+            }
+
+            $procedure = RadiologyProcedure::create([
+                'code' => 'NHIF-'.$itemCode,
+                'name' => $itemName,
+                'nhif_code' => $itemCode,
+                'status' => RadiologyProcedure::STATUS_ACTIVE,
+                'modality' => $modality,
+                'preparation_type' => 'none',
+                'standard_duration_minutes' => 30,
+            ]);
+        }
+
+        return response()->json([
+            'id' => $procedure->id,
+            'code' => $procedure->code,
+            'name' => $procedure->name,
+            'modality' => $procedure->modality,
+        ]);
     }
 
     /**
@@ -169,5 +263,22 @@ class RadiologyProcedureController extends Controller
             'contrastTypes' => RadiologyProcedure::CONTRAST_TYPES,
             'preparationTypes' => RadiologyProcedure::PREPARATION_TYPES,
         ];
+    }
+
+    private function resolveNhifSchemeId(Request $request): ?int
+    {
+        $encounterId = $request->query('clinical_encounter_id');
+        if (! $encounterId) {
+            return null;
+        }
+
+        $encounter = ClinicalEncounter::find((int) $encounterId);
+        if (! $encounter) {
+            return null;
+        }
+
+        $insurance = $encounter->patient?->currentNhifInsurance();
+
+        return $insurance?->nhif_scheme_id ? (int) $insurance->nhif_scheme_id : null;
     }
 }

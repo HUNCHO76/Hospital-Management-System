@@ -22,7 +22,7 @@ class PermissionSeeder extends Seeder
         'departments' => ['view', 'create', 'update', 'delete'],
         'staff' => ['view', 'create', 'update', 'delete'],
         'practitioners' => ['view', 'create', 'update', 'delete', 'nhif-login'],
-        'patients' => ['view', 'create', 'update', 'delete'],
+        'patients' => ['view', 'create', 'update', 'delete', 'correct-demographics'],
         'insurance-providers' => ['view', 'create', 'update', 'delete'],
         'insurance-schemes' => ['view', 'create', 'update', 'delete'],
         'patient-insurance' => ['view', 'create', 'update', 'delete', 'verify'],
@@ -236,6 +236,25 @@ class PermissionSeeder extends Seeder
             'medications.record-missed',
             'medications.correct',
         ],
+
+        // Inpatient nursing workspace. 'view' is limited to the user's own
+        // department (ward) unless 'view-all-wards' is also held. Vital-sign
+        // recording/correction reuse 'vital-signs.create'/'vital-signs.correct',
+        // and dose recording reuses the 'inpatient.medications.*' abilities.
+        'inpatient-nursing' => [
+            'view', 'view-all-wards', 'notes-create', 'wound-care-manage', 'handover-create', 'escalate',
+        ],
+        // Clinician-side handling of an observation escalation (review/close).
+        'inpatient-escalations' => ['view', 'acknowledge', 'resolve'],
+        // Documented patient allergies used for display and MAR checks.
+        'patient-allergies' => ['view', 'manage'],
+        // Maternity nursing, labour monitoring, partograph and delivery records.
+        'maternity' => ['view', 'manage', 'partograph-record', 'delivery-record', 'clinical-exception'],
+        // Dedicated permission for authorized nurse prescribing privileges
+        'prescriptions' => ['nurse-prescribe'],
+        // Doctor-ordered procedures and surgical theatre operations.
+        'procedures' => ['view', 'order', 'manage'],
+        'surgical' => ['theatre-manage', 'operate'],
 
         // Phase 9, Step 94: discharge document generation.
         // 'view' — read the document and version history.

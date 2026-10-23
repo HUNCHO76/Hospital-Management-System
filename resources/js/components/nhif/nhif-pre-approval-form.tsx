@@ -1,3 +1,4 @@
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,6 +8,7 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
 import { type ClinicalEncounterPractitioner } from '@/types/clinical-encounter';
 import { type NhifInsuranceSummary, type NhifPendingItem } from '@/types/nhif';
 import { router } from '@inertiajs/react';
@@ -20,7 +22,7 @@ interface NhifPreApprovalFormProps {
     patientName: string;
     practitioner: ClinicalEncounterPractitioner | null;
     sourceLabel: string;
-    sourceType: 'lab' | 'medication';
+    sourceType: 'lab' | 'medication' | 'radiology';
 }
 
 function formatCurrency(amount: number): string {
@@ -34,10 +36,12 @@ interface CatalogSearchResult {
 
 function NhifCatalogSearch({
     medicationId,
+    radiologyProcedureId,
     encounterId,
     onMapped,
 }: {
-    medicationId: number;
+    medicationId?: number;
+    radiologyProcedureId?: number;
     encounterId: number;
     onMapped: () => void;
 }) {
@@ -47,17 +51,23 @@ function NhifCatalogSearch({
     const [mapping, setMapping] = useState<string | null>(null);
     const requestId = useRef(0);
 
+    const isRadiology = Boolean(radiologyProcedureId);
+
     const doSearch = () => {
         if (query.trim().length < 2) return;
 
         const thisRequest = ++requestId.current;
         setSearching(true);
 
-        fetch(route('medications.search-json', { search: query, clinical_encounter_id: encounterId }), {
+        const searchUrl = isRadiology
+            ? route('radiology-procedures.search-json', { search: query, clinical_encounter_id: encounterId })
+            : route('medications.search-json', { search: query, clinical_encounter_id: encounterId });
+
+        fetch(searchUrl, {
             headers: { Accept: 'application/json' },
         })
             .then((r) => r.json())
-            .then((payload: { nhif_catalog: CatalogSearchResult[] }) => {
+            .then((payload: { nhif_catalog?: CatalogSearchResult[] }) => {
                 if (thisRequest === requestId.current) {
                     setResults(payload.nhif_catalog ?? []);
                 }
@@ -72,7 +82,11 @@ function NhifCatalogSearch({
     const mapItem = (catalogItem: CatalogSearchResult) => {
         setMapping(catalogItem.item_code);
 
-        fetch(route('nhif.item-mapping.medications.update', medicationId), {
+        const updateUrl = isRadiology
+            ? route('nhif.item-mapping.radiology-procedures.update', radiologyProcedureId!)
+            : route('nhif.item-mapping.medications.update', medicationId!);
+
+        fetch(updateUrl, {
             method: 'PATCH',
             headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-XSRF-TOKEN': getCsrfToken() },
             body: JSON.stringify({ nhif_code: String(catalogItem.item_code) }),
@@ -145,6 +159,7 @@ export function NhifPreApprovalForm({
     sourceLabel,
     sourceType,
 }: NhifPreApprovalFormProps) {
+    const { toast } = useToast();
     const mappedItems = items.filter((i) => !i.needs_mapping);
     const unmappedItems = items.filter((i) => i.needs_mapping);
 
@@ -184,13 +199,21 @@ export function NhifPreApprovalForm({
     };
 
     const handleSubmit = () => {
-        if (selectedIds.size === 0) return;
+        if (selectedIds.size === 0 || insurance.is_authorization_expired) return;
 
-        const data: Record<string, unknown> = {
-            clinical_notes: clinicalNotes || undefined,
-        };
+        const data: {
+            clinical_notes?: string;
+            lab_order_item_ids?: number[];
+            radiology_order_item_ids?: number[];
+            prescription_order_item_ids?: number[];
+        } = {};
+        if (clinicalNotes) {
+            data.clinical_notes = clinicalNotes;
+        }
         if (sourceType === 'lab') {
             data.lab_order_item_ids = Array.from(selectedIds);
+        } else if (sourceType === 'radiology') {
+            data.radiology_order_item_ids = Array.from(selectedIds);
         } else {
             data.prescription_order_item_ids = Array.from(selectedIds);
         }
@@ -198,12 +221,16 @@ export function NhifPreApprovalForm({
         setSubmitting(true);
         router.post(route('clinical-encounters.nhif-pre-approval.store', encounterId), data, {
             preserveScroll: true,
+            onError: (errors) => {
+                const message = (errors.nhif_authorization_no as string) || Object.values(errors)[0] || 'Failed to submit pre-approval';
+                toast({ variant: 'error', description: String(message) });
+            },
             onFinish: () => setSubmitting(false),
         });
     };
 
     const handleMapped = () => {
-        router.reload({ only: ['nhifPendingItems'], preserveScroll: true });
+        router.reload({ only: ['nhifPendingItems'] });
     };
 
     const practitionerName =
@@ -215,6 +242,21 @@ export function NhifPreApprovalForm({
                 <CardTitle className="text-base">NHIF {sourceLabel} Preapproval</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+                {/* Expired Authorization Warning */}
+                {insurance.is_authorization_expired && (
+                    <Alert variant="destructive" className="border-amber-500/50 bg-amber-50/80 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200">
+                        <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                        <div className="ml-2">
+                            <AlertTitle className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                                NHIF Authorization Expired (&gt;24 hours)
+                            </AlertTitle>
+                            <AlertDescription className="text-xs text-amber-700 dark:text-amber-300">
+                                Pre-approval cannot be requested. Please send the patient to <strong>Reception</strong> to re-verify their NHIF card.
+                            </AlertDescription>
+                        </div>
+                    </Alert>
+                )}
+
                 {/* Patient section */}
                 <div className="bg-muted/50 rounded-md border p-3">
                     <p className="text-sm font-semibold">Patient</p>
@@ -285,9 +327,10 @@ export function NhifPreApprovalForm({
                                                     No NHIF Code
                                                 </Badge>
                                             </div>
-                                            {item.medication_id && (
+                                            {(item.medication_id || item.radiology_procedure_id) && (
                                                 <NhifCatalogSearch
                                                     medicationId={item.medication_id}
+                                                    radiologyProcedureId={item.radiology_procedure_id}
                                                     encounterId={encounterId}
                                                     onMapped={handleMapped}
                                                 />
@@ -342,6 +385,11 @@ export function NhifPreApprovalForm({
                                 {unmappedItems.length} item{unmappedItems.length > 1 ? 's' : ''} need NHIF code mapping before submission.
                             </p>
                         )}
+                        {insurance.is_authorization_expired && (
+                            <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                                Send patient to reception to re-verify NHIF card before submitting.
+                            </p>
+                        )}
                     </div>
                     <div className="flex gap-2">
                         <Button
@@ -355,7 +403,12 @@ export function NhifPreApprovalForm({
                         >
                             Cancel
                         </Button>
-                        <Button size="sm" onClick={handleSubmit} disabled={submitting || selectedIds.size === 0 || !allPricesLoaded}>
+                        <Button
+                            size="sm"
+                            onClick={handleSubmit}
+                            disabled={submitting || selectedIds.size === 0 || !allPricesLoaded || Boolean(insurance.is_authorization_expired)}
+                            title={insurance.is_authorization_expired ? 'Patient authorization expired. Send patient to reception to re-verify.' : undefined}
+                        >
                             {submitting ? 'Submitting...' : 'Request NHIF Preapproval'}
                         </Button>
                     </div>

@@ -5,6 +5,8 @@ namespace App\Services\Auth;
 use App\Models\AuditLog;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class AuthenticationService
 {
@@ -40,6 +42,30 @@ class AuthenticationService
     public function recordLogout(User $user, Request $request): void
     {
         $this->record('logout', $user, $request);
+    }
+
+    /**
+     * Revoke all server-side sessions for a given user (e.g. on termination, compromise, or password reset).
+     */
+    public function revokeUserSessions(User $user, ?Request $request = null, ?string $exceptSessionId = null): int
+    {
+        $revokedCount = 0;
+
+        if (Schema::hasTable('sessions')) {
+            $query = DB::table('sessions')->where('user_id', $user->id);
+
+            if ($exceptSessionId) {
+                $query->where('id', '!=', $exceptSessionId);
+            }
+
+            $revokedCount = $query->delete();
+        }
+
+        if ($request) {
+            $this->record('sessions_revoked', $user, $request);
+        }
+
+        return $revokedCount;
     }
 
     /**

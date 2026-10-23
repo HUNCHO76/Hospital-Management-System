@@ -1,3 +1,5 @@
+import { SubmitNhifDialog } from '@/components/admissions/submit-nhif-dialog';
+import { NhifClaimFinalizeDialog } from '@/components/nhif/nhif-claim-finalize-dialog';
 import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,7 +15,7 @@ import { type BreadcrumbItem } from '@/types';
 import { type Admission, type ClinicalStatus } from '@/types/admission';
 import { type InpatientEncounter } from '@/types/clinical-encounter';
 import { Head, Link, useForm } from '@inertiajs/react';
-import { Activity, BedDouble, CheckCircle, Circle, Clock, FileText, FlaskConical, Pill, Plus, Radio, Stethoscope, User } from 'lucide-react';
+import { Activity, BedDouble, CheckCircle, Circle, Clock, FileText, FlaskConical, Pill, Plus, Radio, ShieldCheck, Stethoscope, User } from 'lucide-react';
 import { useState } from 'react';
 
 interface VitalSign {
@@ -43,12 +45,33 @@ interface InpatientPractitioner {
     staff?: { first_name: string; last_name: string };
 }
 
+interface ActiveMedicationItem {
+    id: number;
+    prescription_order_id: number;
+    medication_name: string;
+    brand_name?: string | null;
+    strength?: string | null;
+    form?: string | null;
+    dose: string;
+    dose_unit: string;
+    frequency: string;
+    route: string;
+    instructions?: string | null;
+    quantity: number;
+    quantity_unit?: string | null;
+    dispensed_quantity: number;
+    encounter_number?: string | null;
+    encounter_type?: string | null;
+    prescribed_at?: string | null;
+}
+
 interface ClinicalProfileProps {
     admission: Admission;
     encounters: InpatientEncounter[];
     vitals: VitalSign[];
     practitioners: InpatientPractitioner[];
     clinicalStatuses: ClinicalStatus[];
+    activeMedications?: ActiveMedicationItem[];
     canOpenEncounter: boolean;
     canUpdateClinicalStatus: boolean;
     canRecordVitals: boolean;
@@ -56,6 +79,7 @@ interface ClinicalProfileProps {
     canManageCarePlan: boolean;
     canCreateOrders: boolean;
     canViewMedications: boolean;
+    canSubmitNhif?: boolean;
 }
 
 const itemTypeLabel: Record<string, string> = {
@@ -412,6 +436,7 @@ export default function ClinicalProfile({
     vitals,
     practitioners,
     clinicalStatuses,
+    activeMedications = [],
     canOpenEncounter,
     canUpdateClinicalStatus,
     canRecordVitals,
@@ -419,6 +444,7 @@ export default function ClinicalProfile({
     canManageCarePlan,
     canCreateOrders,
     canViewMedications,
+    canSubmitNhif = false,
 }: ClinicalProfileProps) {
     const patientName = admission.patient
         ? `${admission.patient.first_name} ${admission.patient.last_name}`
@@ -466,11 +492,45 @@ export default function ClinicalProfile({
                     description={`${admission.patient?.patient_number ?? ''} · Admission ${admission.admission_number}`}
                     actions={
                         <div className="flex items-center gap-2">
+                            {admission.nhifAdmission?.nhif_admission_no ? (
+                                <Badge variant="secondary" className="gap-1 border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                                    <ShieldCheck className="h-3.5 w-3.5" />
+                                    NHIF: {admission.nhifAdmission.nhif_admission_no}
+                                </Badge>
+                            ) : admission.nhifAdmission?.nhif_status === 'failed' ? (
+                                <Badge variant="destructive">
+                                    NHIF Failed
+                                </Badge>
+                            ) : admission.nhifAdmission?.nhif_status === 'pending' ? (
+                                <Badge variant="outline" className="border-amber-500/40 text-amber-600">
+                                    NHIF Pending
+                                </Badge>
+                            ) : null}
+
                             {admission.clinical_status && (
                                 <Badge variant={clinicalStatusVariant[admission.clinical_status as ClinicalStatus]}>
                                     {clinicalStatusLabel[admission.clinical_status as ClinicalStatus]}
                                 </Badge>
                             )}
+
+                            {canSubmitNhif && admission.patient_id && (
+                                <SubmitNhifDialog admission={admission} />
+                            )}
+
+                            {admission.nhifAdmission?.nhif_authorization_no && (
+                                <NhifClaimFinalizeDialog
+                                    admissionId={admission.id}
+                                    patientName={patientName}
+                                    patientCardNo={admission.patientInsurance?.card_number}
+                                    trigger={
+                                        <Button size="sm" variant="outline" className="gap-1.5">
+                                            <FileText className="h-4 w-4 text-primary" />
+                                            Claim Folio
+                                        </Button>
+                                    }
+                                />
+                            )}
+
                             <Button variant="outline" asChild>
                                 <Link href={route('admissions.show', admission.id)}>Admission Details</Link>
                             </Button>
@@ -682,22 +742,83 @@ export default function ClinicalProfile({
                     </CardContent>
                 </Card>
 
-                {/* Medications link card */}
+                {/* Medications card */}
                 {canViewMedications && (
                     <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <CardTitle className="flex items-center gap-2 text-base">
-                                <Pill className="h-4 w-4" />
-                                Medications
-                            </CardTitle>
+                        <CardHeader className="flex flex-row items-center justify-between pb-3">
+                            <div>
+                                <CardTitle className="flex items-center gap-2 text-base">
+                                    <Pill className="h-4 w-4" />
+                                    Medications ({activeMedications.length})
+                                </CardTitle>
+                                <p className="text-muted-foreground text-xs mt-1">
+                                    Active prescribed medications and administration records (MAR) for this admission.
+                                </p>
+                            </div>
                             <Button size="sm" asChild>
                                 <Link href={route('inpatient.medications.worklist', admission.id)}>Open MAR</Link>
                             </Button>
                         </CardHeader>
                         <CardContent>
-                            <p className="text-muted-foreground text-sm">
-                                View and record medication administrations for this admission.
-                            </p>
+                            {activeMedications.length === 0 ? (
+                                <p className="text-muted-foreground text-sm">
+                                    No active medications prescribed for this admission. Medications ordered during encounters will appear here.
+                                </p>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {activeMedications.map((med) => (
+                                        <div
+                                            key={med.id}
+                                            className="border rounded-lg p-3 bg-card flex flex-col justify-between shadow-sm hover:border-primary/40 transition-colors"
+                                        >
+                                            <div>
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div>
+                                                        <span className="font-semibold text-sm">
+                                                            {med.medication_name}
+                                                        </span>
+                                                        {med.brand_name && med.brand_name !== med.medication_name && (
+                                                            <span className="text-muted-foreground text-xs block">
+                                                                ({med.brand_name})
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <Badge
+                                                        variant={med.dispensed_quantity > 0 ? 'default' : 'outline'}
+                                                        className="text-[10px] shrink-0"
+                                                    >
+                                                        {med.dispensed_quantity > 0
+                                                            ? `Dispensed: ${med.dispensed_quantity}`
+                                                            : 'Awaiting Dispense'}
+                                                    </Badge>
+                                                </div>
+                                                <div className="text-xs text-muted-foreground mt-2 flex flex-wrap items-center gap-1">
+                                                    <span className="font-medium text-foreground">
+                                                        {med.dose} {med.dose_unit}
+                                                    </span>
+                                                    <span>·</span>
+                                                    <span className="capitalize">{med.route.replace(/_/g, ' ')}</span>
+                                                    <span>·</span>
+                                                    <span className="capitalize">{med.frequency.replace(/_/g, ' ')}</span>
+                                                </div>
+                                                {med.instructions && (
+                                                    <p className="text-xs text-muted-foreground italic mt-2 line-clamp-2">
+                                                        "{med.instructions}"
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div className="mt-3 pt-2 border-t flex items-center justify-between text-[11px] text-muted-foreground">
+                                                <span>Encounter: {med.encounter_number ?? '—'}</span>
+                                                {med.encounter_type && (
+                                                    <Badge variant="secondary" className="text-[10px] font-normal uppercase">
+                                                        {med.encounter_type.replace(/_/g, ' ')}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 )}

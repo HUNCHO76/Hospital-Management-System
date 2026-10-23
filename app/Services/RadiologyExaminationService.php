@@ -6,6 +6,7 @@ use App\Models\RadiologyAppointment;
 use App\Models\RadiologyOrder;
 use App\Models\RadiologyOrderItem;
 use App\Services\NHIF\NHIFClinicalUtilizationService;
+use App\Services\NHIF\NhifOrderPreApprovalService;
 use App\Services\NHIF\NHIFPreauthorizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -64,6 +65,9 @@ class RadiologyExaminationService
                 RadiologyOrderItem::class,
                 $itemIds,
             );
+
+            // NHIF pre-approval gate: ensure procedure has been requested & issued if NHIF-covered
+            app(NhifOrderPreApprovalService::class)->assertRadiologyOrderItemCanExamine($appointment->radiologyOrderItem);
 
             // Step 62: financial authorization gate — no-charge rule: procedures
             // with no billing mapping (capture skipped) never block examination.

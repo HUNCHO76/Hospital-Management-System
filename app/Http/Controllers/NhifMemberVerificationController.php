@@ -228,7 +228,7 @@ class NhifMemberVerificationController extends Controller
         $this->authorize('verify', $patientInsurance);
 
         if (! $request->filled('identifier_type') || ! $request->filled('identifier_value')) {
-            $identifierValue = $patientInsurance->card_number 
+            $identifierValue = $patientInsurance->card_number
                 ?: $patientInsurance->membership_number;
             $identifierType = NhifMemberVerification::TYPE_CARD_NUMBER;
 
@@ -344,5 +344,65 @@ class NhifMemberVerificationController extends Controller
         }
 
         return back()->with('success', 'NHIF authorization visit type updated successfully.');
+    }
+
+    /**
+     * Retrieve the member picture for biometric verification via NHIF GetMemberPicture.
+     *
+     * Route: POST patients/nhif-member-picture
+     */
+    public function getMemberPicture(Request $request, NhifMemberVerificationService $verifier): JsonResponse
+    {
+        abort_unless(
+            $request->user()?->can('patients.create') || $request->user()?->can('patient-insurance.verify'),
+            403
+        );
+
+        $validated = $request->validate([
+            'card_no' => ['required', 'string', 'max:50'],
+            'verifier_id' => ['required', 'string', 'max:50'],
+        ]);
+
+        $result = $verifier->fetchMemberPicture($validated['card_no'], $validated['verifier_id']);
+
+        return response()->json($result);
+    }
+
+    /**
+     * Re-fetch and update the member biometric photo for an existing PatientInsurance record.
+     *
+     * Route: POST patients/{patient}/insurance/{patientInsurance}/nhif-refresh-picture
+     */
+    public function refreshPicture(
+        Request $request,
+        Patient $patient,
+        PatientInsurance $patientInsurance,
+        NhifMemberVerificationService $verifier,
+    ): RedirectResponse|JsonResponse {
+        abort_unless($patientInsurance->patient_id === $patient->id, 404);
+        $this->authorize('verify', $patientInsurance);
+
+        $cardNo = $patientInsurance->card_number ?: $patientInsurance->membership_number;
+        if (blank($cardNo)) {
+            $msg = 'Cannot fetch picture: No card number found for this insurance.';
+
+            return $request->wantsJson() ? response()->json(['error' => $msg], 422) : back()->with('error', $msg);
+        }
+
+        $latestVerif = $patientInsurance->latestNhifVerification;
+        $reqPayload = $latestVerif?->verify_card_request ?? [];
+        $verifierId = $reqPayload['verifierID'] ?? $reqPayload['verifierId'] ?? 'NHIF';
+
+        $result = $verifier->fetchMemberPicture($cardNo, $verifierId, $patientInsurance);
+
+        if ($request->wantsJson()) {
+            return response()->json($result);
+        }
+
+        if ($result['success']) {
+            return back()->with('success', 'NHIF member picture refreshed successfully.');
+        }
+
+        return back()->with('info', 'NHIF did not return a member photo. Default avatar is used.');
     }
 }

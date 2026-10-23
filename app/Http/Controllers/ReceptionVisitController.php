@@ -166,7 +166,7 @@ class ReceptionVisitController extends Controller
             'visitTypes' => ReceptionVisit::TYPES,
             'practitioners' => Practitioner::query()
                 ->where('status', Practitioner::STATUS_ACTIVE)
-                ->with('staff:id,first_name,last_name')
+                ->with(['staff:id,first_name,last_name', 'consultationService:id,code,name'])
                 ->get(['id', 'practitioner_number', 'staff_id', 'consultation_service_id', 'practitioner_type', 'nhif_practitioner_no']),
         ]);
     }
@@ -282,6 +282,23 @@ class ReceptionVisitController extends Controller
             // Log the exception if needed
             // logger()->error('Failed to fetch NHIF services', ['exception' => $e]);
             $services = collect();
+        }
+
+        if ($services && $services->isNotEmpty()) {
+            $itemCodes = $services->pluck('item_code')->all();
+            $mappings = NhifServiceMapping::query()
+                ->whereIn('nhif_item_code', $itemCodes)
+                ->where('coverage_status', NhifServiceMapping::COVERAGE_COVERED)
+                ->pluck('service_id', 'nhif_item_code');
+            $servicesByCode = Service::query()
+                ->whereIn('code', $itemCodes)
+                ->pluck('id', 'code');
+
+            $services->transform(function ($svc) use ($mappings, $servicesByCode) {
+                $svc->setAttribute('service_id', $mappings[$svc->item_code] ?? $servicesByCode[$svc->item_code] ?? null);
+
+                return $svc;
+            });
         }
 
         return response()->json(['services' => $services, 'insurance' => $insuranceData]);

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Admission;
 use App\Models\ClinicalEncounter;
+use App\Models\ObservationEscalation;
 use App\Models\TriageAssessment;
 use App\Models\VitalSign;
 use Illuminate\Http\Request;
@@ -78,15 +79,33 @@ class VitalSignsService
             'admission_id' => $admission->id,
             'recorded_by' => $request->user()->id,
             'recorded_at' => now(),
+            'measured_at' => $data['measured_at'] ?? now(),
         ]);
 
         $this->auditLog->record(
             'inpatient_vital_recorded',
             $vitalSign,
             null,
-            array_merge($vitalSign->only(VitalSign::MEASUREMENTS), ['admission_id' => $admission->id]),
+            array_merge($vitalSign->only(array_merge(VitalSign::MEASUREMENTS, VitalSign::NURSING_FIELDS)), ['admission_id' => $admission->id]),
             $request,
         );
+
+        $evaluation = $this->evaluate($vitalSign);
+        $criticalFlags = array_filter($evaluation, fn ($flag) => $flag === 'critical');
+        if (! empty($criticalFlags) && config('vitals.escalation.auto_on_critical', true)) {
+            $flagList = implode(', ', array_keys($criticalFlags));
+            ObservationEscalation::create([
+                'admission_id' => $admission->id,
+                'patient_id' => $admission->patient_id,
+                'vital_sign_id' => $vitalSign->id,
+                'source' => ObservationEscalation::SOURCE_AUTO,
+                'reason' => "Critical measurement detected: {$flagList}",
+                'flags' => $criticalFlags,
+                'raised_by' => $request->user()->id,
+                'raised_at' => now(),
+                'status' => ObservationEscalation::STATUS_OPEN,
+            ]);
+        }
 
         return $vitalSign;
     }
@@ -116,8 +135,10 @@ class VitalSignsService
             ...$data,
             'clinical_encounter_id' => $original->clinical_encounter_id,
             'triage_assessment_id' => $original->triage_assessment_id,
+            'admission_id' => $original->admission_id,
             'recorded_by' => $request->user()->id,
             'recorded_at' => now(),
+            'measured_at' => $data['measured_at'] ?? $original->measured_at ?? now(),
             'corrects_vital_sign_id' => $original->id,
             'correction_reason' => $reason,
         ]);

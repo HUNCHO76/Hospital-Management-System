@@ -28,6 +28,7 @@ class CollectLaboratorySampleRequest extends FormRequest
         return [
             'collection_site' => ['nullable', 'string', 'max:100'],
             'collection_notes' => ['nullable', 'string', 'max:1000'],
+            'specimen_source' => ['nullable', 'string', 'max:50'],
         ];
     }
 }

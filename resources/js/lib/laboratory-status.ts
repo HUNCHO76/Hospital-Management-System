@@ -252,11 +252,14 @@ export const laboratoryReturnReasonLabel: Record<LaboratoryReturnReason, string>
 };
 
 export const laboratoryAbnormalFlagLabel: Record<LaboratoryAbnormalFlag, string> = {
-    normal: 'Normal',
-    low: 'Low',
-    high: 'High',
-    critical: 'Critical',
+    normal: 'Within reference',
+    low: 'Below reference',
+    high: 'Above reference',
+    critical: 'Critical alert',
+    critical_low: 'Critical alert (Low)',
+    critical_high: 'Critical alert (High)',
     abnormal: 'Abnormal',
+    unconfigured: 'Reference range not configured',
 };
 
 export const laboratoryAbnormalFlagVariant: Record<LaboratoryAbnormalFlag, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -264,7 +267,17 @@ export const laboratoryAbnormalFlagVariant: Record<LaboratoryAbnormalFlag, 'defa
     low: 'default',
     high: 'default',
     critical: 'destructive',
+    critical_low: 'destructive',
+    critical_high: 'destructive',
     abnormal: 'default',
+    unconfigured: 'outline',
+};
+
+export const laboratorySpecimenSourceLabel: Record<string, string> = {
+    arterial: 'Arterial',
+    venous: 'Venous',
+    capillary: 'Capillary',
+    any: 'Any',
 };
 
 /**

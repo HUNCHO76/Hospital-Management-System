@@ -372,8 +372,13 @@ class PatientController extends Controller
     /**
      * Display the specified patient, including their contacts.
      */
-    public function show(Patient $patient): Response
+    public function show(Request $request, Patient $patient, AuditLogService $auditLog): Response
     {
+        $auditLog->record('patient.viewed', $patient, null, [
+            'patient_id' => $patient->id,
+            'patient_number' => $patient->patient_number,
+        ], $request);
+
         $patient->load([
             'contacts' => fn ($query) => $query->orderByDesc('is_primary')->orderBy('name'),
             'insurances' => fn ($query) => $query->orderByDesc('is_primary')->orderBy('id'),

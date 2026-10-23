@@ -96,7 +96,7 @@ export interface NhifPreApprovalSessionItem {
     id: number;
     nhif_item_code: string;
     nhif_item_name: string | null;
-    source_type: 'lab' | 'medication' | 'consultation';
+    source_type: 'lab' | 'medication' | 'radiology' | 'consultation';
     source_id: number | null;
     quantity: number;
     unit_price: number;
@@ -106,7 +106,7 @@ export interface NhifPreApprovalSessionItem {
 }
 
 export interface NhifPendingItem {
-    source_type: 'lab' | 'medication';
+    source_type: 'lab' | 'medication' | 'radiology';
     source_id: number;
     nhif_item_code: string;
     nhif_item_name: string;
@@ -114,11 +114,13 @@ export interface NhifPendingItem {
     unit_price: number | null;
     needs_mapping?: boolean;
     medication_id?: number;
+    radiology_procedure_id?: number;
 }
 
 export interface NhifPendingItems {
     lab_items: NhifPendingItem[];
     medication_items: NhifPendingItem[];
+    radiology_items: NhifPendingItem[];
 }
 
 export interface NhifInsuranceSummary {
@@ -129,4 +131,8 @@ export interface NhifInsuranceSummary {
     nhif_scheme_name: string | null;
     nhif_facility_code: string | null;
     nhif_pf_number: string | null;
+    is_authorization_expired?: boolean;
+    has_valid_authorization?: boolean;
+    authorization_hours_remaining?: number | null;
+    authorization_expires_at?: string | null;
 }

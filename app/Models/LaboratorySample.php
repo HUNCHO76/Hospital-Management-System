@@ -112,6 +112,7 @@ class LaboratorySample extends Model
         'patient_id',
         'specimen_type',
         'container_type',
+        'specimen_source',
         'status',
         'collection_site',
         'collection_notes',

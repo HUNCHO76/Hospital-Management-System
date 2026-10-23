@@ -24,6 +24,12 @@ interface PharmacyVerificationShowProps {
     canReturn: boolean;
     canResubmit: boolean;
     prescriptionFinancialStatus?: string;
+    nhifPreApprovalStatus?: {
+        status: string;
+        label: string;
+        blocked: boolean;
+        message: string;
+    } | null;
     patientAccountId?: number | null;
 }
 
@@ -49,9 +55,17 @@ export default function PharmacyVerificationShow({
     canReturn,
     canResubmit,
     prescriptionFinancialStatus = 'authorized',
+    nhifPreApprovalStatus = null,
     patientAccountId = null,
 }: PharmacyVerificationShowProps) {
     const isPaymentRequired = prescriptionFinancialStatus === 'payment_required';
+    const isNhifBlocked = Boolean(
+        nhifPreApprovalStatus?.blocked ||
+        prescriptionFinancialStatus === 'nhif_pending_request' ||
+        prescriptionFinancialStatus === 'nhif_sent_not_issued'
+    );
+    const isBlocked = isPaymentRequired || isNhifBlocked;
+
     const patientName = prescription.patient
         ? [prescription.patient.first_name, prescription.patient.middle_name, prescription.patient.last_name].filter(Boolean).join(' ')
         : '—';
@@ -74,6 +88,21 @@ export default function PharmacyVerificationShow({
             <Head title={`Verify ${prescription.prescription_number}`} />
 
             <div className="flex flex-col gap-6 p-4">
+                {isNhifBlocked && (
+                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300">
+                        <div className="flex items-center gap-2 text-sm font-bold">
+                            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                            <span>NHIF Pre-Approval Required: {nhifPreApprovalStatus?.label ?? 'Pre-approval Required'}</span>
+                            <Badge variant="outline" className="border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium">
+                                {nhifPreApprovalStatus?.label ?? 'Pre-approval Required'}
+                            </Badge>
+                        </div>
+                        <p className="text-muted-foreground mt-1 text-xs">
+                            {nhifPreApprovalStatus?.message ?? 'Prescription verification is blocked until NHIF pre-approval is requested and issued by the prescribing doctor.'}
+                        </p>
+                    </div>
+                )}
+
                 {isPaymentRequired && (
                     <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300">
                         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -126,7 +155,16 @@ export default function PharmacyVerificationShow({
                             <VerifyPrescriptionDialog
                                 prescriptionOrderId={prescription.id}
                                 trigger={
-                                    <Button disabled={isPaymentRequired} title={isPaymentRequired ? 'Payment required before verification' : undefined}>
+                                    <Button
+                                        disabled={isBlocked}
+                                        title={
+                                            isNhifBlocked
+                                                ? 'NHIF pre-approval must be requested and issued before verification'
+                                                : isPaymentRequired
+                                                  ? 'Payment required before verification'
+                                                  : undefined
+                                        }
+                                    >
                                         Verify Prescription
                                     </Button>
                                 }

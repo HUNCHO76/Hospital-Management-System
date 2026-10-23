@@ -17,10 +17,14 @@ class IndentItem extends Model
         'unit_of_measure',
         'quantity_requested',
         'quantity_approved',
+        'quantity_ordered',
         'estimated_unit_cost',
         'estimated_total_cost',
         'purpose',
         'specification',
+        'specifications',
+        'justification',
+        'status',
     ];
 
     protected function casts(): array
@@ -31,6 +35,23 @@ class IndentItem extends Model
             'estimated_unit_cost' => 'decimal:2',
             'estimated_total_cost' => 'decimal:2',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (self $item) {
+            if ($item->specification && ! $item->specifications) {
+                $item->specifications = $item->specification;
+            } elseif ($item->specifications && ! $item->specification) {
+                $item->specification = $item->specifications;
+            }
+
+            if ($item->purpose && ! $item->justification) {
+                $item->justification = $item->purpose;
+            } elseif ($item->justification && ! $item->purpose) {
+                $item->purpose = $item->justification;
+            }
+        });
     }
 
     public function indent(): BelongsTo

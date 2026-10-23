@@ -27,11 +27,27 @@ class LaboratoryReferenceRange extends Model
 
     public const SEXES = [self::SEX_MALE, self::SEX_FEMALE, self::SEX_ANY];
 
+    public const SPECIMEN_SOURCE_ARTERIAL = 'arterial';
+
+    public const SPECIMEN_SOURCE_VENOUS = 'venous';
+
+    public const SPECIMEN_SOURCE_CAPILLARY = 'capillary';
+
+    public const SPECIMEN_SOURCE_ANY = 'any';
+
+    public const SPECIMEN_SOURCES = [
+        self::SPECIMEN_SOURCE_ARTERIAL,
+        self::SPECIMEN_SOURCE_VENOUS,
+        self::SPECIMEN_SOURCE_CAPILLARY,
+        self::SPECIMEN_SOURCE_ANY,
+    ];
+
     /**
      * @var list<string>
      */
     protected $fillable = [
         'laboratory_test_parameter_id',
+        'specimen_source',
         'sex',
         'age_min_days',
         'age_max_days',

@@ -23,13 +23,17 @@ class LaboratoryReferenceRangeService
     public function __construct(protected AuditLogService $auditLog) {}
 
     /**
-     * Find the best-matching reference range for a parameter and patient.
+     * Find the best-matching reference range for a parameter, patient, and optional specimen source.
      * Returns null when no range is configured.
      */
-    public function selectForPatient(LaboratoryTestParameter $parameter, Patient $patient): ?LaboratoryReferenceRange
-    {
+    public function selectForPatient(
+        LaboratoryTestParameter $parameter,
+        Patient $patient,
+        ?string $specimenSource = null
+    ): ?LaboratoryReferenceRange {
         $ageInDays = $this->patientAgeInDays($patient);
         $sex = strtolower($patient->gender ?? 'unknown');
+        $specimenSource = $specimenSource ? strtolower(trim($specimenSource)) : null;
 
         $candidates = LaboratoryReferenceRange::where('laboratory_test_parameter_id', $parameter->id)
             ->get();
@@ -38,21 +42,42 @@ class LaboratoryReferenceRangeService
             return null;
         }
 
-        $matching = $candidates->filter(function (LaboratoryReferenceRange $range) use ($ageInDays, $sex): bool {
-            return $this->matchesSex($range, $sex) && $this->matchesAge($range, $ageInDays);
+        $matching = $candidates->filter(function (LaboratoryReferenceRange $range) use ($ageInDays, $sex, $specimenSource): bool {
+            return $this->matchesSpecimenSource($range, $specimenSource)
+                && $this->matchesSex($range, $sex)
+                && $this->matchesAge($range, $ageInDays);
         });
 
         if ($matching->isEmpty()) {
             return null;
         }
 
-        // Sex-specific rows ranked above 'any'; within the same sex tier, narrower age band wins.
-        return $matching->sortBy(function (LaboratoryReferenceRange $range) use ($sex): array {
+        // 1. Exact specimen_source match ranked above 'any' / null
+        // 2. Sex-specific rows ranked above 'any'
+        // 3. Narrower age band wins
+        return $matching->sortBy(function (LaboratoryReferenceRange $range) use ($sex, $specimenSource): array {
+            $rangeSource = $range->specimen_source ? strtolower(trim($range->specimen_source)) : null;
+            $sourcePriority = ($specimenSource && $rangeSource === $specimenSource) ? 0 : 1;
             $sexPriority = ($range->sex === $sex) ? 0 : 1;
             $bandWidth = $this->bandWidthDays($range);
 
-            return [$sexPriority, $bandWidth];
+            return [$sourcePriority, $sexPriority, $bandWidth];
         })->first();
+    }
+
+    protected function matchesSpecimenSource(LaboratoryReferenceRange $range, ?string $specimenSource): bool
+    {
+        $rangeSource = $range->specimen_source ? strtolower(trim($range->specimen_source)) : null;
+
+        if ($rangeSource === null || $rangeSource === '' || $rangeSource === 'any') {
+            return true;
+        }
+
+        if ($specimenSource === null || $specimenSource === '') {
+            return true;
+        }
+
+        return $rangeSource === $specimenSource;
     }
 
     /**

@@ -434,6 +434,19 @@ export function NhifClaimFinalizeDialog({
                                         </div>
                                     ))}
                                 </div>
+                                {readiness?.errors && readiness.errors.length > 0 && (
+                                    <div className="rounded-md bg-destructive/10 border border-destructive/30 p-2.5 text-xs text-destructive space-y-1">
+                                        <div className="font-semibold flex items-center gap-1.5">
+                                            <ShieldAlert className="h-4 w-4" />
+                                            <span>Claim submission blocked:</span>
+                                        </div>
+                                        <ul className="list-disc list-inside space-y-0.5 pl-1">
+                                            {readiness.errors.map((err, idx) => (
+                                                <li key={idx} className="font-medium">{err}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
                             </div>
                         )}
 

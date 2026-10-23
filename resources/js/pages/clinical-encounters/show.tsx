@@ -35,8 +35,10 @@ import { type NhifInsuranceSummary, type NhifPendingItems, type NhifPreApprovalS
 import { type MedicationSafetyWarning, type PrescriptionOrder } from '@/types/prescription';
 import { type RadiologyOrder, type RadiologyResult } from '@/types/radiology';
 import { type TriageAssessment } from '@/types/triage';
+import { NhifClaimFinalizeDialog } from '@/components/nhif/nhif-claim-finalize-dialog';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Head, Link, router } from '@inertiajs/react';
-import { PlayCircle, XCircle } from 'lucide-react';
+import { AlertCircle, AlertTriangle, PlayCircle, Send, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 interface EncounterShowProps {
@@ -181,6 +183,35 @@ export default function EncounterShow({
                                 }
                             />
                         )}
+
+                        {nhifEligible && can('claims.create') && (
+                            encounter.status === 'completed' ? (
+                                <NhifClaimFinalizeDialog
+                                    clinicalEncounterId={encounter.id}
+                                    patientName={patientName}
+                                    patientCardNo={nhifInsurance?.card_number}
+                                    trigger={
+                                        <Button size="sm" variant="outline" className="gap-1 border-primary/40 text-primary">
+                                            <Send className="h-4 w-4" />
+                                            Send Claim
+                                        </Button>
+                                    }
+                                />
+                            ) : (
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="gap-1 border-amber-500/40 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400"
+                                    onClick={() => {
+                                        alert('Doctor should complete Clinical Encounters for the patient before sending claim.');
+                                    }}
+                                    title="Doctor should complete Clinical Encounters for the patient before sending claim"
+                                >
+                                    <AlertCircle className="h-4 w-4" />
+                                    Send Claim
+                                </Button>
+                            )
+                        )}
                     </div>
                 </div>
 
@@ -297,6 +328,24 @@ export default function EncounterShow({
                     clinicalNotes={clinicalNotes}
                 />
 
+                {/* ── NHIF Expired Authorization Alert ── */}
+                {nhifEligible && nhifInsurance?.is_authorization_expired && (
+                    <Alert variant="destructive" className="border-amber-500/50 bg-amber-50/80 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200">
+                        <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                        <div className="ml-2">
+                            <AlertTitle className="text-base font-semibold text-amber-800 dark:text-amber-300">
+                                NHIF Card Re-verification Required
+                            </AlertTitle>
+                            <AlertDescription className="text-sm text-amber-700 dark:text-amber-300">
+                                This patient's 24-hour NHIF authorization has expired. Pre-approvals, orders, and claim submissions cannot be processed until the card is re-verified.
+                                <div className="mt-1.5 font-semibold text-amber-900 dark:text-amber-100">
+                                    Action: Please instruct the patient to visit Reception to re-verify their NHIF card.
+                                </div>
+                            </AlertDescription>
+                        </div>
+                    </Alert>
+                )}
+
                 {/* ── Tabbed Clinical Sections ── */}
                 <Tabs value={activeTab} onValueChange={handleTabChange}>
                     <TabsList className="flex flex-wrap gap-1">
@@ -334,12 +383,24 @@ export default function EncounterShow({
                     {/* ── Orders: Lab → Radiology → Prescriptions ── */}
                     <TabsContent value="orders" className="flex flex-col gap-6">
                         <LaboratoryOrdersSection encounterId={encounter.id} consultation={consultation} laboratoryOrders={laboratoryOrders} />
-                        <RadiologyOrdersSection encounterId={encounter.id} consultation={consultation} radiologyOrders={radiologyOrders} />
+                        <RadiologyOrdersSection
+                            encounterId={encounter.id}
+                            consultation={consultation}
+                            radiologyOrders={radiologyOrders}
+                            nhifEligible={nhifEligible}
+                            nhifInsurance={nhifInsurance}
+                            nhifPreApprovalSessions={nhifPreApprovalSessions}
+                            patientName={patientName}
+                        />
                         <PrescriptionOrdersSection
                             encounterId={encounter.id}
                             consultation={consultation}
                             prescriptionOrders={prescriptionOrders}
                             medicationSafetyRules={medicationSafetyRules}
+                            nhifEligible={nhifEligible}
+                            nhifInsurance={nhifInsurance}
+                            nhifPreApprovalSessions={nhifPreApprovalSessions}
+                            patientName={patientName}
                         />
                     </TabsContent>
 

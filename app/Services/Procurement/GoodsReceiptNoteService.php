@@ -60,23 +60,24 @@ class GoodsReceiptNoteService
                 'delivery_note_number' => $data['delivery_note_number'] ?? null,
                 'invoice_reference' => $data['invoice_reference'] ?? null,
                 'status' => GoodsReceiptNote::STATUS_INSPECTION_PENDING,
-                'remarks' => $data['remarks'] ?? null,
+                'remarks' => $data['remarks'] ?? $data['notes'] ?? null,
                 'attachment_path' => $data['attachment_path'] ?? null,
                 'created_by' => $user->id,
             ]);
 
             foreach ($data['items'] as $item) {
                 $poItem = $po->items->firstWhere('id', $item['purchase_order_item_id']);
-                $qtyOrdered = $poItem ? $poItem->quantity_ordered : (int) $item['quantity_ordered'];
-                $qtyDelivered = (int) $item['quantity_delivered'];
+                $qtyOrdered = $poItem ? $poItem->quantity_ordered : (int) ($item['quantity_ordered'] ?? 0);
+                $qtyDelivered = (int) ($item['quantity_delivered'] ?? $item['quantity_received'] ?? 0);
                 $qtyShort = max(0, $qtyOrdered - $qtyDelivered);
+                $itemName = $item['item_name'] ?? $item['item_description'] ?? ($poItem?->item_name ?? 'Item');
 
                 GoodsReceiptNoteItem::create([
                     'goods_receipt_note_id' => $grn->id,
                     'purchase_order_item_id' => $item['purchase_order_item_id'],
                     'procurement_item_id' => $item['procurement_item_id'],
-                    'item_name' => $item['item_name'],
-                    'unit_of_measure' => $item['unit_of_measure'] ?? 'piece',
+                    'item_name' => $itemName,
+                    'unit_of_measure' => $item['unit_of_measure'] ?? ($poItem?->unit_of_measure ?? 'piece'),
                     'unit_cost' => (float) ($item['unit_cost'] ?? ($poItem ? $poItem->unit_price : 0)),
                     'quantity_ordered' => $qtyOrdered,
                     'quantity_delivered' => $qtyDelivered,
@@ -88,7 +89,7 @@ class GoodsReceiptNoteService
                     'expiry_date' => $item['expiry_date'] ?? null,
                     'storage_location' => $item['storage_location'] ?? null,
                     'rejection_reason' => $item['rejection_reason'] ?? null,
-                    'remarks' => $item['remarks'] ?? null,
+                    'remarks' => $item['remarks'] ?? $item['notes'] ?? null,
                 ]);
             }
 

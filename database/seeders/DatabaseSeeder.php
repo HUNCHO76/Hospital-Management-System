@@ -30,6 +30,7 @@ class DatabaseSeeder extends Seeder
             PharmacyStockSeeder::class,
             LaboratoryTestSeeder::class,
             LaboratoryTestParameterSeeder::class,
+            LaboratoryMissingParametersSeeder::class,
             LaboratoryBenchSeeder::class,
             RadiologyProcedureSeeder::class,
             ServiceCatalogSeeder::class,

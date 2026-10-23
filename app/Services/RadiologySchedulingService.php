@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\RadiologyAppointment;
 use App\Models\RadiologyOrder;
 use App\Models\RadiologyOrderItem;
+use App\Services\NHIF\NhifOrderPreApprovalService;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -51,6 +52,9 @@ class RadiologySchedulingService
                 [$item->id],
                 FinancialAuthorizationService::STATUS_AUTHORIZED,
             );
+
+            // NHIF pre-approval gate: ensure procedure has been requested & issued if NHIF-covered
+            app(NhifOrderPreApprovalService::class)->assertRadiologyOrderItemCanSchedule($item);
 
             $start = $data['scheduled_start'];
             $end = $data['scheduled_end'];

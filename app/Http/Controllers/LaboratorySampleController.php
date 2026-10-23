@@ -19,6 +19,7 @@ use App\Services\FinancialAuthorizationService;
 use App\Services\LaboratoryOrderSearchService;
 use App\Services\LaboratoryProcessingService;
 use App\Services\LaboratorySampleService;
+use App\Services\NHIF\NhifOrderPreApprovalService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -65,19 +66,24 @@ class LaboratorySampleController extends Controller
      * §25). Never lists orders whose collection is already fully complete
      * or that were cancelled.
      */
-    public function collectionIndex(Request $request, LaboratoryOrderSearchService $search, FinancialAuthorizationService $financialAuth): Response
-    {
+    public function collectionIndex(
+        Request $request,
+        LaboratoryOrderSearchService $search,
+        FinancialAuthorizationService $financialAuth,
+        NhifOrderPreApprovalService $nhifPreApproval
+    ): Response {
         $this->authorize('viewAny', LaboratorySample::class);
 
         $filters = $request->only(['search', 'priority', 'status', 'date_from', 'date_to']);
 
         $query = $search->query($filters)
             ->whereIn('status', [LaboratoryOrder::STATUS_ORDERED, LaboratoryOrder::STATUS_SAMPLE_PENDING])
+            ->whereHas('items', fn ($q) => $q->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED))
             ->with(['items.laboratoryTest:id,specimen_type', 'clinicalEncounter.patient:id,patient_number,first_name,middle_name,last_name', 'clinicalEncounter.patient.insurances']);
         $search->scopeToHospital($query, $this->scopedHospitalId($request));
 
         $paginator = $query->latest('ordered_at')->paginate(15)->withQueryString();
-        $financialStatuses = $this->batchOrderFinancialStatuses($paginator->getCollection(), $financialAuth);
+        $financialStatuses = $this->batchOrderFinancialStatuses($paginator->getCollection(), $financialAuth, $nhifPreApproval);
 
         $orders = $paginator->through(fn (LaboratoryOrder $order) => array_merge(
             (new LaboratoryOrderResource($order))->resolve($request),
@@ -92,33 +98,43 @@ class LaboratorySampleController extends Controller
     }
 
     /**
-     * Batch-compute the financial authorization status for every order on a
-     * paginated page — one charge query for the whole page, then one invoice
-     * query for any posted-but-uninvoiced edge cases. Keeps the worklist at
-     * O(2) queries regardless of page size rather than O(N × items).
+     * Batch-compute the financial authorization / NHIF pre-approval status
+     * for every order on a paginated page.
      *
      * @param  Collection<int, LaboratoryOrder>  $orders
      * @return array<int, string>
      */
-    private function batchOrderFinancialStatuses(Collection $orders, FinancialAuthorizationService $financialAuth): array
-    {
-        $nhifOrderIds = [];
+    private function batchOrderFinancialStatuses(
+        Collection $orders,
+        FinancialAuthorizationService $financialAuth,
+        NhifOrderPreApprovalService $nhifPreApproval
+    ): array {
+        $nhifStatuses = $nhifPreApproval->batchLaboratoryOrderStatuses($orders);
+        $result = [];
         $itemIdsByOrderId = [];
 
         foreach ($orders as $order) {
-            if ($order->clinicalEncounter?->patient?->activeNhifInsurance() !== null) {
-                $nhifOrderIds[] = $order->id;
+            if ($order->status === LaboratoryOrder::STATUS_CANCELLED) {
+                $result[$order->id] = 'cancelled';
 
                 continue;
             }
 
-            $itemIdsByOrderId[$order->id] = $order->items
-                ->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED)
-                ->pluck('id')
-                ->all();
-        }
+            if (isset($nhifStatuses[$order->id])) {
+                $result[$order->id] = $nhifStatuses[$order->id]['status'];
 
-        $result = array_fill_keys($nhifOrderIds, FinancialAuthorizationService::STATUS_AUTHORIZED);
+                continue;
+            }
+
+            $activeItems = $order->items->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED);
+            if ($activeItems->isEmpty()) {
+                $result[$order->id] = 'cancelled';
+
+                continue;
+            }
+
+            $itemIdsByOrderId[$order->id] = $activeItems->pluck('id')->all();
+        }
 
         $allItemIds = collect(array_values($itemIdsByOrderId))->flatten()->all();
 
@@ -168,10 +184,15 @@ class LaboratorySampleController extends Controller
         $financialAuth = app(FinancialAuthorizationService::class);
         $activeItemIds = $laboratoryOrder->items->where('status', '!=', LaboratoryOrderItem::STATUS_CANCELLED)->pluck('id')->all();
 
-        $isNhifCovered = $laboratoryOrder->clinicalEncounter?->patient?->activeNhifInsurance() !== null;
+        $nhifPreApproval = app(NhifOrderPreApprovalService::class);
+        $nhifStatus = $nhifPreApproval->statusForLaboratoryOrder($laboratoryOrder);
 
         $orderFinancialStatus = FinancialAuthorizationService::STATUS_AUTHORIZED;
-        if (! $isNhifCovered) {
+        if ($laboratoryOrder->status === LaboratoryOrder::STATUS_CANCELLED || empty($activeItemIds)) {
+            $orderFinancialStatus = 'cancelled';
+        } elseif ($nhifStatus !== null) {
+            $orderFinancialStatus = $nhifStatus['status'];
+        } else {
             foreach ($activeItemIds as $itemId) {
                 if ($financialAuth->statusForSource(LaboratoryOrderItem::class, $itemId) !== FinancialAuthorizationService::STATUS_AUTHORIZED) {
                     $orderFinancialStatus = FinancialAuthorizationService::STATUS_PAYMENT_REQUIRED;
@@ -194,6 +215,7 @@ class LaboratorySampleController extends Controller
             'specimenTypes' => LaboratoryTest::SPECIMEN_TYPES,
             'specimenContainers' => LaboratoryTest::SPECIMEN_CONTAINERS,
             'orderFinancialStatus' => $orderFinancialStatus,
+            'nhifPreApprovalStatus' => $nhifStatus,
             'patientAccountId' => $patientAccountId,
         ]);
     }

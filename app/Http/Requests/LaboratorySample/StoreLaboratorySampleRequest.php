@@ -29,6 +29,7 @@ class StoreLaboratorySampleRequest extends FormRequest
             'item_ids.*' => ['distinct', 'integer'],
             'specimen_type' => ['required', 'string', Rule::in(LaboratoryTest::SPECIMEN_TYPES)],
             'container_type' => ['nullable', 'string', Rule::in(LaboratoryTest::SPECIMEN_CONTAINERS)],
+            'specimen_source' => ['nullable', 'string', 'max:50'],
         ];
     }
 }

@@ -53,6 +53,47 @@ class NhifHttpClient
         $this->tokenCacheKey = $tokenCacheKey ?: config('nhif.token_cache_key', 'nhif_access_token');
         $this->tokenExpiryBuffer = $tokenExpiryBuffer ?: (int) config('nhif.token_expiry_buffer', 60);
         $this->verifySsl = $verifySsl && (bool) config('nhif.verify_ssl', true);
+
+        if (app()->isProduction()) {
+            $this->validateProductionConfiguration();
+        }
+    }
+
+    /**
+     * Validate that production NHIF configuration is safe, complete, and free of dummy placeholders.
+     *
+     * @throws RuntimeException when required configuration is missing or insecure.
+     */
+    public function validateProductionConfiguration(): void
+    {
+        $dummyValues = [
+            'REPLACE_WITH_FACILITY_NHIF_CLIENT_ID',
+            'REPLACE_WITH_FACILITY_NHIF_CLIENT_SECRET',
+            'test',
+            'dummy',
+            'secret',
+            '01141',
+        ];
+
+        if (blank($this->clientId) || in_array(trim((string) $this->clientId), $dummyValues, true)) {
+            throw new RuntimeException('NHIF configuration error: NHIF_CLIENT_ID is missing or set to a placeholder value.');
+        }
+
+        if (blank($this->clientSecret) || in_array(trim((string) $this->clientSecret), $dummyValues, true)) {
+            throw new RuntimeException('NHIF configuration error: NHIF_CLIENT_SECRET is missing or set to a placeholder value.');
+        }
+
+        if (blank($this->authUrl) || str_contains((string) $this->authUrl, 'test.nhif.or.tz')) {
+            throw new RuntimeException('NHIF configuration error: NHIF_AUTH_URL must be configured to the official production endpoint.');
+        }
+
+        if (blank($this->servicehubBaseUrl) || str_contains((string) $this->servicehubBaseUrl, 'test.nhif.or.tz')) {
+            throw new RuntimeException('NHIF configuration error: NHIF_SERVICEHUB_BASE_URL must be configured to the official production endpoint.');
+        }
+
+        if (blank($this->ocsBaseUrl) || str_contains((string) $this->ocsBaseUrl, 'test.nhif.or.tz')) {
+            throw new RuntimeException('NHIF configuration error: NHIF_OCS_BASE_URL must be configured to the official production endpoint.');
+        }
     }
 
     /**
@@ -459,15 +500,90 @@ class NhifHttpClient
 
     /**
      * Retrieve the NHIF member photo for biometric verification.
+     * Passes query parameters CardNo and VerifierID.
+     * Handles raw image streams, base64 JSON fields, or plain text responses.
      *
-     * @return array{success: bool, data: array<string, mixed>, http_status: int, error: string|null, correlation_id: string}
+     * @return array{success: bool, data: array{picture: string|null, raw?: mixed}, http_status: int, error: string|null, correlation_id: string}
      */
     public function getMemberPicture(string $cardNo, string $verifierId): array
     {
-        return $this->get('/api/Verification/GetMemberPicture', [
-            'cardNo' => $cardNo,
-            'verifierId' => $verifierId,
-        ], 'GetMemberPicture');
+        $correlationId = (string) Str::uuid();
+
+        try {
+            $response = Http::withToken($this->accessToken())
+                ->withOptions([
+                    'verify' => $this->verifySsl,
+                    'timeout' => $this->timeout,
+                    'connect_timeout' => $this->connectTimeout,
+                ])
+                ->withHeaders([
+                    'X-Correlation-ID' => $correlationId,
+                    'Accept' => '*/*',
+                ])
+                ->get(rtrim((string) $this->servicehubBaseUrl, '/').'/api/Verification/GetMemberPicture', [
+                    'CardNo' => $cardNo,
+                    'VerifierID' => $verifierId,
+                ]);
+
+            $echoedId = $response->header('X-Correlation-ID') ?: $correlationId;
+
+            if ($response->successful()) {
+                $contentType = (string) ($response->header('Content-Type') ?? '');
+                $bodyContent = $response->body();
+                $picture = null;
+
+                // 1. Raw image binary payload (JPEG, PNG, etc.)
+                if (str_starts_with($contentType, 'image/') || str_starts_with($bodyContent, "\xFF\xD8\xFF") || str_starts_with($bodyContent, "\x89PNG")) {
+                    $mime = str_starts_with($bodyContent, "\x89PNG") ? 'image/png' : 'image/jpeg';
+                    $picture = 'data:'.$mime.';base64,'.base64_encode($bodyContent);
+                } else {
+                    $json = $response->json();
+                    if (is_string($json) && ! empty($json)) {
+                        $picture = str_starts_with($json, 'data:image') ? $json : 'data:image/jpeg;base64,'.$json;
+                    } elseif (is_array($json)) {
+                        $rawPic = $json['picture'] ?? $json['Picture'] ?? $json['imageData'] ?? $json['ImageData'] ?? $json['photo'] ?? $json['Photo'] ?? $json['memberPicture'] ?? $json['MemberPicture'] ?? $json['data'] ?? $json['Data'] ?? null;
+                        if (is_string($rawPic) && ! empty($rawPic)) {
+                            $picture = str_starts_with($rawPic, 'data:image') ? $rawPic : 'data:image/jpeg;base64,'.$rawPic;
+                        }
+                    } elseif (! empty($bodyContent) && ! str_starts_with($bodyContent, '{') && ! str_starts_with($bodyContent, '<')) {
+                        $cleaned = trim($bodyContent, "\"' \t\n\r");
+                        if (! empty($cleaned)) {
+                            $picture = str_starts_with($cleaned, 'data:image') ? $cleaned : 'data:image/jpeg;base64,'.$cleaned;
+                        }
+                    }
+                }
+
+                return [
+                    'success' => filled($picture),
+                    'data' => [
+                        'picture' => $picture,
+                        'raw' => $response->json() ?? [],
+                    ],
+                    'http_status' => $response->status(),
+                    'error' => null,
+                    'correlation_id' => $echoedId,
+                    'operation' => 'GetMemberPicture',
+                ];
+            }
+
+            return [
+                'success' => false,
+                'data' => ['picture' => null],
+                'http_status' => $response->status(),
+                'error' => $this->extractError($response->json() ?? $response->body(), $response->status()),
+                'correlation_id' => $echoedId,
+                'operation' => 'GetMemberPicture',
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'data' => ['picture' => null],
+                'http_status' => 0,
+                'error' => 'Could not connect to NHIF service: '.$e->getMessage(),
+                'correlation_id' => $correlationId,
+                'operation' => 'GetMemberPicture',
+            ];
+        }
     }
 
     // =========================================================================
@@ -1961,10 +2077,13 @@ class NhifHttpClient
             }
         }
 
-        return $body['message']
+        return $body['detail']
+            ?? $body['Detail']
+            ?? $body['message']
             ?? $body['error_description']
             ?? $body['error']
             ?? $body['Message']
+            ?? $body['title']
             ?? "NHIF API request failed with HTTP {$httpStatus}.";
     }
 }

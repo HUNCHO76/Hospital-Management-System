@@ -88,6 +88,7 @@ export interface LaboratoryOrderItem {
     // backend eager-loaded the item's laboratoryTest relation.
     specimen_type?: LaboratorySpecimenType | null;
     specimen_container?: LaboratorySpecimenContainer | null;
+    specimen_source?: 'arterial' | 'venous' | 'capillary' | string | null;
     samples?: LaboratoryOrderItemSampleSummary[];
     // The authoritative up-to-date progress once a result exists — `status`
     // above never advances past "result_pending" (Steps 33-35 track
@@ -180,7 +181,8 @@ export interface LaboratoryTest {
     nhif_code: string | null;
     price: string | null;
     status: LaboratoryTestStatus;
-    parameters: LaboratoryTestParameter[];
+    parameters?: LaboratoryTestParameter[];
+    parameters_count?: number;
     created_by: LaboratoryOrderUser | null;
     updated_by: LaboratoryOrderUser | null;
     created_at: string;
@@ -217,6 +219,15 @@ export interface LaboratoryTestFilters {
     specimen_type: string;
     result_type: string;
     status: string;
+    has_parameters?: string;
+    scheme?: string;
+}
+
+export interface LaboratoryCatalogStats {
+    total_tests: number;
+    with_parameters: number;
+    without_parameters: number;
+    nhif_tests: number;
 }
 
 export interface LaboratoryCategoryFormData {
@@ -274,6 +285,7 @@ export interface LaboratorySample {
     laboratory_order_id: number;
     specimen_type: LaboratorySpecimenType;
     container_type: LaboratorySpecimenContainer | null;
+    specimen_source?: 'arterial' | 'venous' | 'capillary' | string | null;
     status: LaboratorySampleStatus;
     collection_site: string | null;
     collection_notes: string | null;
@@ -313,7 +325,8 @@ export interface StoreLaboratorySampleFormData {
 export interface CollectLaboratorySampleFormData {
     collection_site: string;
     collection_notes: string;
-    [key: string]: string;
+    specimen_source?: 'arterial' | 'venous' | 'capillary' | string;
+    [key: string]: string | undefined;
 }
 
 export interface RejectLaboratorySampleFormData {
@@ -442,7 +455,7 @@ export interface LaboratoryResultDocument {
     uploaded_at: string;
 }
 
-export type LaboratoryAbnormalFlag = 'normal' | 'low' | 'high' | 'critical' | 'abnormal';
+export type LaboratoryAbnormalFlag = 'normal' | 'low' | 'high' | 'critical' | 'critical_low' | 'critical_high' | 'abnormal' | 'unconfigured';
 
 export type LaboratoryReturnReason =
     | 'incorrect_value'
@@ -723,6 +736,7 @@ export type LaboratoryReferenceSex = 'male' | 'female' | 'any';
 export interface LaboratoryReferenceRange {
     id: number;
     laboratory_test_parameter_id: number;
+    specimen_source?: 'arterial' | 'venous' | 'capillary' | 'any' | string | null;
     sex: LaboratoryReferenceSex;
     age_min_days: number | null;
     age_max_days: number | null;
@@ -773,6 +787,7 @@ export interface StoreLaboratoryTestParameterForm {
 }
 
 export interface StoreLaboratoryReferenceRangeForm {
+    specimen_source?: string;
     sex: LaboratoryReferenceSex | '';
     age_min_days: string;
     age_max_days: string;
@@ -781,5 +796,5 @@ export interface StoreLaboratoryReferenceRangeForm {
     critical_low: string;
     critical_high: string;
     notes: string;
-    [key: string]: string;
+    [key: string]: string | undefined;
 }

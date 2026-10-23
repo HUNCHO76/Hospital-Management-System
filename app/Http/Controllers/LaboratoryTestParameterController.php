@@ -26,7 +26,7 @@ class LaboratoryTestParameterController extends Controller
 
         $service->create($laboratoryTest, $request->validated(), $request);
 
-        return to_route('laboratory-tests.show', $laboratoryTest)->with('success', 'Parameter added.');
+        return back()->with('success', 'Parameter added.');
     }
 
     public function update(
@@ -40,7 +40,7 @@ class LaboratoryTestParameterController extends Controller
 
         $service->update($parameter, $request->validated(), $request);
 
-        return to_route('laboratory-tests.show', $laboratoryTest)->with('success', 'Parameter updated.');
+        return back()->with('success', 'Parameter updated.');
     }
 
     public function destroy(
@@ -54,7 +54,7 @@ class LaboratoryTestParameterController extends Controller
 
         $service->delete($parameter, $request);
 
-        return to_route('laboratory-tests.show', $laboratoryTest)->with('success', 'Parameter removed.');
+        return back()->with('success', 'Parameter removed.');
     }
 
     private function assertBelongsToTest(LaboratoryTest $test, LaboratoryTestParameter $parameter): void
