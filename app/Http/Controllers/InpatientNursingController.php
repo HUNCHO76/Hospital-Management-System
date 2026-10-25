@@ -21,6 +21,7 @@ use App\Models\PrescriptionOrderItem;
 use App\Models\VitalSign;
 use App\Models\WoundCareEvent;
 use App\Services\AuditLogService;
+use App\Services\MaternityEligibilityService;
 use App\Services\NursingAccessService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
@@ -33,6 +34,7 @@ class InpatientNursingController extends Controller
     public function __construct(
         protected NursingAccessService $accessService,
         protected AuditLogService $auditLog,
+        protected MaternityEligibilityService $eligibilityService,
     ) {}
 
     /**
@@ -283,6 +285,8 @@ class InpatientNursingController extends Controller
             }
         }
 
+        $maternityAccess = $this->eligibilityService->checkAdmissionAccess($request->user(), $admission);
+
         return Inertia::render('inpatient/nursing-workspace', [
             'admission' => $admission,
             'encounters' => $encounters,
@@ -297,6 +301,8 @@ class InpatientNursingController extends Controller
             'escalations' => $escalations,
             'marStatuses' => MedicationAdministration::STATUSES,
             'routes' => PrescriptionOrderItem::ROUTES,
+            'canAccessMaternity' => $maternityAccess['allowed'],
+            'maternityEligibility' => $maternityAccess,
             'canRecordVitals' => $request->user()->can('vital-signs.create'),
             'canCreateNotes' => $request->user()->can('clinical-notes.create') || $request->user()->can('inpatient-nursing.notes-create'),
             'canManageWoundCare' => $request->user()->can('inpatient-nursing.wound-care-manage'),

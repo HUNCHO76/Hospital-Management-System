@@ -35,6 +35,7 @@ class PartographEntry extends Model
     protected $fillable = [
         'maternity_profile_id',
         'admission_id',
+        'clinical_encounter_id',
         'patient_id',
         'recorded_at',
         'fetal_heart_rate',
@@ -58,6 +59,9 @@ class PartographEntry extends Model
         'urine_acetone',
         'urine_volume_ml',
         'notes',
+        'is_emergency',
+        'emergency_reason',
+        'emergency_authorized_by',
         'recorded_by',
     ];
 
@@ -70,6 +74,7 @@ class PartographEntry extends Model
             'action_line_dilation_cm' => 'float',
             'action_line_crossed' => 'boolean',
             'temperature_c' => 'float',
+            'is_emergency' => 'boolean',
         ];
     }
 
@@ -83,6 +88,11 @@ class PartographEntry extends Model
         return $this->belongsTo(Admission::class);
     }
 
+    public function clinicalEncounter(): BelongsTo
+    {
+        return $this->belongsTo(ClinicalEncounter::class);
+    }
+
     public function patient(): BelongsTo
     {
         return $this->belongsTo(Patient::class);
@@ -91,5 +101,10 @@ class PartographEntry extends Model
     public function recordedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'recorded_by');
+    }
+
+    public function emergencyAuthorizedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'emergency_authorized_by');
     }
 }

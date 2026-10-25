@@ -20,6 +20,8 @@ class NhifPreApprovalSessionItem extends Model
 
     public const SOURCE_RADIOLOGY = 'radiology';
 
+    public const SOURCE_PROCEDURE = 'procedure';
+
     /** Awaiting NHIF response (initial state before RequestServices is called). */
     public const APPROVAL_STATUS_PENDING = 'pending';
 
@@ -93,6 +95,11 @@ class NhifPreApprovalSessionItem extends Model
     public function radiologyOrderItem(): BelongsTo
     {
         return $this->belongsTo(RadiologyOrderItem::class, 'source_id');
+    }
+
+    public function procedureOrder(): BelongsTo
+    {
+        return $this->belongsTo(ProcedureOrder::class, 'source_id');
     }
 
     /** Accepted directly from RequestServices — no approval polling needed. */

@@ -36,6 +36,8 @@ class StorePartographEntryRequest extends FormRequest
             'urine_acetone' => ['nullable', 'string', 'max:20'],
             'urine_volume_ml' => ['nullable', 'integer', 'min:0', 'max:3000'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'is_emergency' => ['nullable', 'boolean'],
+            'emergency_reason' => ['nullable', 'string', 'max:1000'],
         ];
     }
 }

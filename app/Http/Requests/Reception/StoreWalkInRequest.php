@@ -38,6 +38,7 @@ class StoreWalkInRequest extends FormRequest
             'department_id' => ['required', 'integer', Rule::exists('departments', 'id')->where(fn ($query) => $query->where('status', 'active'))],
             'visit_type' => ['required', Rule::in(ReceptionVisit::TYPES)],
             'practitioner_id' => ['nullable', 'integer', Rule::exists('practitioners', 'id')->where(fn ($query) => $query->where('status', 'active'))],
+            'service_id' => ['nullable', 'integer', 'exists:services,id'],
             'nhif_item_code' => ['nullable', 'string', 'max:20'],
             'clinical_notes' => ['nullable', 'string', 'max:1000'],
             'practitioner_remarks' => ['nullable', 'string', 'max:1000'],

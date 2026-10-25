@@ -119,7 +119,7 @@ class StaffController extends Controller
             'hospital:id,name,code',
             'department:id,name,code',
             'practitioner',
-            'user:id,UserName,email',
+            'user:id,UserName,email,status',
         ]);
 
         return Inertia::render('staff/show', [

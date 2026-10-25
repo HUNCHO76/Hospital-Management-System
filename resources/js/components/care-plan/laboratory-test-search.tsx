@@ -87,7 +87,7 @@ export function LaboratoryTestSearch({ selected, onSelect, disabled, clinicalEnc
     const filteredCatalog = nhifCatalog.filter((item) => !item.local_test || !localTestIds.has(item.local_test.id));
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={setOpen} modal={true}>
             <PopoverTrigger asChild>
                 <Button
                     type="button"
@@ -104,7 +104,13 @@ export function LaboratoryTestSearch({ selected, onSelect, disabled, clinicalEnc
                     <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[--radix-popover-trigger-width] p-2" align="start">
+            <PopoverContent
+                className="w-[--radix-popover-trigger-width] p-2 z-[70]"
+                align="start"
+                onOpenAutoFocus={(e) => {
+                    // Allow input to receive focus cleanly without being intercepted by parent dialog
+                }}
+            >
                 <div className="relative mb-2">
                     <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2" />
                     <Input

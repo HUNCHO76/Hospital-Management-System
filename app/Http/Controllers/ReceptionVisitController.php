@@ -17,6 +17,7 @@ use App\Models\PatientInsurance;
 use App\Models\Practitioner;
 use App\Models\ReceptionVisit;
 use App\Models\Service;
+use App\Models\ServicePrice;
 use App\Services\FinancialAuthorizationService;
 use App\Services\NHIF\NhifHttpClient;
 use App\Services\ReceptionVisitService;
@@ -161,12 +162,34 @@ class ReceptionVisitController extends Controller
     {
         $this->authorize('createWalkIn', ReceptionVisit::class);
 
+        $services = Service::query()
+            ->where('status', Service::STATUS_ACTIVE)
+            ->where('is_billable', true)
+            ->whereIn('category', ['consultation', 'dental', 'maternity', 'emergency', 'inpatient', 'procedure', 'other'])
+            ->with(['prices' => fn ($q) => $q->where('status', ServicePrice::STATUS_ACTIVE)->whereNull('practitioner_id')])
+            ->orderBy('name')
+            ->get(['id', 'code', 'name', 'category', 'description']);
+
+        $departmentServices = $services->map(function ($s) {
+            $price = $s->prices->first();
+
+            return [
+                'id' => $s->id,
+                'code' => $s->code,
+                'name' => $s->name,
+                'category' => $s->category,
+                'price' => $price ? (float) $price->amount : null,
+                'currency' => $price?->currency ?? 'TZS',
+            ];
+        });
+
         return Inertia::render('reception/walk-in/create', [
             'departments' => Department::active()->orderBy('name')->get(['id', 'name', 'code', 'hospital_id']),
             'visitTypes' => ReceptionVisit::TYPES,
+            'departmentServices' => $departmentServices,
             'practitioners' => Practitioner::query()
                 ->where('status', Practitioner::STATUS_ACTIVE)
-                ->with(['staff:id,first_name,last_name', 'consultationService:id,code,name'])
+                ->with(['staff:id,first_name,last_name,department_id,job_title', 'consultationService:id,code,name'])
                 ->get(['id', 'practitioner_number', 'staff_id', 'consultation_service_id', 'practitioner_type', 'nhif_practitioner_no']),
         ]);
     }

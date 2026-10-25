@@ -23,36 +23,44 @@ import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { type Admission } from '@/types/admission';
 import { Head, Link, useForm, usePage } from '@inertiajs/react';
+import { MedicationSearch } from '@/components/care-plan/medication-search';
+import { LaboratoryOrderTestSelector } from '@/components/laboratory/laboratory-order-test-selector';
+import { type LaboratoryOrder, type LaboratoryOrderPriority, type LaboratoryTestSearchResult } from '@/types/laboratory';
+import { type MedicationSearchResult } from '@/types/medication';
+import { type PrescriptionFrequency, type PrescriptionOrder, type PrescriptionRoute } from '@/types/prescription';
+import { type RadiologyOrder, type RadiologyOrderPriority, type RadiologyProcedure } from '@/types/radiology';
 import {
     Activity,
     AlertCircle,
     AlertTriangle,
     Baby,
+    Banknote,
     Calendar,
+    Check,
     CheckCircle2,
     Clock,
     FileSpreadsheet,
+    FileText,
+    FlaskConical,
     HeartPulse,
     HelpCircle,
     Info,
     Pill,
     Plus,
+    Scan,
     Scissors,
     ShieldAlert,
     Stethoscope,
+    Trash2,
     User,
+    X,
 } from 'lucide-react';
 import { useState } from 'react';
 
 interface MaternityProfileData {
     id: number;
-    episode_number?: string;
     admission_id: number;
     patient_id: number;
-    care_stage?: string;
-    assigned_midwife_id?: number | null;
-    primary_clinician_id?: number | null;
-    clinical_exception_reason?: string | null;
     gravida: number;
     para: number;
     living_children: number;
@@ -68,15 +76,15 @@ interface MaternityProfileData {
     hiv_status: string;
     vdrl_rpr_status: string;
     risk_factors: string[] | null;
+    care_stage?: string;
+    care_pathway?: string;
+    assigned_midwife_id?: number | string | null;
+    primary_clinician_id?: number | string | null;
+    clinical_exception_reason?: string | null;
     labour_stage: string;
     status: string;
     notes: string | null;
     recorded_by?: { id: number; UserName: string };
-    assigned_midwife?: { id: number; UserName: string };
-    primary_clinician?: { id: number; UserName: string };
-    exception_authorized_by?: { id: number; UserName: string };
-    stage_updated_by?: { id: number; UserName: string };
-    stage_updated_at?: string | null;
     created_at: string;
 }
 
@@ -144,26 +152,44 @@ interface DeliverySummary {
 
 interface PractitionerOption {
     id: number;
-    staff?: { id: number; first_name: string; last_name: string };
+    user_id?: number | null;
+    name?: string;
+    staff?: { id: number; first_name: string; last_name: string; user_id?: number };
 }
 
 interface MaternityWorkspaceProps {
     admission: Admission;
-    profile: MaternityProfileData | null;
+    profile: (MaternityProfileData & {
+        episode_number?: string;
+        care_stage?: string;
+        care_pathway?: string;
+        assignedMidwife?: { id: number; UserName: string };
+        primaryClinician?: { id: number; UserName: string };
+    }) | null;
+    is_registered?: boolean;
+    episode_number?: string | null;
+    care_pathway?: string;
+    partographEntries: PartographReading[];
+    deliveryRecord: DeliverySummary | null;
+    practitioners: PractitionerOption[];
     eligibility?: {
         eligible: boolean;
         message: string;
         requires_exception: boolean;
         existing_active_episode: any | null;
     };
-    partographEntries: PartographReading[];
-    deliveryRecord: DeliverySummary | null;
-    latestVital?: any;
-    medications?: any[];
-    clinicalAlerts?: any[];
-    insurance?: any;
-    practitioners: PractitionerOption[];
-    canAuthorizeException?: boolean;
+    nhif_clearance?: {
+        is_nhif: boolean;
+        insurance_status: string;
+        authorization_required: boolean;
+        authorization_status: string;
+        service_permitted: boolean;
+        is_valid: boolean;
+        emergency_override_available: boolean;
+        reason: string;
+        reference_no?: string | null;
+        expires_at?: string | null;
+    };
     constants: {
         amniotic_fluid_states: Record<string, string>;
         moulding_grades: Record<string, string>;
@@ -171,12 +197,24 @@ interface MaternityWorkspaceProps {
         presentations: string[];
         membrane_statuses: string[];
         hiv_statuses: string[];
-        care_stages: Record<string, string>;
+        care_stages?: Record<string, string>;
+        care_pathways?: Record<string, string>;
         labour_stages: string[];
         delivery_modes: Record<string, string>;
         perineal_statuses: Record<string, string>;
         baby_outcomes: Record<string, string>;
     };
+    latestVital?: any | null;
+    clinicalAlerts?: any[];
+    medications?: any[];
+    laboratoryOrders?: LaboratoryOrder[];
+    prescriptionOrders?: PrescriptionOrder[];
+    radiologyOrders?: RadiologyOrder[];
+    radiologyProcedures?: RadiologyProcedure[];
+    canOrderLabs?: boolean;
+    canPrescribe?: boolean;
+    canOrderRadiology?: boolean;
+    activeEncounterId?: number | null;
 }
 
 const COMMON_RISK_FACTORS = [
@@ -195,24 +233,180 @@ const COMMON_RISK_FACTORS = [
 export default function MaternityWorkspace({
     admission,
     profile,
-    eligibility,
-    partographEntries,
+    is_registered,
+    episode_number,
+    care_pathway,
+    partographEntries = [],
     deliveryRecord,
-    latestVital,
-    medications,
-    clinicalAlerts,
-    insurance,
-    practitioners,
-    canAuthorizeException,
+    practitioners = [],
+    eligibility,
+    nhif_clearance,
     constants,
+    latestVital = null,
+    clinicalAlerts = [],
+    medications = [],
+    laboratoryOrders = [],
+    prescriptionOrders = [],
+    radiologyOrders = [],
+    radiologyProcedures = [],
+    canOrderLabs = false,
+    canPrescribe = false,
+    canOrderRadiology = false,
+    activeEncounterId = null,
 }: MaternityWorkspaceProps) {
     const { flash } = usePage().props as { flash?: { success?: string; error?: string } };
 
+    const insurance = admission?.patient_insurance ?? admission?.patientInsurance;
+
+    // Resolve maternal observations from latest vital sign prop or fallback to latest partograph reading
+    const latestPartograph = partographEntries && partographEntries.length > 0
+        ? partographEntries[partographEntries.length - 1]
+        : null;
+
+    const displayVital = latestVital ?? (latestPartograph ? {
+        recorded_at: latestPartograph.recorded_at,
+        systolic_bp: latestPartograph.systolic_bp,
+        diastolic_bp: latestPartograph.diastolic_bp,
+        pulse_rate: latestPartograph.pulse_bpm,
+        temperature: latestPartograph.temperature_c,
+        oxygen_saturation: null,
+        respiratory_rate: null,
+        pain_score: null,
+    } : null);
+
     const [activeTab, setActiveTab] = useState<'partograph' | 'profile' | 'delivery' | 'orders'>('partograph');
     const [profileDialogOpen, setProfileDialogOpen] = useState(false);
-    const [stageDialogOpen, setStageDialogOpen] = useState(false);
     const [partographDialogOpen, setPartographDialogOpen] = useState(false);
     const [deliveryDialogOpen, setDeliveryDialogOpen] = useState(false);
+    const [stageDialogOpen, setStageDialogOpen] = useState(false);
+    const [labOrderDialogOpen, setLabOrderDialogOpen] = useState(false);
+    const [prescriptionDialogOpen, setPrescriptionDialogOpen] = useState(false);
+    const [radiologyDialogOpen, setRadiologyDialogOpen] = useState(false);
+
+    // Radiology Order Form
+    const radiologyForm = useForm({
+        procedure_ids: [] as number[],
+        priority: 'routine' as RadiologyOrderPriority,
+        clinical_indication: '',
+        notes: '',
+        send_preapproval: true,
+    });
+
+    const submitRadiologyOrder = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (radiologyForm.data.procedure_ids.length === 0) return;
+        radiologyForm.post(route('inpatient.maternity.radiology-orders.store', admission.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                setRadiologyDialogOpen(false);
+                radiologyForm.reset();
+            },
+        });
+    };
+
+    // Laboratory Order Form
+    const [selectedTests, setSelectedTests] = useState<LaboratoryTestSearchResult[]>([]);
+    const labOrderForm = useForm({
+        test_ids: [] as number[],
+        priority: 'routine' as LaboratoryOrderPriority,
+        clinical_indication: '',
+        notes: '',
+    });
+
+    const submitLabOrder = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (selectedTests.length === 0) return;
+        labOrderForm.transform(() => ({
+            test_ids: selectedTests.map((t) => t.id),
+            priority: labOrderForm.data.priority,
+            clinical_indication: labOrderForm.data.clinical_indication,
+            notes: labOrderForm.data.notes,
+        }));
+        labOrderForm.post(route('inpatient.maternity.laboratory-orders.store', admission.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                setLabOrderDialogOpen(false);
+                setSelectedTests([]);
+                labOrderForm.reset();
+            },
+        });
+    };
+
+    // Prescription Form
+    interface PrescriptionLineItem {
+        medication: MedicationSearchResult | null;
+        dose: string;
+        dose_unit: string;
+        route: PrescriptionRoute;
+        frequency: PrescriptionFrequency;
+        duration: number;
+        duration_unit: 'days' | 'weeks' | 'hours' | 'doses';
+        quantity: number;
+        instructions: string;
+    }
+
+    const [prescriptionItems, setPrescriptionItems] = useState<PrescriptionLineItem[]>([
+        {
+            medication: null,
+            dose: '',
+            dose_unit: '',
+            route: 'oral',
+            frequency: 'once_daily',
+            duration: 1,
+            duration_unit: 'days',
+            quantity: 1,
+            instructions: '',
+        },
+    ]);
+
+    const prescriptionForm = useForm({
+        items: [] as any[],
+        clinical_notes: '',
+    });
+
+    const submitPrescription = (e: React.FormEvent) => {
+        e.preventDefault();
+        const validItems = prescriptionItems
+            .filter((i) => i.medication !== null)
+            .map((i) => ({
+                medication_id: i.medication!.id,
+                dose: i.dose || '1',
+                dose_unit: i.dose_unit || null,
+                route: i.route,
+                frequency: i.frequency,
+                duration: i.duration || 1,
+                duration_unit: i.duration_unit,
+                quantity: i.quantity || 1,
+                instructions: i.instructions || null,
+            }));
+
+        if (validItems.length === 0) return;
+
+        prescriptionForm.transform(() => ({
+            items: validItems,
+            clinical_notes: prescriptionForm.data.clinical_notes,
+        }));
+        prescriptionForm.post(route('inpatient.maternity.prescriptions.store', admission.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                setPrescriptionDialogOpen(false);
+                setPrescriptionItems([
+                    {
+                        medication: null,
+                        dose: '',
+                        dose_unit: '',
+                        route: 'oral',
+                        frequency: 'once_daily',
+                        duration: 1,
+                        duration_unit: 'days',
+                        quantity: 1,
+                        instructions: '',
+                    },
+                ]);
+                prescriptionForm.reset();
+            },
+        });
+    };
 
     // Profile Form
     const profileForm = useForm({
@@ -232,10 +426,10 @@ export default function MaternityWorkspace({
         vdrl_rpr_status: profile?.vdrl_rpr_status ?? 'non_reactive',
         risk_factors: profile?.risk_factors ?? ([] as string[]),
         care_stage: profile?.care_stage ?? 'awaiting_assessment',
-        labour_stage: profile?.labour_stage ?? 'latent_phase',
         assigned_midwife_id: profile?.assigned_midwife_id ? String(profile.assigned_midwife_id) : '',
         primary_clinician_id: profile?.primary_clinician_id ? String(profile.primary_clinician_id) : '',
         clinical_exception_reason: profile?.clinical_exception_reason ?? '',
+        labour_stage: profile?.labour_stage ?? 'latent_phase',
         notes: profile?.notes ?? '',
     });
 
@@ -244,21 +438,6 @@ export default function MaternityWorkspace({
         profileForm.post(route('inpatient.maternity.profile.store', admission.id), {
             preserveScroll: true,
             onSuccess: () => setProfileDialogOpen(false),
-        });
-    };
-
-    // Stage Transition Form
-    const stageForm = useForm({
-        care_stage: profile?.care_stage ?? 'awaiting_assessment',
-        notes: '',
-    });
-
-    const submitStageTransition = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!profile) return;
-        stageForm.post(route('inpatient.maternity.stage.update', [admission.id, profile.id]), {
-            preserveScroll: true,
-            onSuccess: () => setStageDialogOpen(false),
         });
     };
 
@@ -306,9 +485,9 @@ export default function MaternityWorkspace({
         assisted_by: '',
         placenta_delivered_at: new Date().toISOString().slice(0, 16),
         placenta_mode: 'spontaneous',
-        placenta_complete: true,
+        placenta_complete: true as boolean,
         blood_loss_ml: '250',
-        postpartum_hemorrhage: false,
+        postpartum_hemorrhage: false as boolean,
         perineal_status: 'intact',
         suture_materials_used: '',
         oxytocic_given: 'Oxytocin 10 IU IM',
@@ -320,12 +499,12 @@ export default function MaternityWorkspace({
         apgar_1min: '8',
         apgar_5min: '10',
         apgar_10min: '10',
-        resuscitation_required: false,
+        resuscitation_required: false as boolean,
         resuscitation_notes: '',
-        vitamin_k_given: true,
-        eye_ointment_given: true,
-        bcg_given: false,
-        polio_0_given: false,
+        vitamin_k_given: true as boolean,
+        eye_ointment_given: true as boolean,
+        bcg_given: false as boolean,
+        polio_0_given: false as boolean,
         notes: '',
     });
 
@@ -335,6 +514,26 @@ export default function MaternityWorkspace({
         deliveryForm.post(route('inpatient.maternity.delivery.store', [admission.id, profile.id]), {
             preserveScroll: true,
             onSuccess: () => setDeliveryDialogOpen(false),
+        });
+    };
+
+    // Stage Transition Form
+    const stageForm = useForm({
+        care_stage: profile?.care_stage ?? 'first_stage_active',
+        notes: '',
+        is_emergency: false,
+        emergency_reason: '',
+    });
+
+    const submitStageTransition = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!profile) return;
+        stageForm.post(route('inpatient.maternity.stage.update', [admission.id, profile.id]), {
+            preserveScroll: true,
+            onSuccess: () => {
+                stageForm.reset();
+                setStageDialogOpen(false);
+            },
         });
     };
 
@@ -410,9 +609,14 @@ export default function MaternityWorkspace({
                                     Open Maternity Profile
                                 </Button>
                             ) : (
-                                <Button variant="outline" className="border-pink-300 text-pink-700 hover:bg-pink-50 dark:hover:bg-pink-950/40" onClick={() => setProfileDialogOpen(true)}>
-                                    Edit Obstetric Profile
-                                </Button>
+                                <div className="flex items-center gap-2">
+                                    <Button variant="outline" className="border-pink-300 text-pink-700 hover:bg-pink-50 dark:hover:bg-pink-950/40" onClick={() => setProfileDialogOpen(true)}>
+                                        Edit Obstetric Profile
+                                    </Button>
+                                    <Button variant="outline" className="border-pink-300 text-pink-700 hover:bg-pink-50 dark:hover:bg-pink-950/40" onClick={() => setStageDialogOpen(true)}>
+                                        Update Care Stage
+                                    </Button>
+                                </div>
                             )}
                         </div>
                     </div>
@@ -494,7 +698,7 @@ export default function MaternityWorkspace({
 
                 {/* Tabs */}
                 <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-                    <TabsList className="grid w-full grid-cols-3 max-w-md">
+                    <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 max-w-2xl">
                         <TabsTrigger value="partograph" className="flex items-center gap-1.5">
                             <FileSpreadsheet className="h-4 w-4" />
                             Partograph ({partographEntries.length})
@@ -506,6 +710,10 @@ export default function MaternityWorkspace({
                         <TabsTrigger value="delivery" className="flex items-center gap-1.5">
                             <Baby className="h-4 w-4" />
                             Delivery Summary
+                        </TabsTrigger>
+                        <TabsTrigger value="orders" className="flex items-center gap-1.5">
+                            <HeartPulse className="h-4 w-4 text-rose-600" />
+                            Orders & MAR ({medications.length + laboratoryOrders.length + prescriptionOrders.length + radiologyOrders.length})
                         </TabsTrigger>
                     </TabsList>
 
@@ -533,20 +741,30 @@ export default function MaternityWorkspace({
                                 icon={Baby}
                                 title="No Maternity Profile"
                                 description="Open a maternity profile first before recording partograph readings."
-                                action={{
-                                    label: 'Open Maternity Profile',
-                                    onClick: () => setProfileDialogOpen(true),
-                                }}
+                                action={
+                                    <Button
+                                        className="bg-pink-600 hover:bg-pink-700"
+                                        onClick={() => setProfileDialogOpen(true)}
+                                    >
+                                        <Plus className="mr-1.5 h-4 w-4" />
+                                        Open Maternity Profile
+                                    </Button>
+                                }
                             />
                         ) : partographEntries.length === 0 ? (
                             <EmptyState
                                 icon={FileSpreadsheet}
                                 title="No Partograph Readings Yet"
                                 description="Document the first partograph reading when the patient enters the active phase of labour (cervical dilation >= 4 cm)."
-                                action={{
-                                    label: 'Record First Reading',
-                                    onClick: () => setPartographDialogOpen(true),
-                                }}
+                                action={
+                                    <Button
+                                        className="bg-pink-600 hover:bg-pink-700"
+                                        onClick={() => setPartographDialogOpen(true)}
+                                    >
+                                        <Plus className="mr-1.5 h-4 w-4" />
+                                        Record First Reading
+                                    </Button>
+                                }
                             />
                         ) : (
                             <div className="flex flex-col gap-4">
@@ -604,9 +822,8 @@ export default function MaternityWorkspace({
                                                                 </TableCell>
                                                                 <TableCell>
                                                                     <span
-                                                                        className={`font-semibold ${
-                                                                            isMeconium ? 'text-amber-600 font-bold' : ''
-                                                                        }`}
+                                                                        className={`font-semibold ${isMeconium ? 'text-amber-600 font-bold' : ''
+                                                                            }`}
                                                                         title={entry.amniotic_fluid ? constants.amniotic_fluid_states[entry.amniotic_fluid] : ''}
                                                                     >
                                                                         {entry.amniotic_fluid ?? '—'}
@@ -797,12 +1014,15 @@ export default function MaternityWorkspace({
                                 title="No Delivery Documented Yet"
                                 description="Once the baby has been delivered, record the maternal and neonatal outcomes here."
                                 action={
-                                    profile
-                                        ? {
-                                              label: 'Document Delivery',
-                                              onClick: () => setDeliveryDialogOpen(true),
-                                          }
-                                        : undefined
+                                    profile ? (
+                                        <Button
+                                            className="bg-pink-600 hover:bg-pink-700"
+                                            onClick={() => setDeliveryDialogOpen(true)}
+                                        >
+                                            <Baby className="mr-1.5 h-4 w-4" />
+                                            Document Delivery
+                                        </Button>
+                                    ) : undefined
                                 }
                             />
                         ) : (
@@ -912,6 +1132,625 @@ export default function MaternityWorkspace({
                             </div>
                         )}
                     </TabsContent>
+
+                    {/* TAB 4: CLINICAL ORDERS, MATERNAL OBSERVATIONS & MAR */}
+                    <TabsContent value="orders" className="mt-4 flex flex-col gap-6">
+                        {/* Cash / Self-Pay Notice & Quick Actions */}
+                        {!insurance ? (
+                            <Alert className="border-emerald-500/40 bg-emerald-500/10 text-emerald-950 dark:border-emerald-500/30 dark:bg-emerald-950/20 dark:text-emerald-100">
+                                <Banknote className="h-5 w-5 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 w-full">
+                                    <div>
+                                        <AlertTitle className="text-sm font-semibold flex items-center gap-2">
+                                            Cash / Self-Pay Patient Mode
+                                            <Badge variant="outline" className="border-emerald-600 text-emerald-700 dark:text-emerald-300 text-[10px] font-normal">
+                                                Direct Inpatient Billing
+                                            </Badge>
+                                        </AlertTitle>
+                                        <AlertDescription className="text-xs text-muted-foreground mt-0.5">
+                                            This patient has no NHIF coverage. Diagnostic lab tests and medications are billed directly to the cash account and dispatched to departments without NHIF pre-approval delays.
+                                        </AlertDescription>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        {canOrderLabs && (
+                                            <Button
+                                                size="sm"
+                                                className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                                                onClick={() => setLabOrderDialogOpen(true)}
+                                            >
+                                                <FlaskConical className="mr-1.5 h-3.5 w-3.5" />
+                                                Order Lab Tests
+                                            </Button>
+                                        )}
+                                        {canOrderRadiology && (
+                                            <Button
+                                                size="sm"
+                                                className="bg-blue-600 hover:bg-blue-700 text-white shadow-xs"
+                                                onClick={() => setRadiologyDialogOpen(true)}
+                                            >
+                                                <Scan className="mr-1.5 h-3.5 w-3.5" />
+                                                Order Ultrasound
+                                            </Button>
+                                        )}
+                                        {canPrescribe && (
+                                            <Button
+                                                size="sm"
+                                                className="bg-purple-600 hover:bg-purple-700 text-white shadow-xs"
+                                                onClick={() => setPrescriptionDialogOpen(true)}
+                                            >
+                                                <Pill className="mr-1.5 h-3.5 w-3.5" />
+                                                Write Medication
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+                            </Alert>
+                        ) : (
+                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+                                <div>
+                                    <h3 className="text-sm font-semibold flex items-center gap-2">
+                                        Maternity Clinical Orders
+                                        <Badge variant="outline" className="text-[10px]">NHIF Insured</Badge>
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground">Order diagnostic lab investigations, obstetric ultrasound, and write medications to pharmacy.</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {canOrderLabs && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="border-emerald-600 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300"
+                                            onClick={() => setLabOrderDialogOpen(true)}
+                                        >
+                                            <FlaskConical className="mr-1.5 h-3.5 w-3.5" />
+                                            Order Lab Tests
+                                        </Button>
+                                    )}
+                                    {canOrderRadiology && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="border-blue-600 text-blue-700 hover:bg-blue-50 dark:text-blue-300"
+                                            onClick={() => setRadiologyDialogOpen(true)}
+                                        >
+                                            <Scan className="mr-1.5 h-3.5 w-3.5" />
+                                            Order Ultrasound
+                                        </Button>
+                                    )}
+                                    {canPrescribe && (
+                                        <Button
+                                            size="sm"
+                                            className="bg-purple-600 hover:bg-purple-700 text-white shadow-xs"
+                                            onClick={() => setPrescriptionDialogOpen(true)}
+                                        >
+                                            <Pill className="mr-1.5 h-3.5 w-3.5" />
+                                            Write Medication
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Laboratory Orders Card */}
+                        <Card>
+                            <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <FlaskConical className="h-4 w-4 text-emerald-600" />
+                                        Maternity Laboratory Orders ({laboratoryOrders.length})
+                                    </CardTitle>
+                                    {canOrderLabs && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="text-xs h-7 gap-1 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50"
+                                            onClick={() => setLabOrderDialogOpen(true)}
+                                        >
+                                            <Plus className="h-3 w-3" />
+                                            New Lab Order
+                                        </Button>
+                                    )}
+                                </div>
+                                <CardDescription>Laboratory investigations ordered during this maternity admission</CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                {laboratoryOrders.length > 0 ? (
+                                    <Table>
+                                        <TableHeader className="text-xs bg-muted/40">
+                                            <TableRow>
+                                                <TableHead>Order #</TableHead>
+                                                <TableHead>Tests Requested</TableHead>
+                                                <TableHead>Priority</TableHead>
+                                                <TableHead>Ordered By</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead>Results</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody className="text-xs">
+                                            {laboratoryOrders.map((order) => (
+                                                <TableRow key={order.id}>
+                                                    <TableCell className="font-mono font-medium">
+                                                        <Link href={route('laboratory.orders.show', order.id)} className="text-primary hover:underline">
+                                                            {order.order_number}
+                                                        </Link>
+                                                        <span className="text-[10px] text-muted-foreground block">
+                                                            {new Date(order.ordered_at).toLocaleDateString([], { month: 'short', day: 'numeric' })} · {new Date(order.ordered_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {order.items?.map((item) => (
+                                                                <Badge key={item.id} variant="outline" className="text-[10px]">
+                                                                    {item.test_name ?? item.laboratoryTest?.name ?? item.test_code}
+                                                                </Badge>
+                                                            ))}
+                                                        </div>
+                                                        {order.clinical_indication && (
+                                                            <span className="text-[10px] text-muted-foreground italic mt-0.5 block">
+                                                                Indication: {order.clinical_indication}
+                                                            </span>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge
+                                                            variant={order.priority === 'stat' ? 'destructive' : order.priority === 'urgent' ? 'default' : 'outline'}
+                                                            className="capitalize text-[10px]"
+                                                        >
+                                                            {order.priority}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-muted-foreground">
+                                                        {order.ordered_by?.name ?? 'Nurse / Clinician'}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="outline" className="capitalize text-[10px]">
+                                                            {order.status.replace('_', ' ')}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-col gap-0.5">
+                                                            {order.items?.map((item) => (
+                                                                item.result ? (
+                                                                    <Link
+                                                                        key={item.id}
+                                                                        href={route('laboratory.results.show', item.result.id)}
+                                                                        className="text-[10px] text-emerald-600 font-semibold hover:underline flex items-center gap-1"
+                                                                    >
+                                                                        <Check className="h-3 w-3" />
+                                                                        {item.result.status}
+                                                                    </Link>
+                                                                ) : (
+                                                                    <span key={item.id} className="text-[10px] text-muted-foreground">
+                                                                        Pending
+                                                                    </span>
+                                                                )
+                                                            ))}
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <div className="p-6 text-center text-xs text-muted-foreground">
+                                        <FlaskConical className="h-7 w-7 text-muted-foreground/40 mx-auto mb-2" />
+                                        <p className="font-medium text-neutral-700 dark:text-neutral-300">No laboratory investigations ordered yet.</p>
+                                        <p className="text-[11px] mt-0.5">Click "Order Lab Tests" above to order routine antenatal screening, CBC, blood grouping, or urgent diagnostic tests.</p>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {/* Maternity Radiology / Ultrasound Orders Card */}
+                        <Card>
+                            <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <Scan className="h-4 w-4 text-blue-600" />
+                                        Maternity Radiology & Ultrasound Scans ({radiologyOrders.length})
+                                    </CardTitle>
+                                    {canOrderRadiology && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="text-xs h-7 gap-1 border-blue-500/40 text-blue-700 dark:text-blue-300 hover:bg-blue-50"
+                                            onClick={() => setRadiologyDialogOpen(true)}
+                                        >
+                                            <Plus className="h-3 w-3" />
+                                            New Ultrasound Order
+                                        </Button>
+                                    )}
+                                </div>
+                                <CardDescription>Obstetric ultrasound, pelvic imaging, and radiology investigations requested for this admission</CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                {radiologyOrders.length > 0 ? (
+                                    <Table>
+                                        <TableHeader className="text-xs bg-muted/40">
+                                            <TableRow>
+                                                <TableHead>Order #</TableHead>
+                                                <TableHead>Procedures Requested</TableHead>
+                                                <TableHead>Priority</TableHead>
+                                                <TableHead>Ordered By</TableHead>
+                                                <TableHead>Order Status</TableHead>
+                                                <TableHead>Findings / Report</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody className="text-xs">
+                                            {radiologyOrders.map((order) => (
+                                                <TableRow key={order.id}>
+                                                    <TableCell className="font-mono font-medium">
+                                                        <span>{order.order_number}</span>
+                                                        <span className="text-[10px] text-muted-foreground block">
+                                                            {new Date(order.ordered_at).toLocaleDateString([], { month: 'short', day: 'numeric' })} · {new Date(order.ordered_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {order.items?.map((item) => (
+                                                                <div key={item.id} className="flex items-center gap-1">
+                                                                    <Badge variant="outline" className="text-[10px]">
+                                                                        {item.procedure_name ?? item.radiologyProcedure?.name ?? item.procedure_code}
+                                                                    </Badge>
+                                                                    {item.modality_snapshot && (
+                                                                        <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 text-[9px] uppercase">
+                                                                            {item.modality_snapshot}
+                                                                        </Badge>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {order.clinical_indication && (
+                                                            <span className="text-[10px] text-muted-foreground italic mt-0.5 block">
+                                                                Indication: {order.clinical_indication}
+                                                            </span>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge
+                                                            variant={order.priority === 'stat' ? 'destructive' : order.priority === 'urgent' ? 'default' : 'outline'}
+                                                            className="capitalize text-[10px]"
+                                                        >
+                                                            {order.priority}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-muted-foreground">
+                                                        {order.ordered_by?.name ?? 'Nurse / Clinician'}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="outline" className="capitalize text-[10px]">
+                                                            {order.status.replace('_', ' ')}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-col gap-0.5">
+                                                            {order.items?.map((item: any) => {
+                                                                const rpt = item.active_radiology_appointment?.report ?? item.activeRadiologyAppointment?.report;
+                                                                return rpt ? (
+                                                                    <span key={item.id} className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1">
+                                                                        <Check className="h-3 w-3" />
+                                                                        Report {rpt.status ?? 'Released'}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span key={item.id} className="text-[10px] text-muted-foreground">
+                                                                        Awaiting Scan
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <div className="p-6 text-center text-xs text-muted-foreground">
+                                        <Scan className="h-7 w-7 text-muted-foreground/40 mx-auto mb-2" />
+                                        <p className="font-medium text-neutral-700 dark:text-neutral-300">No ultrasound or radiology scans ordered yet.</p>
+                                        <p className="text-[11px] mt-0.5">Click "New Ultrasound Order" above to request obstetric scans, fetal assessment, or pelvic ultrasound.</p>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {/* Pharmacy Medication Orders Card */}
+                        <Card>
+                            <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <Pill className="h-4 w-4 text-purple-600" />
+                                        Prescriptions Written to Pharmacy ({prescriptionOrders.length})
+                                    </CardTitle>
+                                    {canPrescribe && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="text-xs h-7 gap-1 border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-50"
+                                            onClick={() => setPrescriptionDialogOpen(true)}
+                                        >
+                                            <Plus className="h-3 w-3" />
+                                            Write Medication
+                                        </Button>
+                                    )}
+                                </div>
+                                <CardDescription>Prescriptions submitted to the hospital pharmacy for dispensing and administration</CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                {prescriptionOrders.length > 0 ? (
+                                    <Table>
+                                        <TableHeader className="text-xs bg-muted/40">
+                                            <TableRow>
+                                                <TableHead>Rx #</TableHead>
+                                                <TableHead>Medications & Dosage</TableHead>
+                                                <TableHead>Route / Frequency</TableHead>
+                                                <TableHead>Qty</TableHead>
+                                                <TableHead>Prescribed By</TableHead>
+                                                <TableHead>Pharmacy Status</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody className="text-xs">
+                                            {prescriptionOrders.map((rx) => (
+                                                <TableRow key={rx.id}>
+                                                    <TableCell className="font-mono font-medium">
+                                                        <span>{rx.order_number}</span>
+                                                        <span className="text-[10px] text-muted-foreground block">
+                                                            {new Date(rx.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })} · {new Date(rx.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-col gap-1">
+                                                            {rx.items?.map((item) => (
+                                                                <div key={item.id} className="text-xs">
+                                                                    <span className="font-semibold text-neutral-800 dark:text-neutral-200">
+                                                                        {item.medication_name_snapshot ?? item.medication?.generic_name}
+                                                                    </span>
+                                                                    <span className="text-muted-foreground text-[10px] ml-1.5">
+                                                                        {item.dose} {item.dose_unit ?? ''}
+                                                                    </span>
+                                                                    {item.instructions && (
+                                                                        <span className="text-[10px] text-muted-foreground block italic">
+                                                                            "{item.instructions}"
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-col gap-1">
+                                                            {rx.items?.map((item) => (
+                                                                <span key={item.id} className="text-xs capitalize text-muted-foreground">
+                                                                    {item.route} · {item.frequency.replace(/_/g, ' ')}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-col gap-1">
+                                                            {rx.items?.map((item) => (
+                                                                <span key={item.id} className="text-xs font-mono">
+                                                                    {item.quantity} {item.quantity_unit ?? ''}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-muted-foreground">
+                                                        {rx.prescriber?.name ?? 'Nurse / Prescriber'}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge
+                                                            variant={
+                                                                rx.verification?.status === 'verified'
+                                                                    ? 'default'
+                                                                    : rx.status === 'active'
+                                                                      ? 'outline'
+                                                                      : 'secondary'
+                                                            }
+                                                            className="capitalize text-[10px]"
+                                                        >
+                                                            {rx.verification?.status === 'verified' ? 'Verified (Ready to Dispense)' : rx.status}
+                                                        </Badge>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <div className="p-6 text-center text-xs text-muted-foreground">
+                                        <Pill className="h-7 w-7 text-muted-foreground/40 mx-auto mb-2" />
+                                        <p className="font-medium text-neutral-700 dark:text-neutral-300">No prescriptions written for this admission yet.</p>
+                                        <p className="text-[11px] mt-0.5">Click "Write Medication" above to prescribe uterotonics, IV fluids, analgesics, or antibiotics to pharmacy.</p>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                            {/* Latest Maternal Vital Signs */}
+                            <Card>
+                                <CardHeader className="pb-3">
+                                    <div className="flex items-center justify-between">
+                                        <CardTitle className="text-base flex items-center gap-2">
+                                            <Activity className="h-4 w-4 text-emerald-600" />
+                                            Latest Maternal Observations
+                                        </CardTitle>
+                                        {displayVital?.recorded_at && (
+                                            <span className="text-xs text-muted-foreground">
+                                                {new Date(displayVital.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({new Date(displayVital.recorded_at).toLocaleDateString([], { month: 'short', day: 'numeric' })})
+                                            </span>
+                                        )}
+                                    </div>
+                                    <CardDescription>Routine nursing vital signs recorded in ward</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    {displayVital ? (
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                            <div className="rounded-lg border p-3">
+                                                <span className="text-xs text-muted-foreground">Blood Pressure</span>
+                                                <div className="text-base font-bold">
+                                                    {displayVital.systolic_bp && displayVital.diastolic_bp
+                                                        ? `${displayVital.systolic_bp}/${displayVital.diastolic_bp} mmHg`
+                                                        : '—'}
+                                                </div>
+                                            </div>
+                                            <div className="rounded-lg border p-3">
+                                                <span className="text-xs text-muted-foreground">Heart Rate / Pulse</span>
+                                                <div className="text-base font-bold">
+                                                    {displayVital.pulse_rate ? `${displayVital.pulse_rate} bpm` : '—'}
+                                                </div>
+                                            </div>
+                                            <div className="rounded-lg border p-3">
+                                                <span className="text-xs text-muted-foreground">Temperature</span>
+                                                <div className="text-base font-bold">
+                                                    {displayVital.temperature ? `${displayVital.temperature} °C` : '—'}
+                                                </div>
+                                            </div>
+                                            <div className="rounded-lg border p-3">
+                                                <span className="text-xs text-muted-foreground">SpO2 (Oxygen)</span>
+                                                <div className="text-base font-bold">
+                                                    {displayVital.oxygen_saturation ? `${displayVital.oxygen_saturation} %` : '—'}
+                                                </div>
+                                            </div>
+                                            <div className="rounded-lg border p-3">
+                                                <span className="text-xs text-muted-foreground">Respiratory Rate</span>
+                                                <div className="text-base font-bold">
+                                                    {displayVital.respiratory_rate ? `${displayVital.respiratory_rate} /min` : '—'}
+                                                </div>
+                                            </div>
+                                            <div className="rounded-lg border p-3">
+                                                <span className="text-xs text-muted-foreground">Pain Score</span>
+                                                <div className="text-base font-bold">
+                                                    {displayVital.pain_score !== null && displayVital.pain_score !== undefined
+                                                        ? `${displayVital.pain_score} / 10`
+                                                        : '—'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-muted-foreground italic">No vital signs documented yet for this admission.</p>
+                                    )}
+                                </CardContent>
+                            </Card>
+
+                            {/* Active Clinical Escalations & NHIF Status */}
+                            <div className="flex flex-col gap-6">
+                                <Card>
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-base flex items-center gap-2">
+                                            <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                            Active Clinical Alerts ({clinicalAlerts?.length ?? 0})
+                                        </CardTitle>
+                                        <CardDescription>Auto-escalated and nursing maternity alerts requiring clinician review</CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        {clinicalAlerts && clinicalAlerts.length > 0 ? (
+                                            <div className="flex flex-col gap-2">
+                                                {clinicalAlerts.map((alert: any) => (
+                                                    <div key={alert.id} className="rounded-lg border border-red-200 bg-red-50/60 p-3 dark:border-red-900/40 dark:bg-red-950/20">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-xs font-bold text-red-900 dark:text-red-200">{alert.reason}</span>
+                                                            <Badge variant="destructive" className="text-[10px]">OPEN</Badge>
+                                                        </div>
+                                                        <p className="mt-1 text-[11px] text-muted-foreground">
+                                                            Raised: {new Date(alert.raised_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • Source: {alert.source}
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
+                                                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                                                <span>No open maternity escalations. Labour and observations stable.</span>
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
+
+                                <Card>
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-base flex items-center gap-2">
+                                            <ShieldAlert className="h-4 w-4 text-indigo-600" />
+                                            Admission & Insurance Status
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="text-xs space-y-2">
+                                        <div className="flex justify-between border-b pb-1">
+                                            <span className="text-muted-foreground">Admission Type / Status</span>
+                                            <span className="font-semibold capitalize">{admission.admission_type ?? 'Inpatient'} • {admission.status}</span>
+                                        </div>
+                                        <div className="flex justify-between border-b pb-1">
+                                            <span className="text-muted-foreground">Insurance / Payment</span>
+                                            <span className="font-semibold">{insurance ? `NHIF (${insurance.membership_number})` : 'Self-Pay / Cash'}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Admitted At</span>
+                                            <span className="font-semibold">{admission.admitted_at ? new Date(admission.admitted_at).toLocaleString() : 'Active'}</span>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </div>
+                        </div>
+
+                        {/* Inpatient Medication Administration (MAR) Tasks */}
+                        <Card>
+                            <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <Pill className="h-4 w-4 text-purple-600" />
+                                        Inpatient Medication Treatment Sheet ({medications?.length ?? 0} Active Orders)
+                                    </CardTitle>
+                                    <Button size="sm" variant="outline" asChild>
+                                        <Link href={route('inpatient.medications.worklist', admission.id)}>Open Full MAR Worklist</Link>
+                                    </Button>
+                                </div>
+                                <CardDescription>Physician medication orders and doses scheduled for administration</CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                {medications && medications.length > 0 ? (
+                                    <Table>
+                                        <TableHeader className="text-xs bg-muted/40">
+                                            <TableRow>
+                                                <TableHead>Medication</TableHead>
+                                                <TableHead>Dose / Route</TableHead>
+                                                <TableHead>Frequency</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead>Latest MAR Action</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody className="text-xs">
+                                            {medications.map((order: any) => (
+                                                <TableRow key={order.id}>
+                                                    <TableCell className="font-medium">
+                                                        {order.medication?.generic_name ?? 'Medication'}
+                                                        <span className="text-muted-foreground text-[10px] block">
+                                                            {order.medication?.strength} {order.medication?.form}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell>{order.dose} • {order.route}</TableCell>
+                                                    <TableCell>{order.frequency}</TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="outline" className="capitalize text-[10px]">{order.status}</Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-muted-foreground">
+                                                        {order.mar_entries && order.mar_entries.length > 0 ? (
+                                                            <span>
+                                                                {order.mar_entries[0].status} at{' '}
+                                                                {new Date(order.mar_entries[0].scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                        ) : (
+                                                            'Scheduled'
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <p className="p-4 text-xs text-muted-foreground italic">No active inpatient medication treatment orders for this admission.</p>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
                 </Tabs>
             </div>
 
@@ -926,6 +1765,17 @@ export default function MaternityWorkspace({
                     </DialogHeader>
 
                     <form onSubmit={submitProfile} className="flex flex-col gap-4">
+                        {Object.keys(profileForm.errors).length > 0 && (
+                            <Alert variant="destructive">
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertTitle>Please correct the following errors:</AlertTitle>
+                                <AlertDescription className="text-xs space-y-0.5 mt-1">
+                                    {Object.entries(profileForm.errors).map(([field, err]) => (
+                                        <div key={field}>• <span className="font-semibold capitalize">{field.replace(/_/g, ' ')}:</span> {err}</div>
+                                    ))}
+                                </AlertDescription>
+                            </Alert>
+                        )}
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                             <div>
                                 <Label htmlFor="gravida">Gravida</Label>
@@ -1136,25 +1986,118 @@ export default function MaternityWorkspace({
                         <div>
                             <Label className="mb-1.5 block">Documented Obstetric Risk Factors</Label>
                             <div className="grid grid-cols-1 gap-2 rounded-lg border p-3 sm:grid-cols-2 text-xs">
-                                {COMMON_RISK_FACTORS.map((factor) => {
-                                    const checked = profileForm.data.risk_factors.includes(factor);
+                                {COMMON_RISK_FACTORS.map((factor, idx) => {
+                                    const riskFactors = Array.isArray(profileForm.data.risk_factors)
+                                        ? profileForm.data.risk_factors
+                                        : [];
+                                    const checked = riskFactors.includes(factor);
+                                    const factorId = `risk_factor_${idx}`;
                                     return (
-                                        <label key={factor} className="flex items-center gap-2 cursor-pointer">
+                                        <div key={factor} className="flex items-center gap-2">
                                             <Checkbox
+                                                id={factorId}
                                                 checked={checked}
                                                 onCheckedChange={(isChecked) => {
                                                     const updated = isChecked
-                                                        ? [...profileForm.data.risk_factors, factor]
-                                                        : profileForm.data.risk_factors.filter((f: string) => f !== factor);
+                                                        ? [...riskFactors, factor]
+                                                        : riskFactors.filter((f: string) => f !== factor);
                                                     profileForm.setData('risk_factors', updated);
                                                 }}
                                             />
-                                            <span>{factor}</span>
-                                        </label>
+                                            <Label htmlFor={factorId} className="cursor-pointer text-xs font-normal">
+                                                {factor}
+                                            </Label>
+                                        </div>
                                     );
                                 })}
                             </div>
                         </div>
+
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                            <div>
+                                <Label htmlFor="care_stage">Care Stage</Label>
+                                <Select
+                                    value={profileForm.data.care_stage}
+                                    onValueChange={(v) => profileForm.setData('care_stage', v)}
+                                >
+                                    <SelectTrigger id="care_stage">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {Object.entries(constants.care_stages ?? {}).map(([stageKey, stageLabel]) => (
+                                            <SelectItem key={stageKey} value={stageKey}>
+                                                {stageLabel}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div>
+                                <Label htmlFor="midwife">Assigned Nurse / Midwife</Label>
+                                <Select
+                                    value={profileForm.data.assigned_midwife_id}
+                                    onValueChange={(v) => profileForm.setData('assigned_midwife_id', v)}
+                                >
+                                    <SelectTrigger id="midwife">
+                                        <SelectValue placeholder="Select Midwife" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {practitioners.map((p) => {
+                                            const val = String(p.user_id ?? p.staff?.user_id ?? p.id);
+                                            return (
+                                                <SelectItem key={p.id} value={val}>
+                                                    {p.name ?? (p.staff ? `${p.staff.first_name} ${p.staff.last_name}` : `Practitioner #${p.id}`)}
+                                                </SelectItem>
+                                            );
+                                        })}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div>
+                                <Label htmlFor="clinician">Responsible Clinician</Label>
+                                <Select
+                                    value={profileForm.data.primary_clinician_id}
+                                    onValueChange={(v) => profileForm.setData('primary_clinician_id', v)}
+                                >
+                                    <SelectTrigger id="clinician">
+                                        <SelectValue placeholder="Select Clinician" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {practitioners.map((p) => {
+                                            const val = String(p.user_id ?? p.staff?.user_id ?? p.id);
+                                            return (
+                                                <SelectItem key={p.id} value={val}>
+                                                    {p.name ?? (p.staff ? `${p.staff.first_name} ${p.staff.last_name}` : `Practitioner #${p.id}`)}
+                                                </SelectItem>
+                                            );
+                                        })}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+
+                        {(eligibility && !eligibility.eligible || profileForm.data.clinical_exception_reason) && (
+                            <div className="rounded-lg border border-amber-300 bg-amber-50/70 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                <Label htmlFor="clinical_exception" className="text-amber-900 dark:text-amber-200 font-semibold flex items-center gap-1.5">
+                                    <ShieldAlert className="h-4 w-4 text-amber-600" />
+                                    Clinical Exception Authorization Justification
+                                </Label>
+                                <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mb-2">
+                                    Patient is recorded as {admission.patient?.gender ?? 'non-female'}. A documented clinical reason and authorized assessment are required by hospital policy to initiate maternity care.
+                                </p>
+                                <Textarea
+                                    id="clinical_exception"
+                                    value={profileForm.data.clinical_exception_reason}
+                                    onChange={(e) => profileForm.setData('clinical_exception_reason', e.target.value)}
+                                    placeholder="Document clinical evaluation, pregnancy confirmation, or demographic correction details..."
+                                    rows={2}
+                                    className="border-amber-300 bg-white dark:bg-neutral-900"
+                                />
+                                {profileForm.errors.clinical_exception_reason && (
+                                    <span className="text-xs text-red-600">{profileForm.errors.clinical_exception_reason}</span>
+                                )}
+                            </div>
+                        )}
 
                         <div>
                             <Label htmlFor="notes">Clinical / Antenatal Notes</Label>
@@ -1561,8 +2504,7 @@ export default function MaternityWorkspace({
                                             <SelectItem value="female">Female</SelectItem>
                                             <SelectItem value="ambiguous">Ambiguous</SelectItem>
                                         </SelectContent>
-                                    </SelectContent>
-                                </Select>
+                                    </Select>
                                 </div>
                                 <div>
                                     <Label htmlFor="baby_outcome">Outcome</Label>
@@ -1580,125 +2522,712 @@ export default function MaternityWorkspace({
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
-                                    </SelectContent>
-                                </Select>
+                                    </Select>
                                 </div>
-                                <div>
-                                    <Label htmlFor="weight">Birth Weight (g)</Label>
-                                    <Input
-                                        id="weight"
-                                        type="number"
-                                        min="200"
-                                        max="8000"
-                                        value={deliveryForm.data.birth_weight_grams}
-                                        onChange={(e) => deliveryForm.setData('birth_weight_grams', e.target.value)}
-                                        placeholder="e.g. 3200"
-                                    />
-                                </div>
-                                <div>
-                                    <Label htmlFor="length">Length (cm)</Label>
-                                    <Input
-                                        id="length"
-                                        type="number"
-                                        step="0.5"
-                                        value={deliveryForm.data.birth_length_cm}
-                                        onChange={(e) => deliveryForm.setData('birth_length_cm', e.target.value)}
-                                        placeholder="e.g. 50"
-                                    />
-                                </div>
-                            </div>
+                        <div>
+                            <Label htmlFor="weight">Birth Weight (g)</Label>
+                            <Input
+                                id="weight"
+                                type="number"
+                                min="200"
+                                max="8000"
+                                value={deliveryForm.data.birth_weight_grams}
+                                onChange={(e) => deliveryForm.setData('birth_weight_grams', e.target.value)}
+                                placeholder="e.g. 3200"
+                            />
+                        </div>
+                        <div>
+                            <Label htmlFor="length">Length (cm)</Label>
+                            <Input
+                                id="length"
+                                type="number"
+                                step="0.5"
+                                value={deliveryForm.data.birth_length_cm}
+                                onChange={(e) => deliveryForm.setData('birth_length_cm', e.target.value)}
+                                placeholder="e.g. 50"
+                            />
+                        </div>
+                    </div>
 
-                            <div className="grid grid-cols-3 gap-3">
-                                <div>
-                                    <Label htmlFor="apgar1">APGAR 1 min (0-10)</Label>
-                                    <Input
-                                        id="apgar1"
-                                        type="number"
-                                        min="0"
-                                        max="10"
-                                        value={deliveryForm.data.apgar_1min}
-                                        onChange={(e) => deliveryForm.setData('apgar_1min', e.target.value)}
-                                    />
-                                </div>
-                                <div>
-                                    <Label htmlFor="apgar5">APGAR 5 min (0-10)</Label>
-                                    <Input
-                                        id="apgar5"
-                                        type="number"
-                                        min="0"
-                                        max="10"
-                                        value={deliveryForm.data.apgar_5min}
-                                        onChange={(e) => deliveryForm.setData('apgar_5min', e.target.value)}
-                                    />
-                                </div>
-                                <div>
-                                    <Label htmlFor="apgar10">APGAR 10 min (0-10)</Label>
-                                    <Input
-                                        id="apgar10"
-                                        type="number"
-                                        min="0"
-                                        max="10"
-                                        value={deliveryForm.data.apgar_10min}
-                                        onChange={(e) => deliveryForm.setData('apgar_10min', e.target.value)}
-                                    />
-                                </div>
-                            </div>
+                    <div className="grid grid-cols-3 gap-3">
+                        <div>
+                            <Label htmlFor="apgar1">APGAR 1 min (0-10)</Label>
+                            <Input
+                                id="apgar1"
+                                type="number"
+                                min="0"
+                                max="10"
+                                value={deliveryForm.data.apgar_1min}
+                                onChange={(e) => deliveryForm.setData('apgar_1min', e.target.value)}
+                            />
+                        </div>
+                        <div>
+                            <Label htmlFor="apgar5">APGAR 5 min (0-10)</Label>
+                            <Input
+                                id="apgar5"
+                                type="number"
+                                min="0"
+                                max="10"
+                                value={deliveryForm.data.apgar_5min}
+                                onChange={(e) => deliveryForm.setData('apgar_5min', e.target.value)}
+                            />
+                        </div>
+                        <div>
+                            <Label htmlFor="apgar10">APGAR 10 min (0-10)</Label>
+                            <Input
+                                id="apgar10"
+                                type="number"
+                                min="0"
+                                max="10"
+                                value={deliveryForm.data.apgar_10min}
+                                onChange={(e) => deliveryForm.setData('apgar_10min', e.target.value)}
+                            />
+                        </div>
+                    </div>
 
-                            <div className="flex flex-wrap items-center gap-4 pt-1 text-xs">
-                                <label className="flex items-center gap-1.5 cursor-pointer">
-                                    <Checkbox
-                                        checked={deliveryForm.data.vitamin_k_given}
-                                        onCheckedChange={(c) => deliveryForm.setData('vitamin_k_given', Boolean(c))}
-                                    />
-                                    <span>Vitamin K Given</span>
-                                </label>
-                                <label className="flex items-center gap-1.5 cursor-pointer">
-                                    <Checkbox
-                                        checked={deliveryForm.data.eye_ointment_given}
-                                        onCheckedChange={(c) => deliveryForm.setData('eye_ointment_given', Boolean(c))}
-                                    />
-                                    <span>Tetracycline Eye Ointment</span>
-                                </label>
-                                <label className="flex items-center gap-1.5 cursor-pointer">
-                                    <Checkbox
-                                        checked={deliveryForm.data.resuscitation_required}
-                                        onCheckedChange={(c) => deliveryForm.setData('resuscitation_required', Boolean(c))}
-                                    />
-                                    <span>Resuscitation Required</span>
-                                </label>
-                            </div>
+                    <div className="flex flex-wrap items-center gap-4 pt-1 text-xs">
+                        <div className="flex items-center gap-1.5">
+                            <Checkbox
+                                id="del_vitamin_k"
+                                checked={deliveryForm.data.vitamin_k_given}
+                                onCheckedChange={(c) => deliveryForm.setData('vitamin_k_given', Boolean(c))}
+                            />
+                            <Label htmlFor="del_vitamin_k" className="cursor-pointer text-xs font-normal">
+                                Vitamin K Given
+                            </Label>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            <Checkbox
+                                id="del_eye_ointment"
+                                checked={deliveryForm.data.eye_ointment_given}
+                                onCheckedChange={(c) => deliveryForm.setData('eye_ointment_given', Boolean(c))}
+                            />
+                            <Label htmlFor="del_eye_ointment" className="cursor-pointer text-xs font-normal">
+                                Tetracycline Eye Ointment
+                            </Label>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            <Checkbox
+                                id="del_resuscitation"
+                                checked={deliveryForm.data.resuscitation_required}
+                                onCheckedChange={(c) => deliveryForm.setData('resuscitation_required', Boolean(c))}
+                            />
+                            <Label htmlFor="del_resuscitation" className="cursor-pointer text-xs font-normal">
+                                Resuscitation Required
+                            </Label>
+                        </div>
+                    </div>
 
-                            {deliveryForm.data.resuscitation_required && (
-                                <div>
-                                    <Label htmlFor="resus_notes">Resuscitation Details</Label>
-                                    <Textarea
-                                        id="resus_notes"
-                                        value={deliveryForm.data.resuscitation_notes}
-                                        onChange={(e) => deliveryForm.setData('resuscitation_notes', e.target.value)}
-                                        placeholder="Bag and mask ventilation, suctioning, duration..."
-                                        rows={2}
-                                    />
-                                </div>
+                    {deliveryForm.data.resuscitation_required && (
+                        <div>
+                            <Label htmlFor="resus_notes">Resuscitation Details</Label>
+                            <Textarea
+                                id="resus_notes"
+                                value={deliveryForm.data.resuscitation_notes}
+                                onChange={(e) => deliveryForm.setData('resuscitation_notes', e.target.value)}
+                                placeholder="Bag and mask ventilation, suctioning, duration..."
+                                rows={2}
+                            />
+                        </div>
+                    )}
+                </div>
+
+                <div>
+                    <Label htmlFor="del_notes">Delivery Notes & Postpartum Instructions</Label>
+                    <Textarea
+                        id="del_notes"
+                        value={deliveryForm.data.notes}
+                        onChange={(e) => deliveryForm.setData('notes', e.target.value)}
+                        placeholder="Summary of 3rd stage, immediate maternal response..."
+                        rows={2}
+                    />
+                </div>
+
+                <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setDeliveryDialogOpen(false)}>
+                        Cancel
+                    </Button>
+                    <Button type="submit" disabled={deliveryForm.processing} className="bg-pink-600 hover:bg-pink-700">
+                        Save Delivery Record
+                    </Button>
+                </DialogFooter>
+            </form>
+        </DialogContent>
+    </Dialog>
+
+    {/* MODAL 4: STAGE TRANSITION DIALOG */}
+    <Dialog open={stageDialogOpen} onOpenChange={setStageDialogOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Update Maternity Care Stage</DialogTitle>
+                        <DialogDescription>
+                            Transition episode #{profile?.episode_number} to the next stage of obstetric care.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <form onSubmit={submitStageTransition} className="flex flex-col gap-4">
+                        <div>
+                            <Label htmlFor="new_stage">Target Care Stage</Label>
+                            <Select
+                                value={stageForm.data.care_stage}
+                                onValueChange={(v) => stageForm.setData('care_stage', v)}
+                            >
+                                <SelectTrigger id="new_stage">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {constants.care_stages && Object.entries(constants.care_stages).map(([k, label]) => (
+                                        <SelectItem key={k} value={k}>
+                                            {label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {stageForm.errors.care_stage && (
+                                <span className="text-xs text-red-600">{stageForm.errors.care_stage}</span>
                             )}
                         </div>
 
                         <div>
-                            <Label htmlFor="del_notes">Delivery Notes & Postpartum Instructions</Label>
+                            <Label htmlFor="stage_notes">Transition & Handover Notes</Label>
                             <Textarea
-                                id="del_notes"
-                                value={deliveryForm.data.notes}
-                                onChange={(e) => deliveryForm.setData('notes', e.target.value)}
-                                placeholder="Summary of 3rd stage, immediate maternal response..."
+                                id="stage_notes"
+                                value={stageForm.data.notes}
+                                onChange={(e) => stageForm.setData('notes', e.target.value)}
+                                placeholder="Document clinical observations, shift handover, or reason for stage advance..."
+                                rows={3}
+                            />
+                        </div>
+
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setStageDialogOpen(false)}>
+                                Cancel
+                            </Button>
+                            <Button type="submit" disabled={stageForm.processing} className="bg-pink-600 hover:bg-pink-700">
+                                Confirm Transition
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
+
+            {/* MODAL 5: ORDER LABORATORY TESTS DIALOG */}
+            <Dialog open={labOrderDialogOpen} onOpenChange={setLabOrderDialogOpen}>
+                <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-base">
+                            <FlaskConical className="h-5 w-5 text-emerald-600" />
+                            Order Laboratory Tests — Maternity
+                        </DialogTitle>
+                        <DialogDescription>
+                            Select diagnostic investigations for {admission.patient?.first_name} {admission.patient?.last_name}.
+                            <span className="font-semibold block mt-1 text-xs text-neutral-700 dark:text-neutral-300">
+                                Payment Mode: {insurance ? `NHIF (${insurance.membership_number})` : 'Self-Pay / Cash (Direct Inpatient Billing)'}
+                            </span>
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <form onSubmit={submitLabOrder} className="flex flex-col gap-4">
+                        <div>
+                            <Label className="text-xs font-semibold">Select Tests *</Label>
+                            <p className="text-[11px] text-muted-foreground mb-1.5">Search and select one or more tests to include in this order.</p>
+                            <LaboratoryOrderTestSelector
+                                selected={selectedTests}
+                                onChange={setSelectedTests}
+                                clinicalEncounterId={activeEncounterId}
+                            />
+                            {labOrderForm.errors.test_ids && (
+                                <p className="text-xs text-destructive mt-1">{labOrderForm.errors.test_ids}</p>
+                            )}
+                        </div>
+
+                        <div>
+                            <Label htmlFor="lab_priority" className="text-xs font-semibold">Priority</Label>
+                            <Select
+                                value={labOrderForm.data.priority}
+                                onValueChange={(v) => labOrderForm.setData('priority', v as LaboratoryOrderPriority)}
+                            >
+                                <SelectTrigger id="lab_priority" className="mt-1">
+                                    <SelectValue placeholder="Select priority" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="routine">Routine</SelectItem>
+                                    <SelectItem value="urgent">Urgent</SelectItem>
+                                    <SelectItem value="stat">Stat (Immediate / Emergency)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div>
+                            <Label htmlFor="clinical_indication" className="text-xs font-semibold">Clinical Indication</Label>
+                            <div className="flex flex-wrap gap-1.5 my-1.5">
+                                {[
+                                    'Routine Maternity Admission Screening',
+                                    'Pre-Eclampsia Workup',
+                                    'Severe Anemia Assessment',
+                                    'Suspected Chorioamnionitis / Sepsis',
+                                    'Pre-Operative C-Section Workup',
+                                ].map((preset) => (
+                                    <Button
+                                        key={preset}
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 text-[10px] px-2"
+                                        onClick={() => labOrderForm.setData('clinical_indication', preset)}
+                                    >
+                                        {preset}
+                                    </Button>
+                                ))}
+                            </div>
+                            <Input
+                                id="clinical_indication"
+                                value={labOrderForm.data.clinical_indication}
+                                onChange={(e) => labOrderForm.setData('clinical_indication', e.target.value)}
+                                placeholder="e.g. Obstructed labour screening, high BP on partograph..."
+                            />
+                        </div>
+
+                        <div>
+                            <Label htmlFor="lab_notes" className="text-xs font-semibold">Special Instructions / Notes</Label>
+                            <Textarea
+                                id="lab_notes"
+                                value={labOrderForm.data.notes}
+                                onChange={(e) => labOrderForm.setData('notes', e.target.value)}
+                                placeholder="Optional specimen or clinical notes for the laboratory team..."
                                 rows={2}
                             />
                         </div>
 
                         <DialogFooter>
-                            <Button type="button" variant="outline" onClick={() => setDeliveryDialogOpen(false)}>
+                            <Button type="button" variant="outline" onClick={() => setLabOrderDialogOpen(false)}>
                                 Cancel
                             </Button>
-                            <Button type="submit" disabled={deliveryForm.processing} className="bg-pink-600 hover:bg-pink-700">
-                                Save Delivery Record
+                            <Button
+                                type="submit"
+                                disabled={labOrderForm.processing || selectedTests.length === 0}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                            >
+                                Place Lab Order ({selectedTests.length})
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
+
+            {/* MODAL 6: WRITE MEDICATION ORDER TO PHARMACY DIALOG */}
+            <Dialog open={prescriptionDialogOpen} onOpenChange={setPrescriptionDialogOpen}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-base">
+                            <Pill className="h-5 w-5 text-purple-600" />
+                            Write Medication to Pharmacy — Maternity
+                        </DialogTitle>
+                        <DialogDescription>
+                            Prescribe medications for {admission.patient?.first_name} {admission.patient?.last_name}.
+                            <span className="font-semibold block mt-1 text-xs text-neutral-700 dark:text-neutral-300">
+                                Payment Mode: {insurance ? `NHIF (${insurance.membership_number})` : 'Self-Pay / Cash (Direct Inpatient Billing)'}
+                            </span>
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <form onSubmit={submitPrescription} className="flex flex-col gap-4">
+                        <div className="flex flex-col gap-3">
+                            {prescriptionItems.map((item, index) => (
+                                <div key={index} className="rounded-lg border p-3 bg-muted/20 relative space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-semibold text-neutral-800 dark:text-neutral-200">
+                                            Medication #{index + 1}
+                                        </span>
+                                        {prescriptionItems.length > 1 && (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-6 w-6 p-0 text-destructive hover:bg-destructive/10"
+                                                onClick={() => {
+                                                    setPrescriptionItems(prescriptionItems.filter((_, i) => i !== index));
+                                                }}
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                            </Button>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <Label className="text-xs">Medication Search *</Label>
+                                        <div className="mt-1">
+                                            <MedicationSearch
+                                                selected={item.medication}
+                                                onSelect={(med) => {
+                                                    const updated = [...prescriptionItems];
+                                                    updated[index].medication = med;
+                                                    setPrescriptionItems(updated);
+                                                }}
+                                                onClear={() => {
+                                                    const updated = [...prescriptionItems];
+                                                    updated[index].medication = null;
+                                                    setPrescriptionItems(updated);
+                                                }}
+                                                clinicalEncounterId={activeEncounterId}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                        <div>
+                                            <Label className="text-[11px]">Dose *</Label>
+                                            <Input
+                                                value={item.dose}
+                                                onChange={(e) => {
+                                                    const updated = [...prescriptionItems];
+                                                    updated[index].dose = e.target.value;
+                                                    setPrescriptionItems(updated);
+                                                }}
+                                                placeholder="e.g. 10, 500"
+                                                className="h-8 text-xs"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <Label className="text-[11px]">Unit</Label>
+                                            <Input
+                                                value={item.dose_unit}
+                                                onChange={(e) => {
+                                                    const updated = [...prescriptionItems];
+                                                    updated[index].dose_unit = e.target.value;
+                                                    setPrescriptionItems(updated);
+                                                }}
+                                                placeholder="e.g. IU, mg, ml"
+                                                className="h-8 text-xs"
+                                            />
+                                        </div>
+                                        <div>
+                                            <Label className="text-[11px]">Route *</Label>
+                                            <Select
+                                                value={item.route}
+                                                onValueChange={(v) => {
+                                                    const updated = [...prescriptionItems];
+                                                    updated[index].route = v as PrescriptionRoute;
+                                                    setPrescriptionItems(updated);
+                                                }}
+                                            >
+                                                <SelectTrigger className="h-8 text-xs">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="oral">Oral</SelectItem>
+                                                    <SelectItem value="intravenous">Intravenous (IV)</SelectItem>
+                                                    <SelectItem value="intramuscular">Intramuscular (IM)</SelectItem>
+                                                    <SelectItem value="subcutaneous">Subcutaneous (SC)</SelectItem>
+                                                    <SelectItem value="rectal">Rectal</SelectItem>
+                                                    <SelectItem value="topical">Topical</SelectItem>
+                                                    <SelectItem value="inhalation">Inhalation</SelectItem>
+                                                    <SelectItem value="other">Other</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div>
+                                            <Label className="text-[11px]">Frequency *</Label>
+                                            <Select
+                                                value={item.frequency}
+                                                onValueChange={(v) => {
+                                                    const updated = [...prescriptionItems];
+                                                    updated[index].frequency = v as PrescriptionFrequency;
+                                                    setPrescriptionItems(updated);
+                                                }}
+                                            >
+                                                <SelectTrigger className="h-8 text-xs">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="stat">Stat (Once immediately)</SelectItem>
+                                                    <SelectItem value="once_daily">Once Daily</SelectItem>
+                                                    <SelectItem value="twice_daily">Twice Daily (BID)</SelectItem>
+                                                    <SelectItem value="three_times_daily">Three Times Daily (TID)</SelectItem>
+                                                    <SelectItem value="four_times_daily">Four Times Daily (QID)</SelectItem>
+                                                    <SelectItem value="every_4_hours">Every 4 Hours</SelectItem>
+                                                    <SelectItem value="every_6_hours">Every 6 Hours</SelectItem>
+                                                    <SelectItem value="as_needed">As Needed (PRN)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                        <div>
+                                            <Label className="text-[11px]">Duration</Label>
+                                            <Input
+                                                type="number"
+                                                min="1"
+                                                value={item.duration}
+                                                onChange={(e) => {
+                                                    const updated = [...prescriptionItems];
+                                                    updated[index].duration = parseInt(e.target.value) || 1;
+                                                    setPrescriptionItems(updated);
+                                                }}
+                                                className="h-8 text-xs"
+                                            />
+                                        </div>
+                                        <div>
+                                            <Label className="text-[11px]">Duration Unit</Label>
+                                            <Select
+                                                value={item.duration_unit}
+                                                onValueChange={(v) => {
+                                                    const updated = [...prescriptionItems];
+                                                    updated[index].duration_unit = v as any;
+                                                    setPrescriptionItems(updated);
+                                                }}
+                                            >
+                                                <SelectTrigger className="h-8 text-xs">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="days">Days</SelectItem>
+                                                    <SelectItem value="weeks">Weeks</SelectItem>
+                                                    <SelectItem value="months">Months</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <Label className="text-[11px]">Quantity to Dispense *</Label>
+                                            <Input
+                                                type="number"
+                                                min="1"
+                                                value={item.quantity}
+                                                onChange={(e) => {
+                                                    const updated = [...prescriptionItems];
+                                                    updated[index].quantity = parseInt(e.target.value) || 1;
+                                                    setPrescriptionItems(updated);
+                                                }}
+                                                className="h-8 text-xs"
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <Label className="text-[11px]">Nursing Administration Instructions</Label>
+                                        <Input
+                                            value={item.instructions}
+                                            onChange={(e) => {
+                                                const updated = [...prescriptionItems];
+                                                updated[index].instructions = e.target.value;
+                                                setPrescriptionItems(updated);
+                                            }}
+                                            placeholder="e.g. Infuse in 500ml RL over 4 hrs, or stat after birth of placenta"
+                                            className="h-8 text-xs"
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="w-full text-xs border-dashed gap-1"
+                                onClick={() => {
+                                    setPrescriptionItems([
+                                        ...prescriptionItems,
+                                        {
+                                            medication: null,
+                                            dose: '',
+                                            dose_unit: '',
+                                            route: 'oral',
+                                            frequency: 'once_daily',
+                                            duration: 1,
+                                            duration_unit: 'days',
+                                            quantity: 1,
+                                            instructions: '',
+                                        },
+                                    ]);
+                                }}
+                            >
+                                <Plus className="h-3.5 w-3.5" />
+                                Add Another Medication
+                            </Button>
+                        </div>
+
+                        <div>
+                            <Label htmlFor="rx_clinical_notes" className="text-xs font-semibold">Clinical Notes / Indication</Label>
+                            <Textarea
+                                id="rx_clinical_notes"
+                                value={prescriptionForm.data.clinical_notes}
+                                onChange={(e) => prescriptionForm.setData('clinical_notes', e.target.value)}
+                                placeholder="Document reason for prescription, e.g. active phase labour augmentation, PPH prevention..."
+                                rows={2}
+                            />
+                        </div>
+
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setPrescriptionDialogOpen(false)}>
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                disabled={prescriptionForm.processing || prescriptionItems.every((i) => i.medication === null)}
+                                className="bg-purple-600 hover:bg-purple-700 text-white"
+                            >
+                                Send Prescription to Pharmacy ({prescriptionItems.filter((i) => i.medication !== null).length})
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
+
+            {/* MODAL 7: ORDER RADIOLOGY & ULTRASOUND DIALOG */}
+            <Dialog open={radiologyDialogOpen} onOpenChange={setRadiologyDialogOpen}>
+                <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-base">
+                            <Scan className="h-5 w-5 text-blue-600" />
+                            Order Ultrasound & Radiology — Maternity
+                        </DialogTitle>
+                        <DialogDescription>
+                            Request diagnostic obstetric scans or imaging for {admission.patient?.first_name} {admission.patient?.last_name}.
+                            <span className="font-semibold block mt-1 text-xs text-neutral-700 dark:text-neutral-300">
+                                Payment Mode: {insurance ? `NHIF (${insurance.membership_number})` : 'Self-Pay / Cash (Direct Inpatient Billing)'}
+                            </span>
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <form onSubmit={submitRadiologyOrder} className="flex flex-col gap-4">
+                        {/* Procedure Selection */}
+                        <div>
+                            <Label className="text-xs font-semibold">Select Radiology / Ultrasound Procedures *</Label>
+                            <p className="text-[11px] text-muted-foreground mb-1.5">Select from active hospital imaging procedures:</p>
+
+                            <div className="max-h-48 overflow-y-auto rounded-lg border p-2 space-y-1.5 bg-muted/20">
+                                {radiologyProcedures.map((proc) => {
+                                    const isSelected = radiologyForm.data.procedure_ids.includes(proc.id);
+                                    const procId = `rad_proc_${proc.id}`;
+                                    return (
+                                        <div
+                                            key={proc.id}
+                                            className={`flex items-center justify-between p-2 rounded text-xs transition-colors ${
+                                                isSelected
+                                                    ? 'bg-blue-100/70 border border-blue-300 text-blue-900 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-200'
+                                                    : 'hover:bg-muted/50 bg-white dark:bg-neutral-900'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2 flex-1">
+                                                <Checkbox
+                                                    id={procId}
+                                                    checked={isSelected}
+                                                    onCheckedChange={(checked) => {
+                                                        const updated = checked
+                                                            ? [...radiologyForm.data.procedure_ids, proc.id]
+                                                            : radiologyForm.data.procedure_ids.filter((id) => id !== proc.id);
+                                                        radiologyForm.setData('procedure_ids', updated);
+                                                    }}
+                                                />
+                                                <Label
+                                                    htmlFor={procId}
+                                                    className="flex-1 cursor-pointer font-normal text-xs flex items-center justify-between"
+                                                >
+                                                    <div>
+                                                        <span className="font-semibold">{proc.name}</span>
+                                                        <span className="text-[10px] text-muted-foreground ml-2">({proc.code})</span>
+                                                    </div>
+                                                    <Badge variant="outline" className="text-[9px] uppercase">
+                                                        {proc.modality ?? 'Radiology'}
+                                                    </Badge>
+                                                </Label>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {radiologyProcedures.length === 0 && (
+                                    <p className="text-xs text-muted-foreground p-3 text-center">No active radiology procedures found.</p>
+                                )}
+                            </div>
+                            {radiologyForm.errors.procedure_ids && (
+                                <p className="text-xs text-destructive mt-1">{radiologyForm.errors.procedure_ids}</p>
+                            )}
+                        </div>
+
+                        <div>
+                            <Label htmlFor="rad_priority" className="text-xs font-semibold">Priority</Label>
+                            <Select
+                                value={radiologyForm.data.priority}
+                                onValueChange={(v) => radiologyForm.setData('priority', v as RadiologyOrderPriority)}
+                            >
+                                <SelectTrigger id="rad_priority" className="mt-1">
+                                    <SelectValue placeholder="Select priority" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="routine">Routine</SelectItem>
+                                    <SelectItem value="urgent">Urgent</SelectItem>
+                                    <SelectItem value="stat">Stat (Emergency)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div>
+                            <Label htmlFor="rad_clinical_indication" className="text-xs font-semibold">Clinical Indication</Label>
+                            <div className="flex flex-wrap gap-1.5 my-1.5">
+                                {[
+                                    'Assess Fetal Viability & Presentation',
+                                    'AFI / Liquor Volume Evaluation',
+                                    'Suspected Placenta Previa / Abruption',
+                                    'Estimate Fetal Weight / Rule Out IUGR',
+                                    'Emergency Obstetric Assessment',
+                                ].map((preset) => (
+                                    <Button
+                                        key={preset}
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 text-[10px] px-2"
+                                        onClick={() => radiologyForm.setData('clinical_indication', preset)}
+                                    >
+                                        {preset}
+                                    </Button>
+                                ))}
+                            </div>
+                            <Input
+                                id="rad_clinical_indication"
+                                value={radiologyForm.data.clinical_indication}
+                                onChange={(e) => radiologyForm.setData('clinical_indication', e.target.value)}
+                                placeholder="e.g. Determine presentation, rule out placenta previa..."
+                            />
+                        </div>
+
+                        <div>
+                            <Label htmlFor="rad_notes" className="text-xs font-semibold">Special Notes for Radiographer</Label>
+                            <Textarea
+                                id="rad_notes"
+                                value={radiologyForm.data.notes}
+                                onChange={(e) => radiologyForm.setData('notes', e.target.value)}
+                                placeholder="Optional clinical background or patient mobility restrictions..."
+                                rows={2}
+                            />
+                        </div>
+
+                        {insurance && (
+                            <div className="flex items-center gap-2 rounded-lg border p-2.5 bg-muted/20">
+                                <Checkbox
+                                    id="rad_send_preapproval"
+                                    checked={radiologyForm.data.send_preapproval}
+                                    onCheckedChange={(c) => radiologyForm.setData('send_preapproval', Boolean(c))}
+                                />
+                                <Label htmlFor="rad_send_preapproval" className="text-xs cursor-pointer">
+                                    Automatically submit NHIF Pre-Approval request for this scan
+                                </Label>
+                            </div>
+                        )}
+
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setRadiologyDialogOpen(false)}>
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                disabled={radiologyForm.processing || radiologyForm.data.procedure_ids.length === 0}
+                                className="bg-blue-600 hover:bg-blue-700 text-white"
+                            >
+                                Place Radiology Order ({radiologyForm.data.procedure_ids.length})
                             </Button>
                         </DialogFooter>
                     </form>

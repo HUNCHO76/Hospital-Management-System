@@ -10,6 +10,7 @@ use App\Models\NhifPreApprovalSessionItem;
 use App\Models\NhifSchemeService;
 use App\Models\PatientInsurance;
 use App\Models\Practitioner;
+use App\Models\ProcedureOrder;
 use App\Services\AuditLogService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -326,6 +327,29 @@ class NhifPreApprovalSessionService
                 }
 
                 $item->update($itemUpdates);
+
+                if ($item->source_type === NhifPreApprovalSessionItem::SOURCE_PROCEDURE && $item->source_id) {
+                    $procOrder = ProcedureOrder::find($item->source_id);
+                    if ($procOrder) {
+                        $procUpdates = [
+                            'nhif_approval_status' => $internalStatus,
+                            'nhif_authorization_no' => $nhifRequestId ?? $procOrder->nhif_authorization_no,
+                        ];
+                        if ($internalStatus === NhifPreApprovalSessionItem::APPROVAL_STATUS_REJECTED) {
+                            $procUpdates['billing_status'] = ProcedureOrder::BILLING_STATUS_REJECTED;
+                            $procUpdates['nhif_rejection_reason'] = $itemUpdates['rejection_reason'] ?? 'Rejected by NHIF';
+                        } elseif (in_array($internalStatus, [
+                            NhifPreApprovalSessionItem::APPROVAL_STATUS_ACCEPTED,
+                            NhifPreApprovalSessionItem::APPROVAL_STATUS_APPROVED,
+                            NhifPreApprovalSessionItem::APPROVAL_STATUS_ISSUED,
+                        ], true)) {
+                            $procUpdates['billing_status'] = ProcedureOrder::BILLING_STATUS_AUTHORIZED;
+                        } else {
+                            $procUpdates['billing_status'] = ProcedureOrder::BILLING_STATUS_PENDING_AUTHORIZATION;
+                        }
+                        $procOrder->update($procUpdates);
+                    }
+                }
             }
 
             // Derive session-level status from the normalised item statuses
@@ -418,6 +442,23 @@ class NhifPreApprovalSessionService
                     'quantity_approved' => $qtyApproved,
                     'rejection_reason' => $approvalStatus === NhifPreApprovalSessionItem::APPROVAL_STATUS_REJECTED ? $rejectionReason : null,
                 ]);
+
+                if ($item->source_type === NhifPreApprovalSessionItem::SOURCE_PROCEDURE && $item->source_id) {
+                    $procOrder = ProcedureOrder::find($item->source_id);
+                    if ($procOrder) {
+                        $procUpdates = [
+                            'nhif_approval_status' => $approvalStatus,
+                            'nhif_authorization_no' => $referenceNo ?? $procOrder->nhif_authorization_no,
+                        ];
+                        if ($approvalStatus === NhifPreApprovalSessionItem::APPROVAL_STATUS_REJECTED) {
+                            $procUpdates['billing_status'] = ProcedureOrder::BILLING_STATUS_REJECTED;
+                            $procUpdates['nhif_rejection_reason'] = $rejectionReason ?? 'Rejected by NHIF';
+                        } elseif ($approvalStatus === NhifPreApprovalSessionItem::APPROVAL_STATUS_APPROVED) {
+                            $procUpdates['billing_status'] = ProcedureOrder::BILLING_STATUS_AUTHORIZED;
+                        }
+                        $procOrder->update($procUpdates);
+                    }
+                }
             }
 
             $session->refresh();
@@ -549,6 +590,13 @@ class NhifPreApprovalSessionService
                         'approval_status' => NhifPreApprovalSessionItem::APPROVAL_STATUS_ISSUED,
                         'quantity_issued' => $item->quantity_approved ?? $item->quantity,
                     ]);
+
+                    if ($item->source_type === NhifPreApprovalSessionItem::SOURCE_PROCEDURE && $item->source_id) {
+                        ProcedureOrder::whereKey($item->source_id)->update([
+                            'nhif_approval_status' => NhifPreApprovalSessionItem::APPROVAL_STATUS_ISSUED,
+                            'billing_status' => ProcedureOrder::BILLING_STATUS_AUTHORIZED,
+                        ]);
+                    }
                 }
 
                 $updates['status'] = NhifPreApprovalSession::STATUS_ISSUED;

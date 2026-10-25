@@ -8,6 +8,7 @@ use App\Models\NhifPreApprovalSession;
 use App\Models\NhifPreApprovalSessionItem;
 use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
+use App\Models\ProcedureOrder;
 use App\Models\RadiologyOrder;
 use App\Models\RadiologyOrderItem;
 use Illuminate\Support\Collection;
@@ -24,7 +25,7 @@ class NhifOrderPreApprovalService
     /**
      * Determine whether an order belongs to an NHIF-covered patient/encounter.
      */
-    public function isOrderNhifCovered(LaboratoryOrder|PrescriptionOrder|RadiologyOrder $order): bool
+    public function isOrderNhifCovered(LaboratoryOrder|PrescriptionOrder|RadiologyOrder|ProcedureOrder $order): bool
     {
         $patient = $order->clinicalEncounter?->patient;
         if ($patient?->currentNhifInsurance() !== null) {
@@ -188,6 +189,76 @@ class NhifOrderPreApprovalService
             'message' => 'NHIF pre-approval has been issued.',
             'session_id' => $latestSessionId,
             'can_issue' => false,
+        ];
+    }
+
+    /**
+     * Resolve the NHIF pre-approval status for a single procedure order.
+     * Returns null if the patient is not covered by an active NHIF insurance.
+     *
+     * @return array{status: string, label: string, blocked: bool, message: string}|null
+     */
+    public function statusForProcedureOrder(ProcedureOrder $order): ?array
+    {
+        if ($order->payment_mode !== ProcedureOrder::PAYMENT_MODE_NHIF && ! $this->isOrderNhifCovered($order)) {
+            return null;
+        }
+
+        if ($order->status === ProcedureOrder::STATUS_CANCELLED) {
+            return [
+                'status' => self::STATUS_AUTHORIZED,
+                'label' => 'Cancelled',
+                'blocked' => false,
+                'message' => 'Procedure order cancelled.',
+            ];
+        }
+
+        if ($order->isExempted()) {
+            return [
+                'status' => self::STATUS_AUTHORIZED,
+                'label' => 'Exempted / Cleared',
+                'blocked' => false,
+                'message' => 'Emergency clinical exemption approved.',
+            ];
+        }
+
+        $sessionItem = NhifPreApprovalSessionItem::query()
+            ->where('source_type', NhifPreApprovalSessionItem::SOURCE_PROCEDURE)
+            ->where('source_id', $order->id)
+            ->first();
+
+        if ($order->billing_status === ProcedureOrder::BILLING_STATUS_REJECTED || ($sessionItem && $sessionItem->isRejected())) {
+            return [
+                'status' => 'rejected',
+                'label' => 'Authorization Rejected',
+                'blocked' => true,
+                'message' => $order->nhif_rejection_reason ?: ($sessionItem?->rejection_reason ?: 'NHIF pre-authorization was rejected.'),
+            ];
+        }
+
+        if ($order->billing_status === ProcedureOrder::BILLING_STATUS_AUTHORIZED || ($sessionItem && $sessionItem->isIssuable())) {
+            return [
+                'status' => self::STATUS_AUTHORIZED,
+                'label' => 'Authorized & Cleared',
+                'blocked' => false,
+                'message' => 'NHIF authorization cleared.',
+            ];
+        }
+
+        if ($sessionItem) {
+            return [
+                'status' => self::STATUS_SENT_NOT_ISSUED,
+                'label' => 'Awaiting Authorization',
+                'blocked' => true,
+                'message' => 'NHIF pre-approval request is pending authorization. Cannot perform procedure until approved.',
+            ];
+        }
+
+        return [
+            'status' => self::STATUS_PENDING_REQUEST,
+            'label' => 'Pre-approval Required',
+            'blocked' => true,
+            'message' => 'NHIF pre-approval has not been requested for this procedure. Request authorization before proceeding.',
         ];
     }
 

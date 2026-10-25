@@ -20,13 +20,21 @@ class MaternityProfile extends Model
     public const NUMBER_PREFIX = 'MAT';
 
     public const CARE_STAGE_AWAITING_ASSESSMENT = 'awaiting_assessment';
+
     public const CARE_STAGE_ASSESSMENT_IN_PROGRESS = 'assessment_in_progress';
+
     public const CARE_STAGE_ANTENATAL_CARE = 'antenatal_care';
+
     public const CARE_STAGE_IN_LABOUR = 'in_labour';
+
     public const CARE_STAGE_DELIVERY_IN_PROGRESS = 'delivery_in_progress';
+
     public const CARE_STAGE_POSTPARTUM_CARE = 'postpartum_care';
+
     public const CARE_STAGE_TRANSFERRED = 'transferred';
+
     public const CARE_STAGE_DISCHARGED = 'discharged';
+
     public const CARE_STAGE_COMPLETED = 'completed';
 
     public const CARE_STAGES = [
@@ -39,6 +47,18 @@ class MaternityProfile extends Model
         self::CARE_STAGE_TRANSFERRED => 'Transferred',
         self::CARE_STAGE_DISCHARGED => 'Discharged',
         self::CARE_STAGE_COMPLETED => 'Completed',
+    ];
+
+    public const CARE_PATHWAY_OUTPATIENT = 'outpatient';
+
+    public const CARE_PATHWAY_EMERGENCY = 'emergency';
+
+    public const CARE_PATHWAY_INPATIENT = 'inpatient';
+
+    public const CARE_PATHWAYS = [
+        self::CARE_PATHWAY_OUTPATIENT => 'Outpatient Antenatal',
+        self::CARE_PATHWAY_EMERGENCY => 'Emergency Maternity',
+        self::CARE_PATHWAY_INPATIENT => 'Inpatient Labour & Delivery',
     ];
 
     /** Valid transitions from each care stage */
@@ -120,6 +140,7 @@ class MaternityProfile extends Model
         'patient_id',
         'clinical_encounter_id',
         'care_stage',
+        'care_pathway',
         'assigned_midwife_id',
         'primary_clinician_id',
         'gravida',
@@ -178,6 +199,7 @@ class MaternityProfile extends Model
         }
 
         $allowed = self::STAGE_TRANSITIONS[$this->care_stage] ?? [];
+
         return in_array($targetStage, $allowed, true);
     }
 

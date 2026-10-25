@@ -135,6 +135,7 @@ interface ProceduresWorkspaceProps {
     orders: ProcedureOrderData[];
     practitioners: PractitionerOption[];
     procedureServices: ServiceOption[];
+    canAccessMaternity?: boolean;
     constants: {
         procedure_types: Record<string, string>;
         urgencies: Record<string, string>;
@@ -147,6 +148,7 @@ export default function ProceduresWorkspace({
     orders,
     practitioners,
     procedureServices,
+    canAccessMaternity = false,
     constants,
 }: ProceduresWorkspaceProps) {
     const [activeTab, setActiveTab] = useState<'orders' | 'cases' | 'bedside'>('orders');
@@ -421,7 +423,7 @@ export default function ProceduresWorkspace({
                                     MAR Sheet
                                 </Link>
                             </Button>
-                            {(admission.patient?.gender?.toLowerCase() === 'female' || admission.maternity_profile) && (
+                            {canAccessMaternity && (
                                 <Button variant="outline" size="sm" asChild>
                                     <Link href={route('inpatient.maternity.show', admission.id)}>
                                         <Baby className="mr-1.5 h-4 w-4 text-pink-600" />
@@ -461,10 +463,12 @@ export default function ProceduresWorkspace({
                                 icon={Scissors}
                                 title="No Procedures Ordered"
                                 description="Doctor-ordered procedures (bedside or surgical operations) will appear here."
-                                action={{
-                                    label: 'Order Procedure',
-                                    onClick: () => setOrderDialogOpen(true),
-                                }}
+                                action={
+                                    <Button onClick={() => setOrderDialogOpen(true)}>
+                                        <Plus className="mr-1.5 h-4 w-4" />
+                                        Order Procedure
+                                    </Button>
+                                }
                             />
                         ) : (
                             <Card>

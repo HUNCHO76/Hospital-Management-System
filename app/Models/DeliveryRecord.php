@@ -38,6 +38,7 @@ class DeliveryRecord extends Model
     protected $fillable = [
         'maternity_profile_id',
         'admission_id',
+        'clinical_encounter_id',
         'patient_id',
         'delivered_at',
         'delivery_mode',
@@ -68,6 +69,9 @@ class DeliveryRecord extends Model
         'polio_0_given',
         'baby_patient_id',
         'notes',
+        'is_emergency',
+        'emergency_reason',
+        'emergency_authorized_by',
         'recorded_by',
     ];
 
@@ -85,6 +89,7 @@ class DeliveryRecord extends Model
             'polio_0_given' => 'boolean',
             'birth_length_cm' => 'float',
             'head_circumference_cm' => 'float',
+            'is_emergency' => 'boolean',
         ];
     }
 
@@ -96,6 +101,11 @@ class DeliveryRecord extends Model
     public function admission(): BelongsTo
     {
         return $this->belongsTo(Admission::class);
+    }
+
+    public function clinicalEncounter(): BelongsTo
+    {
+        return $this->belongsTo(ClinicalEncounter::class);
     }
 
     public function patient(): BelongsTo
@@ -121,5 +131,10 @@ class DeliveryRecord extends Model
     public function recordedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'recorded_by');
+    }
+
+    public function emergencyAuthorizedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'emergency_authorized_by');
     }
 }

@@ -149,3 +149,28 @@ test('logout does not require valid CSRF token and works on expired sessions', f
     $this->assertGuest();
     $response->assertRedirect(route('login', absolute: false));
 });
+
+test('non GET or POST requests to login route redirect cleanly instead of throwing 405', function () {
+    $response = $this->put('/login');
+
+    $response->assertRedirect(route('login', absolute: false));
+    expect($response->status())->toBeIn([302, 303]);
+});
+
+test('unauthenticated Inertia PUT requests return Inertia location response to avoid method not allowed traps', function () {
+    $user = User::factory()->create();
+
+    $response = $this->putJson("/users/{$user->id}/permissions", [
+        'overrides' => [
+            ['permission_id' => 1, 'effect' => 'allow'],
+        ],
+    ], [
+        'X-Inertia' => 'true',
+        'X-Inertia-Version' => '1.0.0',
+    ]);
+
+    // Inertia::location returns 409 with X-Inertia-Location header
+    $response->assertStatus(409);
+    expect($response->headers->get('X-Inertia-Location'))->toBe(route('login'));
+});
+

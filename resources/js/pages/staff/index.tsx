@@ -11,7 +11,7 @@ import { type BreadcrumbItem, type Paginated } from '@/types';
 import { type DepartmentHospital } from '@/types/department';
 import { type Staff, type StaffFilters } from '@/types/staff';
 import { Head, Link, router } from '@inertiajs/react';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Shield, Trash2 } from 'lucide-react';
 import { type FormEventHandler, useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Staff', href: '/staff' }];
@@ -180,6 +180,17 @@ export default function StaffIndex({ staff, filters, hospitals }: StaffIndexProp
                                                         aria-label={`Edit ${member.first_name} ${member.last_name}`}
                                                     >
                                                         <Pencil className="h-4 w-4" />
+                                                    </Link>
+                                                </Button>
+                                            )}
+                                            {member.user && (
+                                                <Button variant="ghost" size="icon" asChild>
+                                                    <Link
+                                                        href={route('users.permissions.edit', member.user.id)}
+                                                        title={`Manage permissions for ${member.first_name} ${member.last_name}`}
+                                                        aria-label={`Permissions for ${member.first_name} ${member.last_name}`}
+                                                    >
+                                                        <Shield className="h-4 w-4 text-primary" />
                                                     </Link>
                                                 </Button>
                                             )}

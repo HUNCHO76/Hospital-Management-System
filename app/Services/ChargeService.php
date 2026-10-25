@@ -73,7 +73,7 @@ class ChargeService
                 'currency' => $account->currency,
                 'status' => Charge::STATUS_PENDING,
                 'charged_at' => $data['charged_at'] ?? now(),
-                'created_by' => $request->user()->id,
+                'created_by' => $request->user()?->id ?? auth()->id() ?? 1,
             ]);
 
             return [$charge, $accountWasNew, $account];
@@ -121,7 +121,7 @@ class ChargeService
             $locked->update([
                 'status' => Charge::STATUS_POSTED,
                 'posted_at' => now(),
-                'updated_by' => $request->user()->id,
+                'updated_by' => $request->user()?->id ?? auth()->id() ?? 1,
             ]);
 
             return $locked;
@@ -187,7 +187,7 @@ class ChargeService
             $locked->update([
                 'status' => $targetStatus,
                 'cancelled_at' => now(),
-                'cancelled_by' => $request->user()->id,
+                'cancelled_by' => $request->user()?->id ?? auth()->id() ?? 1,
                 'cancellation_reason' => $reason,
             ]);
 

@@ -11,16 +11,17 @@ use App\Models\NhifSchemeService;
 use App\Models\PatientInsurance;
 use App\Models\Practitioner;
 use App\Models\PrescriptionOrderItem;
+use App\Models\ProcedureOrder;
 use App\Models\RadiologyOrderItem;
 use App\Models\RadiologyProcedure;
 use Illuminate\Http\Request;
 
 /**
- * Prepares and submits NHIF pre-approval for laboratory, medication, and
- * radiology items ordered within a clinical encounter.
+ * Prepares and submits NHIF pre-approval for laboratory, medication, radiology,
+ * and clinical procedure items ordered within a clinical encounter.
  *
- * Uses LaboratoryTest.nhif_code, Medication.nhif_code, and
- * RadiologyProcedure.nhif_code directly and fetches prices from the NHIF
+ * Uses LaboratoryTest.nhif_code, Medication.nhif_code, RadiologyProcedure.nhif_code,
+ * and ProcedureOrder.nhif_code directly and fetches prices from the NHIF
  * GetPricePackageByItemCode API.
  */
 class NhifEncounterPreApprovalService
@@ -31,17 +32,17 @@ class NhifEncounterPreApprovalService
     ) {}
 
     /**
-     * Collect lab/medication/radiology items from the encounter that have NHIF codes
+     * Collect lab/medication/radiology/procedure items from the encounter that have NHIF codes
      * and don't yet have a pre-approval session item, then fetch their
      * NHIF prices.
      *
-     * @return array{lab_items: list<array>, medication_items: list<array>, radiology_items: list<array>}
+     * @return array{lab_items: list<array>, medication_items: list<array>, radiology_items: list<array>, procedure_items: list<array>}
      */
     public function prepareItems(ClinicalEncounter $encounter, PatientInsurance $insurance): array
     {
         $facilityCode = $insurance->nhif_facility_code;
         if (blank($facilityCode)) {
-            return ['lab_items' => [], 'medication_items' => [], 'radiology_items' => []];
+            return ['lab_items' => [], 'medication_items' => [], 'radiology_items' => [], 'procedure_items' => []];
         }
 
         $this->autoMapUnmappedLabTests($encounter, $insurance);
@@ -53,15 +54,17 @@ class NhifEncounterPreApprovalService
         $labItems = $this->collectLabItems($encounter, $existingSourceKeys);
         $medItems = $this->collectMedicationItems($encounter, $existingSourceKeys);
         $radItems = $this->collectRadiologyItems($encounter, $existingSourceKeys);
+        $procItems = $this->collectProcedureItems($encounter, $existingSourceKeys);
 
         $allCodes = array_unique(array_merge(
             array_column($labItems, 'nhif_item_code'),
             array_column($medItems, 'nhif_item_code'),
             array_column($radItems, 'nhif_item_code'),
+            array_column($procItems, 'nhif_item_code'),
         ));
 
         if (empty($allCodes)) {
-            return ['lab_items' => [], 'medication_items' => [], 'radiology_items' => []];
+            return ['lab_items' => [], 'medication_items' => [], 'radiology_items' => [], 'procedure_items' => []];
         }
 
         $prices = $this->client->fetchBulkPrices($facilityCode, $allCodes);
@@ -81,7 +84,17 @@ class NhifEncounterPreApprovalService
         }
         unset($item);
 
-        return ['lab_items' => $labItems, 'medication_items' => $medItems, 'radiology_items' => $radItems];
+        foreach ($procItems as &$item) {
+            $item['unit_price'] = $prices[$item['nhif_item_code']] ?? null;
+        }
+        unset($item);
+
+        return [
+            'lab_items' => $labItems,
+            'medication_items' => $medItems,
+            'radiology_items' => $radItems,
+            'procedure_items' => $procItems,
+        ];
     }
 
     /**
@@ -93,6 +106,7 @@ class NhifEncounterPreApprovalService
      * @param  list<int>  $labOrderItemIds
      * @param  list<int>  $prescriptionOrderItemIds
      * @param  list<int>  $radiologyOrderItemIds
+     * @param  list<int>  $procedureOrderIds
      */
     public function createAndSubmitFromSelection(
         PatientInsurance $insurance,
@@ -103,6 +117,7 @@ class NhifEncounterPreApprovalService
         ?string $clinicalNotes = null,
         ?string $practitionerNo = null,
         array $radiologyOrderItemIds = [],
+        array $procedureOrderIds = [],
     ): NhifPreApprovalSession {
         if (blank($practitionerNo)) {
             $practitionerNo = $request->user()->staff?->practitioner?->nhif_practitioner_no;
@@ -190,6 +205,31 @@ class NhifEncounterPreApprovalService
                     'nhif_item_code' => $nhifCode,
                     'nhif_item_name' => $item->procedure_name,
                     'quantity' => 1,
+                    'unit_price' => 0,
+                    '_fetch_price_code' => $nhifCode,
+                ];
+            }
+        }
+
+        if (! empty($procedureOrderIds)) {
+            $procOrders = ProcedureOrder::query()
+                ->whereIn('id', $procedureOrderIds)
+                ->where('clinical_encounter_id', $encounter->id)
+                ->with('service')
+                ->get();
+
+            foreach ($procOrders as $order) {
+                $nhifCode = $order->nhif_item_code ?? $order->service?->code;
+                if (blank($nhifCode)) {
+                    continue;
+                }
+
+                $sessionItems[] = [
+                    'source_type' => NhifPreApprovalSessionItem::SOURCE_PROCEDURE,
+                    'source_id' => $order->id,
+                    'nhif_item_code' => $nhifCode,
+                    'nhif_item_name' => $order->procedure_name,
+                    'quantity' => $order->quantity ?: 1,
                     'unit_price' => 0,
                     '_fetch_price_code' => $nhifCode,
                 ];
@@ -518,5 +558,41 @@ class NhifEncounterPreApprovalService
                 $proc->update(['nhif_code' => $match->item_code]);
             }
         }
+    }
+
+    /**
+     * @param  array<string, true>  $existingKeys
+     * @return list<array{source_type: string, source_id: int, nhif_item_code: string, nhif_item_name: string, quantity: int, unit_price: null, needs_mapping?: bool, procedure_order_id?: int}>
+     */
+    private function collectProcedureItems(ClinicalEncounter $encounter, array $existingKeys): array
+    {
+        $encounter->loadMissing('procedureOrders.service');
+        $items = [];
+
+        foreach ($encounter->procedureOrders as $order) {
+            if ($order->status === 'cancelled' || $order->payment_mode !== ProcedureOrder::PAYMENT_MODE_NHIF) {
+                continue;
+            }
+
+            $key = NhifPreApprovalSessionItem::SOURCE_PROCEDURE.":{$order->id}";
+            if (isset($existingKeys[$key])) {
+                continue;
+            }
+
+            $nhifCode = $order->nhif_item_code ?? $order->service?->code;
+
+            $items[] = [
+                'source_type' => NhifPreApprovalSessionItem::SOURCE_PROCEDURE,
+                'source_id' => $order->id,
+                'nhif_item_code' => $nhifCode ?? '',
+                'nhif_item_name' => $order->procedure_name,
+                'quantity' => $order->quantity ?: 1,
+                'unit_price' => null,
+                'needs_mapping' => blank($nhifCode),
+                'procedure_order_id' => $order->id,
+            ];
+        }
+
+        return $items;
     }
 }

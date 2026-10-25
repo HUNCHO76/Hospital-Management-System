@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\GeneratesBusinessNumber;
 use Database\Factories\PractitionerFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -96,6 +97,17 @@ class Practitioner extends Model
         return [
             'license_expiry_date' => 'date',
         ];
+    }
+
+    /**
+     * Scope a query to only include active practitioners.
+     *
+     * @param  Builder<Practitioner>  $query
+     * @return Builder<Practitioner>
+     */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->where('status', self::STATUS_ACTIVE);
     }
 
     protected static function booted(): void

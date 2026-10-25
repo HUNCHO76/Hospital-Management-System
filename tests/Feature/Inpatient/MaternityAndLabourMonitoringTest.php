@@ -11,6 +11,7 @@ function maternityTestContext(): array
 {
     $ctx = activeAdmission();
     $admission = $ctx['admission'];
+    $admission->patient->update(['gender' => 'female']);
     $user = $ctx['user'];
 
     Staff::factory()->create([

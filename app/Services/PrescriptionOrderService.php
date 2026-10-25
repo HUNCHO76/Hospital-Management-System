@@ -9,6 +9,7 @@ use App\Models\NhifSchemeService;
 use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
 use App\Models\PrescriptionVerification;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -448,6 +449,7 @@ class PrescriptionOrderService
             throw ValidationException::withMessages([
                 'status' => 'Cannot modify a prescription that has already been verified.',
             ]);
+        }
     }
 
     /**
@@ -455,7 +457,7 @@ class PrescriptionOrderService
      *
      * @throws ValidationException
      */
-    protected function assertPrescriberAuthorized(\App\Models\User $user): void
+    protected function assertPrescriberAuthorized(User $user): void
     {
         if ($user->hasRole('nurse') && ! $user->can('prescriptions.nurse-prescribe')) {
             throw ValidationException::withMessages([

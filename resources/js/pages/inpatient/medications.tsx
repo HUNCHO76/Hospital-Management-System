@@ -46,7 +46,8 @@ interface PrescriptionOrderItem {
     duration_unit: string | null;
     instructions: string | null;
     status: string;
-    dispensingItems: DispensingItem[];
+    dispensingItems?: DispensingItem[];
+    dispensing_items?: DispensingItem[];
 }
 
 interface PrescriptionOrder {
@@ -202,8 +203,8 @@ export default function InpatientMedications({
 
     const needsReason = ['held', 'refused', 'missed'].includes(selectedAction);
 
-    const allItems = prescriptionOrders.flatMap((order) =>
-        order.items.map((item) => ({ item, order })),
+    const allItems = (prescriptionOrders ?? []).flatMap((order) =>
+        (order?.items ?? []).map((item) => ({ item, order })),
     );
 
     const adminsByItemId = administrations.reduce<Record<number, MedAdministration[]>>((acc, a) => {
@@ -242,7 +243,8 @@ export default function InpatientMedications({
                     allItems.map(({ item, order }) => {
                         const itemAdmins = adminsByItemId[item.id] ?? [];
                         const lastAdmin = itemAdmins.find((a) => a.corrects_id === null);
-                        const dispensedQty = item.dispensingItems
+                        const dispensingItems = item.dispensingItems ?? item.dispensing_items ?? [];
+                        const dispensedQty = dispensingItems
                             .filter((d) => d.status === 'dispensed')
                             .reduce((sum, d) => sum + d.dispensed_quantity, 0);
 

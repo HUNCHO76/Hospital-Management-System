@@ -226,7 +226,7 @@ class PrescriptionOrderPolicy
             return false;
         }
 
-        if ($user->hasRole('hospital-admin')) {
+        if ($user->hasRole('hospital-admin') || $encounter->encounter_type === 'inpatient' || $encounter->admission_id) {
             return true;
         }
 

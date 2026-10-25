@@ -1,52 +1,48 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/spinner';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { type MedicationSearchResult, type NhifMedicationCatalogItem } from '@/types/medication';
-import { ChevronsUpDown, Pill, Search } from 'lucide-react';
+import { Pill, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 interface MedicationSearchProps {
     selected?: MedicationSearchResult | null;
     onSelect: (medication: MedicationSearchResult) => void;
+    onClear?: () => void;
     disabled?: boolean;
     clinicalEncounterId?: number | null;
 }
 
 /**
- * A search-and-select combobox for picking a medication — copies
- * DiagnosisCodeSearch's structure exactly (debounce, 2-char minimum, a
- * request-id guard against stale responses, loading/empty states). Queries
- * the lightweight `/medications/search-json` endpoint rather than loading
- * the catalog client-side (spec §11/§36).
- *
- * For NHIF encounters, also shows matching items from the NHIF catalog
- * (schemes_services) — mirrors LaboratoryTestSearch's dual-list pattern.
+ * A direct inline search-and-select component for picking a medication.
+ * Avoids Radix Popover/Portal conflicts when rendered inside modal dialogs
+ * and sheets. Renders an active search Input directly in the form DOM, with
+ * an absolute dropdown and outside-click handling.
  */
 export function MedicationSearch({ selected, onSelect, disabled, clinicalEncounterId }: MedicationSearchProps) {
-    const [open, setOpen] = useState(false);
+    const [isOpen, setIsOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<MedicationSearchResult[]>([]);
     const [nhifCatalog, setNhifCatalog] = useState<NhifMedicationCatalogItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [resolving, setResolving] = useState<string | null>(null);
-    const debouncedQuery = useDebouncedValue(query, 300);
+    const debouncedQuery = useDebouncedValue(query, 250);
     const requestId = useRef(0);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (debouncedQuery.trim().length < 2) {
             setResults([]);
             setNhifCatalog([]);
-
             return;
         }
 
         const thisRequest = ++requestId.current;
         setLoading(true);
 
-        const params: Record<string, string | number> = { search: debouncedQuery };
+        const params: Record<string, string | number> = { search: debouncedQuery.trim() };
         if (clinicalEncounterId) {
             params.clinical_encounter_id = clinicalEncounterId;
         }
@@ -55,10 +51,17 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
             headers: { Accept: 'application/json' },
         })
             .then((response) => response.json())
-            .then((payload: { data: MedicationSearchResult[]; nhif_catalog: NhifMedicationCatalogItem[] }) => {
+            .then((payload: { data: MedicationSearchResult[]; nhif_catalog?: NhifMedicationCatalogItem[] }) => {
                 if (thisRequest === requestId.current) {
-                    setResults(payload.data);
+                    setResults(payload.data || []);
                     setNhifCatalog(payload.nhif_catalog ?? []);
+                    setIsOpen(true);
+                }
+            })
+            .catch(() => {
+                if (thisRequest === requestId.current) {
+                    setResults([]);
+                    setNhifCatalog([]);
                 }
             })
             .finally(() => {
@@ -67,6 +70,18 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
                 }
             });
     }, [debouncedQuery, clinicalEncounterId]);
+
+    // Close dropdown on click outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const selectNhifItem = (item: NhifMedicationCatalogItem) => {
         if (item.local_medication) {
@@ -78,9 +93,8 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
                 strength: null,
                 form: null,
             });
-            setOpen(false);
+            setIsOpen(false);
             setQuery('');
-
             return;
         }
 
@@ -92,76 +106,130 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
             .then((r) => r.json())
             .then((med: MedicationSearchResult) => {
                 onSelect(med);
-                setOpen(false);
+                setIsOpen(false);
                 setQuery('');
             })
             .finally(() => setResolving(null));
     };
 
-    const label = selected ? selected.generic_name : 'Search medication by name';
+    const handleSelectMedication = (medication: MedicationSearchResult) => {
+        onSelect(medication);
+        setIsOpen(false);
+        setQuery('');
+    };
+
+    const handleClearSelection = () => {
+        if (onClear) {
+            onClear();
+        } else {
+            (onSelect as any)(null);
+        }
+        setQuery('');
+        setIsOpen(false);
+    };
 
     const localMedIds = new Set(results.map((m) => m.id));
     const filteredCatalog = nhifCatalog.filter((item) => !item.local_medication || !localMedIds.has(item.local_medication.id));
 
-    return (
-        <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
+    // If a medication is already selected, display the selected card with a change button
+    if (selected) {
+        return (
+            <div className="flex items-center justify-between rounded-lg border border-purple-200 bg-purple-50/50 p-2 text-xs dark:border-purple-900/50 dark:bg-purple-950/20">
+                <div className="flex items-center gap-2 truncate">
+                    <Pill className="h-4 w-4 shrink-0 text-purple-600" />
+                    <div className="truncate">
+                        <span className="font-semibold text-foreground">{selected.generic_name}</span>
+                        {selected.brand_name && <span className="text-muted-foreground ml-1">({selected.brand_name})</span>}
+                        {(selected.strength || selected.form) && (
+                            <span className="text-muted-foreground ml-2 text-[11px]">
+                                · {[selected.strength, selected.form].filter(Boolean).join(' ')}
+                            </span>
+                        )}
+                    </div>
+                    {selected.nhif_code && (
+                        <Badge variant="outline" className="border-green-300 px-1 py-0 text-[10px] text-green-700 shrink-0">
+                            NHIF
+                        </Badge>
+                    )}
+                </div>
                 <Button
                     type="button"
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={open}
+                    variant="ghost"
+                    size="sm"
                     disabled={disabled}
-                    className="w-full justify-between font-normal"
+                    className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    onClick={handleClearSelection}
                 >
-                    <span className="flex items-center gap-2 truncate">
-                        <Pill className="text-muted-foreground h-4 w-4 shrink-0" />
-                        <span className="truncate">{label}</span>
-                    </span>
-                    <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                    <X className="mr-1 h-3.5 w-3.5" />
+                    Change
                 </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[--radix-popover-trigger-width] p-2" align="start">
-                <div className="relative mb-2">
-                    <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2" />
-                    <Input
-                        autoFocus
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Medication name"
-                        className="pl-8"
-                        aria-label="Search medications"
-                    />
-                </div>
+            </div>
+        );
+    }
 
-                <div className="max-h-64 overflow-y-auto">
-                    {loading && (
-                        <div className="flex items-center justify-center py-4">
-                            <Spinner label="Searching" />
+    return (
+        <div ref={containerRef} className="relative w-full">
+            <div className="relative">
+                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2" />
+                <Input
+                    value={query}
+                    onChange={(e) => {
+                        setQuery(e.target.value);
+                        if (!isOpen) setIsOpen(true);
+                    }}
+                    onFocus={() => {
+                        if (results.length > 0 || query.trim().length >= 2 || nhifCatalog.length > 0) {
+                            setIsOpen(true);
+                        }
+                    }}
+                    placeholder="Type medication name (e.g. Paracetamol, Oxytocin, Amoxicillin)..."
+                    className="pl-8 pr-8 h-9 text-xs"
+                    disabled={disabled}
+                    autoComplete="off"
+                />
+                {loading && (
+                    <div className="absolute top-1/2 right-2.5 -translate-y-1/2">
+                        <Spinner className="h-3.5 w-3.5 text-muted-foreground" />
+                    </div>
+                )}
+                {query && !loading && (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setQuery('');
+                            setResults([]);
+                            setIsOpen(false);
+                        }}
+                        className="absolute top-1/2 right-2.5 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5"
+                    >
+                        <X className="h-3.5 w-3.5" />
+                    </button>
+                )}
+            </div>
+
+            {/* Dropdown Results */}
+            {isOpen && query.trim().length >= 2 && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-md border bg-popover shadow-lg max-h-60 overflow-y-auto p-1 text-xs">
+                    {loading && results.length === 0 && (
+                        <div className="flex items-center justify-center p-4 text-xs text-muted-foreground gap-2">
+                            <Spinner className="h-3.5 w-3.5" />
+                            Searching medications...
                         </div>
                     )}
 
-                    {!loading && query.trim().length >= 2 && results.length === 0 && filteredCatalog.length === 0 && (
-                        <p className="text-muted-foreground px-2 py-4 text-center text-sm">No matching medications found.</p>
-                    )}
-
-                    {!loading && query.trim().length < 2 && (
-                        <p className="text-muted-foreground px-2 py-4 text-center text-sm">Type at least 2 characters to search.</p>
+                    {!loading && results.length === 0 && filteredCatalog.length === 0 && (
+                        <p className="text-muted-foreground px-2 py-4 text-center text-xs">No matching medications found.</p>
                     )}
 
                     {results.map((medication) => (
                         <button
                             key={medication.id}
                             type="button"
-                            onClick={() => {
-                                onSelect(medication);
-                                setOpen(false);
-                                setQuery('');
-                            }}
-                            className="hover:bg-accent hover:text-accent-foreground flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm"
+                            onClick={() => handleSelectMedication(medication)}
+                            className="hover:bg-accent hover:text-accent-foreground flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-xs transition-colors"
                         >
                             <span className="flex items-center gap-2">
-                                <span className="font-medium">
+                                <span className="font-medium text-foreground">
                                     {medication.generic_name}
                                     {medication.brand_name && <span className="text-muted-foreground"> ({medication.brand_name})</span>}
                                 </span>
@@ -172,7 +240,7 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
                                 )}
                             </span>
                             {(medication.strength || medication.form) && (
-                                <span className="text-muted-foreground text-xs">{[medication.strength, medication.form].filter(Boolean).join(' · ')}</span>
+                                <span className="text-muted-foreground text-[11px]">{[medication.strength, medication.form].filter(Boolean).join(' · ')}</span>
                             )}
                         </button>
                     ))}
@@ -180,7 +248,7 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
                     {filteredCatalog.length > 0 && (
                         <>
                             <div className="my-1 border-t px-2 pt-1.5">
-                                <span className="text-muted-foreground text-xs font-medium">NHIF Covered Medications</span>
+                                <span className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">NHIF Covered Catalog</span>
                             </div>
                             {filteredCatalog.map((item) => (
                                 <button
@@ -188,7 +256,7 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
                                     type="button"
                                     disabled={resolving === item.item_code}
                                     onClick={() => selectNhifItem(item)}
-                                    className="hover:bg-accent hover:text-accent-foreground flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-sm"
+                                    className="hover:bg-accent hover:text-accent-foreground flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-xs transition-colors"
                                 >
                                     <span className="flex items-center gap-2">
                                         <span className="font-medium">
@@ -203,7 +271,7 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
                                         )}
                                     </span>
                                     {item.local_medication && (
-                                        <span className="text-muted-foreground text-xs">
+                                        <span className="text-muted-foreground text-[11px]">
                                             → {item.local_medication.code} — {item.local_medication.generic_name}
                                         </span>
                                     )}
@@ -212,7 +280,7 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
                         </>
                     )}
                 </div>
-            </PopoverContent>
-        </Popover>
+            )}
+        </div>
     );
 }

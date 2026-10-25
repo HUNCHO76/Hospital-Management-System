@@ -39,8 +39,36 @@ class NursingAccessService
             return true;
         }
 
-        return $staff->department_id !== null
-            && (int) $staff->department_id === (int) $admission->department_id;
+        if ($staff->department_id !== null && (int) $staff->department_id === (int) $admission->department_id) {
+            return true;
+        }
+
+        $admission->loadMissing(['department', 'maternityProfile']);
+        $staff->loadMissing('department');
+
+        $admissionDeptCode = strtoupper($admission->department?->code ?? '');
+        $staffDeptCode = strtoupper($staff->department?->code ?? '');
+
+        // Maternity Patient Access: If patient is in Maternity or has a maternity profile,
+        // authorized maternity clinicians, midwives, and nurses in the facility have access.
+        $isMaternity = $admissionDeptCode === 'MATERNITY'
+            || strtolower($admission->department?->name ?? '') === 'maternity'
+            || $admission->maternityProfile !== null
+            || in_array(strtolower($admission->ward_type ?? ''), ['maternity', 'labour', 'postpartum', 'antenatal'], true);
+
+        if ($isMaternity && ($user->can('maternity.view') || $user->can('maternity.manage') || $user->hasAnyRole(['midwife', 'nurse', 'doctor']))) {
+            return true;
+        }
+
+        // Clinical Inpatient & Maternity ward cross-access for ward nursing staff
+        $inpatientDeptCodes = ['INPATIENT', 'MATERNITY'];
+        if (in_array($staffDeptCode, $inpatientDeptCodes, true) && in_array($admissionDeptCode, $inpatientDeptCodes, true)) {
+            if ($user->can('inpatient-nursing.view') || $user->can('maternity.view') || $user->hasAnyRole(['nurse', 'midwife', 'doctor'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -65,6 +93,22 @@ class NursingAccessService
 
         if ($user->can('inpatient-nursing.view-all-wards')) {
             return $query;
+        }
+
+        $staff->loadMissing('department');
+        $staffDeptCode = strtoupper($staff->department?->code ?? '');
+        $inpatientDeptCodes = ['INPATIENT', 'MATERNITY'];
+
+        if (in_array($staffDeptCode, $inpatientDeptCodes, true) || $user->can('maternity.view')) {
+            return $query->where(function ($q) use ($staff, $inpatientDeptCodes) {
+                if ($staff->department_id !== null) {
+                    $q->where('department_id', $staff->department_id);
+                }
+                $q->orWhereHas('department', function ($dq) use ($inpatientDeptCodes) {
+                    $dq->whereIn('code', $inpatientDeptCodes);
+                })
+                    ->orWhereHas('maternityProfile');
+            });
         }
 
         if ($staff->department_id === null) {

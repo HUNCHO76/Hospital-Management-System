@@ -304,6 +304,14 @@ class ClinicalEncounter extends Model
     }
 
     /**
+     * Clinical procedure orders prescribed during this encounter.
+     */
+    public function procedureOrders(): HasMany
+    {
+        return $this->hasMany(ProcedureOrder::class, 'clinical_encounter_id')->orderBy('created_at');
+    }
+
+    /**
      * NHIF pre-approval sessions linked to this encounter (Phase 8).
      */
     public function nhifPreApprovalSessions(): HasMany

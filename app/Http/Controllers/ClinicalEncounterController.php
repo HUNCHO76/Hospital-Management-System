@@ -22,6 +22,7 @@ use App\Models\Department;
 use App\Models\LaboratoryReport;
 use App\Models\NhifPreApprovalSession;
 use App\Models\Practitioner;
+use App\Models\ProcedureOrder;
 use App\Models\RadiologyAppointment;
 use App\Models\RadiologyReport;
 use App\Models\ReceptionVisit;
@@ -31,6 +32,7 @@ use App\Services\ClinicalEncounterService;
 use App\Services\FinancialAuthorizationService;
 use App\Services\MedicationSafetyService;
 use App\Services\NHIF\NhifEncounterPreApprovalService;
+use App\Services\NHIF\NhifOrderPreApprovalService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -213,6 +215,54 @@ class ClinicalEncounterController extends Controller
             ->map(fn (RadiologyAppointment $appointment) => (new RadiologyResultResource($appointment))->resolve($request))
             ->values();
 
+        $nhifPreApprovalService = app(NhifOrderPreApprovalService::class);
+        $procedureOrders = $clinicalEncounter->procedureOrders()->with([
+            'service',
+            'prescribedBy:id,UserName',
+            'performer:id,UserName',
+            'charge',
+            'invoice',
+        ])->get()->map(function (ProcedureOrder $order) use ($nhifPreApprovalService) {
+            $nhifStatus = $nhifPreApprovalService->statusForProcedureOrder($order);
+
+            return [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'procedure_name' => $order->procedure_name,
+                'procedure_type' => $order->procedure_type,
+                'urgency' => $order->urgency,
+                'clinical_indication' => $order->clinical_indication,
+                'status' => $order->status,
+                'payment_mode' => $order->payment_mode,
+                'billing_status' => $order->billing_status,
+                'quantity' => $order->quantity,
+                'unit_price' => (float) $order->unit_price,
+                'total_price' => (float) $order->total_price,
+                'charge_id' => $order->charge_id,
+                'invoice_id' => $order->invoice_id,
+                'is_paid' => $order->isPaid(),
+                'is_authorized' => $order->isAuthorized(),
+                'can_be_executed' => $order->canBeExecuted(),
+                'is_emergency_exemption' => $order->is_emergency_exemption,
+                'exemption_reason' => $order->exemption_reason,
+                'nhif_item_code' => $order->nhif_item_code,
+                'nhif_approval_status' => $order->nhif_approval_status,
+                'nhif_authorization_no' => $order->nhif_authorization_no,
+                'nhif_rejection_reason' => $order->nhif_rejection_reason,
+                'nhif_pre_approval' => $nhifStatus,
+                'prescribed_by' => $order->prescribedBy ? ['id' => $order->prescribedBy->id, 'UserName' => $order->prescribedBy->UserName] : null,
+                'performer' => $order->performer ? ['id' => $order->performer->id, 'UserName' => $order->performer->UserName] : null,
+                'performed_at' => $order->performed_at?->toISOString(),
+                'scheduled_at' => $order->scheduled_at?->toISOString(),
+                'findings' => $order->findings,
+                'results' => $order->results,
+                'procedure_notes' => $order->procedure_notes,
+                'complications' => $order->complications,
+                'notes' => $order->notes,
+                'created_at' => $order->created_at->toISOString(),
+            ];
+        })->values()->all();
+
         return Inertia::render('clinical-encounters/show', [
             'encounter' => (new ClinicalEncounterResource($clinicalEncounter))->resolve($request),
             'triage' => $triage ? (new TriageAssessmentResource($triage))->resolve($request) : null,
@@ -224,6 +274,7 @@ class ClinicalEncounterController extends Controller
             'radiologyOrders' => RadiologyOrderResource::collection($radiologyOrders)->resolve($request),
             'radiologyResults' => $radiologyResults,
             'prescriptionOrders' => PrescriptionOrderResource::collection($prescriptionOrders)->resolve($request),
+            'procedureOrders' => $procedureOrders,
             'clinicalNotes' => ClinicalNoteResource::collection($clinicalNotes)->resolve($request),
             // Only needed for the care plan's referral item form.
             'departments' => Department::active()->orderBy('name')->get(['id', 'name', 'code']),

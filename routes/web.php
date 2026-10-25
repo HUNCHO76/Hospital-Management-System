@@ -22,6 +22,7 @@ use App\Http\Controllers\EncounterDiagnosisController;
 use App\Http\Controllers\EncounterLaboratoryOrderController;
 use App\Http\Controllers\EncounterNhifPreApprovalController;
 use App\Http\Controllers\EncounterPrescriptionOrderController;
+use App\Http\Controllers\EncounterProcedureOrderController;
 use App\Http\Controllers\EncounterRadiologyOrderController;
 use App\Http\Controllers\HospitalController;
 use App\Http\Controllers\InpatientBillingController;
@@ -45,6 +46,7 @@ use App\Http\Controllers\LaboratorySampleController;
 use App\Http\Controllers\LaboratoryTestCategoryController;
 use App\Http\Controllers\LaboratoryTestController;
 use App\Http\Controllers\LaboratoryTestParameterController;
+use App\Http\Controllers\MaternityEpisodeController;
 use App\Http\Controllers\MedicationAdministrationController;
 use App\Http\Controllers\MedicationController;
 use App\Http\Controllers\NhifAdmissionController;
@@ -104,6 +106,7 @@ use App\Http\Controllers\Stores\StoreInventoryController;
 use App\Http\Controllers\Stores\StoreIssueController;
 use App\Http\Controllers\Stores\StoreTransferController;
 use App\Http\Controllers\TriageController;
+use App\Http\Controllers\UserPermissionController;
 use App\Http\Controllers\VitalSignController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -119,6 +122,14 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('hospitals', HospitalController::class);
     Route::resource('departments', DepartmentController::class);
     Route::resource('staff', StaffController::class);
+    Route::post('staff/{staff}/activation', [\App\Http\Controllers\StaffActivationAdminController::class, 'store'])->name('staff.activation.store');
+
+    // User Permission Overrides Management
+    Route::prefix('users/{user}/permissions')->name('users.permissions.')->group(function () {
+        Route::get('', [UserPermissionController::class, 'edit'])->name('edit');
+        Route::put('', [UserPermissionController::class, 'update'])->name('update');
+        Route::delete('', [UserPermissionController::class, 'reset'])->name('reset');
+    });
     Route::resource('practitioners', PractitionerController::class);
     Route::post('practitioners/{practitioner}/nhif-login', [NhifPractitionerAttendanceController::class, 'login'])->name('practitioners.nhif-login');
     Route::post('practitioners/{practitioner}/nhif-logout', [NhifPractitionerAttendanceController::class, 'logout'])->name('practitioners.nhif-logout');
@@ -143,6 +154,9 @@ Route::middleware(['auth'])->group(function () {
         Route::post('{admission}/submit-nhif-discharge', [AdmissionController::class, 'submitDischargeNhif'])->name('submit-nhif-discharge');
         Route::post('{admission}/transfers/{transfer}/nhif-submit', [AdmissionController::class, 'submitTransferNhif'])->name('transfers.nhif-submit');
     });
+
+    // Maternity episode registration (standalone / outpatient / emergency / inpatient)
+    Route::post('maternity/episodes', [MaternityEpisodeController::class, 'store'])->name('maternity.episodes.store');
 
     // Phase 9, Step 74 — inpatient ward dashboard and patient clinical profile
     // Phase 9, Step 75 — medication administration record (MAR)
@@ -177,6 +191,9 @@ Route::middleware(['auth'])->group(function () {
         Route::post('{admission}/maternity/{profile}/stage', [InpatientMaternityController::class, 'updateStage'])->name('maternity.stage.update');
         Route::post('{admission}/maternity/{profile}/partograph', [InpatientMaternityController::class, 'storePartograph'])->name('maternity.partograph.store');
         Route::post('{admission}/maternity/{profile}/delivery', [InpatientMaternityController::class, 'storeDelivery'])->name('maternity.delivery.store');
+        Route::post('{admission}/maternity/laboratory-orders', [InpatientMaternityController::class, 'storeLaboratoryOrder'])->name('maternity.laboratory-orders.store');
+        Route::post('{admission}/maternity/radiology-orders', [InpatientMaternityController::class, 'storeRadiologyOrder'])->name('maternity.radiology-orders.store');
+        Route::post('{admission}/maternity/prescription-orders', [InpatientMaternityController::class, 'storePrescriptionOrder'])->name('maternity.prescriptions.store');
         // Doctor-Ordered Procedures & Surgical Theatre Operations
         Route::get('{admission}/procedures', [InpatientProcedureController::class, 'index'])->name('procedures.index');
         Route::post('{admission}/procedures', [InpatientProcedureController::class, 'storeOrder'])->name('procedures.store');
@@ -210,6 +227,8 @@ Route::middleware(['auth'])->group(function () {
         Route::post('service-mappings/{nhifServiceMapping}/deactivate', [NhifServiceMappingController::class, 'deactivate'])->name('service-mappings.deactivate');
         Route::get('price-sync', [NhifPriceSyncController::class, 'index'])->name('price-sync.index');
         Route::post('price-sync', [NhifPriceSyncController::class, 'store'])->name('price-sync.store');
+        Route::get('price-sync/preview', [NhifPriceSyncController::class, 'preview'])->name('price-sync.preview');
+        Route::get('price-sync/unmatched', [NhifPriceSyncController::class, 'unmatched'])->name('price-sync.unmatched');
         Route::get('disease-sync', [NhifDiseaseSyncController::class, 'index'])->name('disease-sync.index');
         Route::post('disease-sync', [NhifDiseaseSyncController::class, 'store'])->name('disease-sync.store');
         Route::get('package-prices', [NhifPackagePriceController::class, 'index'])->name('package-prices.index');
@@ -464,6 +483,12 @@ Route::middleware(['auth'])->group(function () {
         Route::put('{clinicalEncounter}/prescription-orders/{prescriptionOrder}', [EncounterPrescriptionOrderController::class, 'update'])->name('prescription-orders.update');
         Route::post('{clinicalEncounter}/prescription-orders/{prescriptionOrder}/cancel', [EncounterPrescriptionOrderController::class, 'cancel'])->name('prescription-orders.cancel');
         Route::post('{clinicalEncounter}/prescription-orders/{prescriptionOrder}/items/{item}/cancel', [EncounterPrescriptionOrderController::class, 'cancelItem'])->name('prescription-orders.items.cancel');
+
+        // Clinical procedure orders presented as part of the clinical encounter screen.
+        Route::post('{clinicalEncounter}/procedure-orders', [EncounterProcedureOrderController::class, 'store'])->name('procedure-orders.store');
+        Route::post('{clinicalEncounter}/procedure-orders/{procedureOrder}/execute', [EncounterProcedureOrderController::class, 'execute'])->name('procedure-orders.execute');
+        Route::post('{clinicalEncounter}/procedure-orders/{procedureOrder}/cancel', [EncounterProcedureOrderController::class, 'cancel'])->name('procedure-orders.cancel');
+        Route::get('{clinicalEncounter}/procedure-catalogue', [EncounterProcedureOrderController::class, 'searchCatalogue'])->name('procedure-catalogue.search');
 
         // NHIF pre-approval sessions scoped to this encounter (Phase 8).
         // Submitted inline on the encounter page — prices are fetched

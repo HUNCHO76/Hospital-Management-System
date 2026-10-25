@@ -68,6 +68,13 @@ interface Props {
     canResolveEscalation: boolean;
     canManageAllergies: boolean;
     canAdministerMedication: boolean;
+    canAccessMaternity?: boolean;
+    maternityEligibility?: {
+        allowed: boolean;
+        reason: string;
+        has_profile: boolean;
+        is_eligible: boolean;
+    };
 }
 
 export default function NursingWorkspace({
@@ -93,6 +100,7 @@ export default function NursingWorkspace({
     canResolveEscalation,
     canManageAllergies,
     canAdministerMedication,
+    canAccessMaternity = false,
 }: Props) {
     const patient = admission.patient;
     const patientName = patient ? `${patient.first_name} ${patient.last_name}` : 'Unknown Patient';
@@ -348,7 +356,7 @@ export default function NursingWorkspace({
                                 MAR Worklist
                             </Link>
                         </Button>
-                        {(admission.patient?.gender?.toLowerCase() === 'female' || admission.maternity_profile) && (
+                        {canAccessMaternity && (
                             <Button size="sm" variant="outline" className="border-pink-300 text-pink-700 hover:bg-pink-50 dark:hover:bg-pink-950/40" asChild>
                                 <Link href={route('inpatient.maternity.show', admission.id)} className="gap-1.5">
                                     <Baby className="h-4 w-4 text-pink-600" />

@@ -59,4 +59,9 @@ class PatientAllergy extends Model
     {
         return $this->belongsTo(User::class, 'recorded_by');
     }
+
+    public function resolvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'resolved_by');
+    }
 }

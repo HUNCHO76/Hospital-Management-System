@@ -2,11 +2,22 @@ import { Can } from '@/components/authorization/can';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { type Staff } from '@/types/staff';
-import { Head, Link } from '@inertiajs/react';
-import { Pencil } from 'lucide-react';
+import { Head, Link, router } from '@inertiajs/react';
+import { KeyRound, Pencil, Shield } from 'lucide-react';
+import { useState } from 'react';
 
 interface StaffShowProps {
     staff: Staff;
@@ -14,6 +25,29 @@ interface StaffShowProps {
 }
 
 export default function StaffShow({ staff, roles }: StaffShowProps) {
+    const [activationOpen, setActivationOpen] = useState(false);
+    const [activationEmail, setActivationEmail] = useState(staff.email ?? staff.user?.email ?? '');
+    const [isActivating, setIsActivating] = useState(false);
+
+    const handleGenerateActivation = (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsActivating(true);
+        router.post(
+            route('staff.activation.store', staff.id),
+            { email: activationEmail || undefined },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setIsActivating(false);
+                    setActivationOpen(false);
+                },
+                onError: () => {
+                    setIsActivating(false);
+                },
+            },
+        );
+    };
+
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Staff', href: '/staff' },
         { title: `${staff.first_name} ${staff.last_name}`, href: `/staff/${staff.id}` },
@@ -110,18 +144,49 @@ export default function StaffShow({ staff, roles }: StaffShowProps) {
 
                     <Card>
                         <CardHeader>
-                            <CardTitle className="text-base">Account</CardTitle>
+                            <CardTitle className="text-base flex items-center justify-between">
+                                <span>Account</span>
+                                {staff.user && (
+                                    <Badge variant={staff.user.status === 'active' ? 'default' : 'secondary'}>
+                                        {staff.user.status === 'active' ? 'Active' : 'Pending Activation'}
+                                    </Badge>
+                                )}
+                            </CardTitle>
                         </CardHeader>
                         <CardContent>
                             {staff.user ? (
                                 <dl className="space-y-2 text-sm">
                                     <div className="flex justify-between gap-4">
+                                        <dt className="text-muted-foreground">Username</dt>
+                                        <dd className="font-mono text-xs">{staff.user.UserName}</dd>
+                                    </div>
+                                    <div className="flex justify-between gap-4">
                                         <dt className="text-muted-foreground">Email</dt>
-                                        <dd>{staff.user.email}</dd>
+                                        <dd>{staff.user.email ?? <span className="text-muted-foreground italic">Awaiting verification</span>}</dd>
                                     </div>
                                     <div className="flex justify-between gap-4">
                                         <dt className="text-muted-foreground">Roles</dt>
                                         <dd className="text-right">{roles.length > 0 ? roles.join(', ') : '—'}</dd>
+                                    </div>
+                                    <div className="pt-3 border-t space-y-2">
+                                        <Button asChild size="sm" variant="outline" className="w-full">
+                                            <Link href={route('users.permissions.edit', staff.user.id)}>
+                                                <Shield className="mr-1.5 h-4 w-4 text-primary" />
+                                                Manage Permissions & Overrides
+                                            </Link>
+                                        </Button>
+
+                                        <Can permission="staff.update">
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                className="w-full"
+                                                onClick={() => setActivationOpen(true)}
+                                            >
+                                                <KeyRound className="mr-1.5 h-4 w-4" />
+                                                {staff.user.status === 'active' ? 'Generate Activation / Reset Link' : 'Activate Account & Set Email'}
+                                            </Button>
+                                        </Can>
                                     </div>
                                 </dl>
                             ) : (
@@ -181,6 +246,53 @@ export default function StaffShow({ staff, roles }: StaffShowProps) {
                     </Card>
                 </div>
             </div>
+
+            {/* Account Activation Dialog */}
+            <Dialog open={activationOpen} onOpenChange={setActivationOpen}>
+                <DialogContent>
+                    <form onSubmit={handleGenerateActivation}>
+                        <DialogHeader>
+                            <DialogTitle>Generate Secure Activation Link</DialogTitle>
+                            <DialogDescription>
+                                Set or verify the staff member's real email address to generate a single-use,
+                                cryptographically secure account activation link.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-4 py-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="staff_email">Staff Verified Email Address</Label>
+                                <Input
+                                    id="staff_email"
+                                    type="email"
+                                    placeholder="e.g. staff.name@hospital.org"
+                                    value={activationEmail}
+                                    onChange={(e) => setActivationEmail(e.target.value)}
+                                    autoFocus
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    The activation link will allow the user to set their password upon first login.
+                                    The link expires automatically after 7 days.
+                                </p>
+                            </div>
+                        </div>
+
+                        <DialogFooter>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setActivationOpen(false)}
+                                disabled={isActivating}
+                            >
+                                Cancel
+                            </Button>
+                            <Button type="submit" disabled={isActivating}>
+                                {isActivating ? 'Generating...' : 'Generate Activation Link'}
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
         </AppLayout>
     );
 }

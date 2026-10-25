@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Models\Concerns\HasPermissionOverrides;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -16,7 +16,15 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasApiTokens, HasFactory, HasRoles, Notifiable, SoftDeletes;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
+    use HasRoles, HasPermissionOverrides {
+        HasPermissionOverrides::hasPermissionTo insteadof HasRoles;
+        HasPermissionOverrides::checkPermissionTo insteadof HasRoles;
+        HasPermissionOverrides::getAllPermissions insteadof HasRoles;
+        HasRoles::hasPermissionTo as spatieHasPermissionTo;
+        HasRoles::checkPermissionTo as spatieCheckPermissionTo;
+        HasRoles::getAllPermissions as spatieGetAllPermissions;
+    }
 
     /**
      * Account status values recognized by the authentication system.
@@ -38,6 +46,7 @@ class User extends Authenticatable
         'phone',
         'password',
         'status',
+        'email_verified_at',
     ];
 
     /**

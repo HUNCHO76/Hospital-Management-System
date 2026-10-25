@@ -53,6 +53,19 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
+        // Handle unauthenticated Inertia requests by triggering an external Inertia location redirect.
+        $exceptions->render(function (AuthenticationException $exception, Request $request) {
+            if ($request->header('X-Inertia')) {
+                return Inertia::location(route('login'));
+            }
+
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return ApiResponse::unauthorized();
+            }
+
+            return null;
+        });
+
         // Convert exceptions on API/JSON requests into the standard envelope,
         // never leaking stack traces, SQL, or internal details to clients.
         $exceptions->render(function (Throwable $exception, Request $request) {
@@ -81,9 +94,23 @@ return Application::configure(basePath: dirname(__DIR__))
         // JSON requests are handled by the standard envelope above.
         $exceptions->respond(function (Response $response, Throwable $exception, Request $request) {
             if ($response->getStatusCode() === 419) {
+                if ($request->header('X-Inertia')) {
+                    return Inertia::location(route('login'));
+                }
+
                 return redirect()->route('login')->with([
                     'status' => 'Your session has expired. Please log in again.',
                 ]);
+            }
+
+            if ($exception instanceof AuthenticationException && $request->header('X-Inertia')) {
+                return Inertia::location(route('login'));
+            }
+
+            // In accordance with RFC 7231 / Inertia requirements, convert 302 redirects on non-GET requests to 303 See Other
+            // so browsers do not repeat the non-GET HTTP method (e.g. PUT/PATCH/DELETE) on the redirected target.
+            if ($response->getStatusCode() === 302 && in_array($request->method(), ['PUT', 'PATCH', 'DELETE'])) {
+                $response->setStatusCode(303);
             }
 
             if ($request->expectsJson() || $request->is('api/*')) {

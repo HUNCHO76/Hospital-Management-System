@@ -45,6 +45,8 @@ class StoreDeliveryRecordRequest extends FormRequest
             'bcg_given' => ['boolean'],
             'polio_0_given' => ['boolean'],
             'baby_patient_id' => ['nullable', 'integer', 'exists:patients,id'],
+            'is_emergency' => ['nullable', 'boolean'],
+            'emergency_reason' => ['nullable', 'string', 'max:1000'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];
     }

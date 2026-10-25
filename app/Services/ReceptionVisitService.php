@@ -213,34 +213,42 @@ class ReceptionVisitService
             ]);
 
             $charge = null;
+            $practitioner = ! empty($data['practitioner_id'])
+                ? Practitioner::query()->find($data['practitioner_id'])
+                : null;
+            $selectedService = ! empty($data['service_id'])
+                ? Service::query()->find($data['service_id'])
+                : null;
 
-            if (! empty($data['practitioner_id'])) {
-                $practitioner = Practitioner::query()->find($data['practitioner_id']);
+            $visit->load('department');
 
-                if ($practitioner) {
-                    $visit->load('department');
+            if ($practitioner && $nhifItemCode && $resolvedServiceId) {
+                $nhifService = Service::find($resolvedServiceId);
+                $nhifPrice = $this->fetchNhifItemPrice($data['patient_id'], $nhifItemCode);
 
-                    if ($nhifItemCode && $resolvedServiceId) {
-                        $nhifService = Service::find($resolvedServiceId);
-                        $nhifPrice = $this->fetchNhifItemPrice($data['patient_id'], $nhifItemCode);
-
-                        if ($nhifService && $nhifPrice !== null) {
-                            $charge = $this->chargeCapture->captureNhifReceptionVisit(
-                                $visit, $practitioner, $nhifService, (string) $nhifPrice, $request
-                            );
-                        }
-                    }
-
-                    if ($charge === null && ! $nhifItemCode) {
-                        $charge = $this->chargeCapture->captureFromReceptionVisit($visit, $practitioner, $request);
-                    }
-
-                    if ($charge !== null) {
-                        $this->postAndInvoiceReceptionCharge($charge, $request);
-                    } elseif (! $nhifItemCode) {
-                        $visit->billing_warning = 'No consultation price is configured for this practitioner or facility — the visit was created without a billing charge. Notify billing/admin to configure pricing.';
-                    }
+                if ($nhifService && $nhifPrice !== null) {
+                    $charge = $this->chargeCapture->captureNhifReceptionVisit(
+                        $visit, $practitioner, $nhifService, (string) $nhifPrice, $request
+                    );
                 }
+            }
+
+            if ($charge === null && ! $nhifItemCode) {
+                if ($selectedService) {
+                    $charge = $this->chargeCapture->captureFromSelectedService(
+                        $visit, $practitioner, $selectedService, $request
+                    );
+                }
+
+                if ($charge === null && $practitioner) {
+                    $charge = $this->chargeCapture->captureFromReceptionVisit($visit, $practitioner, $request);
+                }
+            }
+
+            if ($charge !== null) {
+                $this->postAndInvoiceReceptionCharge($charge, $request);
+            } elseif (! $nhifItemCode && ($practitioner || $selectedService)) {
+                $visit->billing_warning = 'No consultation price is configured for this practitioner or facility — the visit was created without a billing charge. Notify billing/admin to configure pricing.';
             }
 
             return ['visit' => $visit, 'charge' => $charge];

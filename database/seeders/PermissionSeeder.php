@@ -253,7 +253,7 @@ class PermissionSeeder extends Seeder
         // Dedicated permission for authorized nurse prescribing privileges
         'prescriptions' => ['nurse-prescribe'],
         // Doctor-ordered procedures and surgical theatre operations.
-        'procedures' => ['view', 'order', 'manage'],
+        'procedures' => ['view', 'order', 'manage', 'execute', 'cancel'],
         'surgical' => ['theatre-manage', 'operate'],
 
         // Phase 9, Step 94: discharge document generation.

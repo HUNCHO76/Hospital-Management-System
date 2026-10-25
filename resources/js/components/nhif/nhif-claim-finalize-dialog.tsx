@@ -77,7 +77,7 @@ interface NhifClaimFinalizeDialogProps {
     clinicalEncounterId?: number;
     admissionId?: number;
     patientName?: string;
-    patientCardNo?: string;
+    patientCardNo?: string | null;
     trigger?: React.ReactNode;
     onFinalized?: (claim: any) => void;
 }

@@ -14,7 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Domain service for Maternity Nursing, Labour Monitoring & WHO-compliant Partograph.
+ * Service managing Inpatient & Outpatient Maternity episodes, Labour monitoring & WHO-compliant Partograph.
  */
 class MaternityService
 {
@@ -24,27 +24,40 @@ class MaternityService
     ) {}
 
     /**
-     * Create or update a patient's maternity and labour profile under an active admission or encounter.
+     * Register a new maternity episode for a patient, optionally linked to an admission or encounter.
+     *
+     * A patient can initiate a maternity episode without automatically creating an inpatient admission.
      *
      * @param  array<string, mixed>  $data
      *
      * @throws ValidationException
      */
-    public function saveProfile(Admission $admission, array $data, Request $request): MaternityProfile
-    {
-        if ($admission->status !== Admission::STATUS_ACTIVE) {
+    public function registerEpisode(
+        Patient $patient,
+        array $data,
+        Request $request,
+        ?Admission $admission = null,
+        ?ClinicalEncounter $encounter = null
+    ): MaternityProfile {
+        if ($admission && $admission->status !== Admission::STATUS_ACTIVE) {
             throw ValidationException::withMessages([
-                'admission_id' => 'Maternity profile can only be documented for an active admission.',
+                'admission_id' => 'Maternity episode can only be documented for an active admission.',
             ]);
         }
 
-        $patient = $admission->patient;
+        // Check if updating an existing active profile for this patient
+        $existingProfileQuery = MaternityProfile::query()
+            ->where('patient_id', $patient->id)
+            ->where('status', 'active');
 
-        // Check if updating an existing active profile for this admission
-        $existingProfile = MaternityProfile::query()
-            ->where('admission_id', $admission->id)
-            ->where('status', 'active')
-            ->first();
+        if ($admission) {
+            $existingProfileQuery->where('admission_id', $admission->id);
+        }
+
+        $existingProfile = $existingProfileQuery->first();
+
+        // Only ignore existing profile if updating an existing profile on the same admission
+        $ignoreProfileId = $admission ? $existingProfile?->id : null;
 
         // Enforce centralized maternity eligibility
         $exceptionReason = $data['clinical_exception_reason'] ?? null;
@@ -52,7 +65,7 @@ class MaternityService
             $patient,
             $exceptionReason,
             $request->user(),
-            $existingProfile?->id
+            $ignoreProfileId
         );
 
         // Automatic EDD & Gestational Age calculation from LMP if not explicitly provided
@@ -73,11 +86,41 @@ class MaternityService
             $data['exception_authorized_by'] = $request->user()->id;
         }
 
+        // Determine care pathway (outpatient, emergency, inpatient)
+        $carePathway = $data['care_pathway'] ?? null;
+        if (empty($carePathway)) {
+            if ($admission) {
+                $carePathway = MaternityProfile::CARE_PATHWAY_INPATIENT;
+            } elseif ($encounter && $encounter->type === 'inpatient') {
+                $carePathway = MaternityProfile::CARE_PATHWAY_INPATIENT;
+            } elseif ($encounter && str_contains(strtolower((string) $encounter->type), 'emergency')) {
+                $carePathway = MaternityProfile::CARE_PATHWAY_EMERGENCY;
+            } else {
+                $carePathway = MaternityProfile::CARE_PATHWAY_OUTPATIENT;
+            }
+        }
+
+        $encounterId = $encounter?->id ?? $admission?->clinical_encounter_id ?? $data['clinical_encounter_id'] ?? null;
+
+        $matchAttributes = $existingProfile
+            ? ['id' => $existingProfile->id]
+            : [
+                'patient_id' => $patient->id,
+                'status' => 'active',
+            ];
+
+        if ($admission && ! $existingProfile) {
+            $matchAttributes['admission_id'] = $admission->id;
+        }
+
         $profile = MaternityProfile::updateOrCreate(
-            ['admission_id' => $admission->id, 'status' => 'active'],
+            $matchAttributes,
             [
                 ...$data,
-                'patient_id' => $admission->patient_id,
+                'patient_id' => $patient->id,
+                'admission_id' => $admission?->id ?? $existingProfile?->admission_id,
+                'clinical_encounter_id' => $encounterId,
+                'care_pathway' => $carePathway,
                 'recorded_by' => $existingProfile ? $existingProfile->recorded_by : $request->user()->id,
             ]
         );
@@ -102,9 +145,10 @@ class MaternityService
             $profile,
             null,
             [
-                'admission_id' => $admission->id,
+                'admission_id' => $admission?->id,
                 'episode_number' => $profile->episode_number,
                 'care_stage' => $profile->care_stage,
+                'care_pathway' => $profile->care_pathway,
                 'gravida' => $profile->gravida,
                 'para' => $profile->para,
             ],
@@ -115,19 +159,55 @@ class MaternityService
     }
 
     /**
+     * Create or update a patient's maternity and labour profile under an active admission.
+     *
+     * Preserved for 100% backward compatibility with inpatient controllers and existing tests.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @throws ValidationException
+     */
+    public function saveProfile(Admission $admission, array $data, Request $request): MaternityProfile
+    {
+        return $this->registerEpisode(
+            $admission->patient,
+            $data,
+            $request,
+            $admission,
+            $admission->clinicalEncounter
+        );
+    }
+
+    /**
      * Transition the maternity care stage (e.g. awaiting_assessment -> in_labour -> delivery_in_progress -> postpartum_care).
      *
      * @throws ValidationException
      */
-    public function transitionStage(MaternityProfile $profile, string $targetStage, Request $request, ?string $notes = null): MaternityProfile
-    {
+    public function transitionStage(
+        MaternityProfile $profile,
+        string $targetStage,
+        Request $request,
+        ?string $notes = null,
+        bool $isEmergency = false,
+        ?string $emergencyReason = null
+    ): MaternityProfile {
+        // Enforce activity gate and NHIF financial clearance
+        $this->eligibilityService->assertActivityAllowed(
+            $profile->admission,
+            $profile,
+            $isEmergency,
+            $emergencyReason ?? $notes,
+            $request->user(),
+            $request
+        );
+
         if (! array_key_exists($targetStage, MaternityProfile::CARE_STAGES)) {
             throw ValidationException::withMessages([
                 'care_stage' => "Invalid maternity care stage \"{$targetStage}\".",
             ]);
         }
 
-        if (! $profile->canTransitionToStage($targetStage)) {
+        if (! $isEmergency && ! $profile->canTransitionToStage($targetStage)) {
             $currentName = MaternityProfile::CARE_STAGES[$profile->care_stage] ?? $profile->care_stage;
             $targetName = MaternityProfile::CARE_STAGES[$targetStage] ?? $targetStage;
             throw ValidationException::withMessages([
@@ -147,7 +227,7 @@ class MaternityService
         }
 
         if ($notes) {
-            $updates['notes'] = ($profile->notes ? $profile->notes . "\n" : '') . "[Stage change to {$targetStage}]: " . $notes;
+            $updates['notes'] = ($profile->notes ? $profile->notes."\n" : '')."[Stage change to {$targetStage}]: ".$notes;
         }
 
         $profile->update($updates);
@@ -159,6 +239,7 @@ class MaternityService
             [
                 'care_stage' => $targetStage,
                 'notes' => $notes,
+                'is_emergency' => $isEmergency,
                 'updated_by' => $request->user()->id,
             ],
             $request,
@@ -179,7 +260,20 @@ class MaternityService
      */
     public function recordPartograph(MaternityProfile $profile, array $data, Request $request): PartographEntry
     {
-        if ($profile->status !== 'active') {
+        $isEmergency = ! empty($data['is_emergency']);
+        $emergencyReason = $data['emergency_reason'] ?? null;
+
+        // Enforce activity gate and NHIF financial clearance
+        $this->eligibilityService->assertActivityAllowed(
+            $profile->admission,
+            $profile,
+            $isEmergency,
+            $emergencyReason,
+            $request->user(),
+            $request
+        );
+
+        if ($profile->status !== 'active' && ! $isEmergency) {
             throw ValidationException::withMessages([
                 'maternity_profile_id' => 'Partograph entries cannot be added to an inactive or completed maternity profile.',
             ]);
@@ -222,11 +316,15 @@ class MaternityService
             ...$data,
             'maternity_profile_id' => $profile->id,
             'admission_id' => $profile->admission_id,
+            'clinical_encounter_id' => $profile->clinical_encounter_id,
             'patient_id' => $profile->patient_id,
             'recorded_at' => $recordedAt,
             'alert_line_dilation_cm' => $alertLineDilation ? round($alertLineDilation, 1) : null,
             'action_line_dilation_cm' => $actionLineDilation ? round($actionLineDilation, 1) : null,
             'action_line_crossed' => $actionLineCrossed,
+            'is_emergency' => $isEmergency,
+            'emergency_reason' => $emergencyReason,
+            'emergency_authorized_by' => $isEmergency ? $request->user()->id : null,
             'recorded_by' => $request->user()->id,
         ]);
 
@@ -266,7 +364,7 @@ class MaternityService
             'partograph_entry_recorded',
             $entry,
             null,
-            ['profile_id' => $profile->id, 'dilation' => $entry->cervical_dilation_cm, 'action_line_crossed' => $actionLineCrossed],
+            ['profile_id' => $profile->id, 'dilation' => $entry->cervical_dilation_cm, 'action_line_crossed' => $actionLineCrossed, 'is_emergency' => $isEmergency],
             $request,
         );
 
@@ -282,6 +380,19 @@ class MaternityService
      */
     public function recordDelivery(MaternityProfile $profile, array $data, Request $request): DeliveryRecord
     {
+        $isEmergency = ! empty($data['is_emergency']);
+        $emergencyReason = $data['emergency_reason'] ?? null;
+
+        // Enforce activity gate and NHIF financial clearance
+        $this->eligibilityService->assertActivityAllowed(
+            $profile->admission,
+            $profile,
+            $isEmergency,
+            $emergencyReason,
+            $request->user(),
+            $request
+        );
+
         $deliveredAt = isset($data['delivered_at']) ? Carbon::parse($data['delivered_at']) : now();
         $bloodLoss = isset($data['blood_loss_ml']) ? (int) $data['blood_loss_ml'] : 0;
         $mode = $data['delivery_mode'] ?? 'spontaneous_vaginal';
@@ -299,10 +410,14 @@ class MaternityService
             ...$data,
             'maternity_profile_id' => $profile->id,
             'admission_id' => $profile->admission_id,
+            'clinical_encounter_id' => $profile->clinical_encounter_id,
             'patient_id' => $profile->patient_id,
             'delivered_at' => $deliveredAt,
             'blood_loss_ml' => $bloodLoss,
             'postpartum_hemorrhage' => $isPph,
+            'is_emergency' => $isEmergency,
+            'emergency_reason' => $emergencyReason,
+            'emergency_authorized_by' => $isEmergency ? $request->user()->id : null,
             'recorded_by' => $request->user()->id,
         ]);
 
@@ -330,7 +445,7 @@ class MaternityService
             'delivery_record_created',
             $record,
             null,
-            ['admission_id' => $profile->admission_id, 'mode' => $record->delivery_mode, 'outcome' => $record->baby_outcome],
+            ['admission_id' => $profile->admission_id, 'mode' => $record->delivery_mode, 'outcome' => $record->baby_outcome, 'is_emergency' => $isEmergency],
             $request,
         );
 

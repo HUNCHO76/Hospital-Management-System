@@ -13,6 +13,7 @@ use App\Models\Practitioner;
 use App\Models\ProcedureOrder;
 use App\Models\Service;
 use App\Models\SurgicalCase;
+use App\Services\MaternityEligibilityService;
 use App\Services\NursingAccessService;
 use App\Services\ProcedureService;
 use Illuminate\Http\RedirectResponse;
@@ -28,6 +29,7 @@ class InpatientProcedureController extends Controller
     public function __construct(
         protected NursingAccessService $accessService,
         protected ProcedureService $procedureService,
+        protected MaternityEligibilityService $eligibilityService,
     ) {}
 
     /**
@@ -59,19 +61,22 @@ class InpatientProcedureController extends Controller
             ->get();
 
         $practitioners = Practitioner::query()
-            ->where('is_active', true)
+            ->where('status', Practitioner::STATUS_ACTIVE)
             ->with('staff:id,first_name,last_name,job_title')
             ->get(['id', 'staff_id']);
 
         $procedureServices = Service::query()
             ->where('status', 'active')
-            ->get(['id', 'code', 'name', 'category', 'price']);
+            ->get(['id', 'code', 'name', 'category']);
+
+        $maternityAccess = $this->eligibilityService->checkAdmissionAccess($request->user(), $admission);
 
         return Inertia::render('inpatient/procedures-workspace', [
             'admission' => $admission,
             'orders' => $orders,
             'practitioners' => $practitioners,
             'procedureServices' => $procedureServices,
+            'canAccessMaternity' => $maternityAccess['allowed'],
             'constants' => [
                 'procedure_types' => ProcedureOrder::TYPES,
                 'urgencies' => ProcedureOrder::URGENCIES,

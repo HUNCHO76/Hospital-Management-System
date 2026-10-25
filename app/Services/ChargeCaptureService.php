@@ -16,6 +16,7 @@ use App\Models\Patient;
 use App\Models\PatientInsurance;
 use App\Models\Practitioner;
 use App\Models\PrescriptionOrderItem;
+use App\Models\ProcedureOrder;
 use App\Models\RadiologyOrderItem;
 use App\Models\RadiologyProcedure;
 use App\Models\ReceptionVisit;
@@ -190,6 +191,91 @@ class ChargeCaptureService
     }
 
     /**
+     * Capture a charge for a doctor-ordered clinical procedure.
+     */
+    public function captureFromProcedureOrder(ProcedureOrder $order, ClinicalEncounter $encounter, Request $request): ?Charge
+    {
+        try {
+            $service = $order->service;
+            if (! $service && $order->service_id) {
+                $service = Service::find($order->service_id);
+            }
+
+            if (! $service) {
+                throw ValidationException::withMessages([
+                    'service' => 'No billing service is configured for this procedure order.',
+                ]);
+            }
+
+            $hospitalId = $encounter->department?->hospital_id
+                ?? $encounter->hospital_id
+                ?? Hospital::first()?->id
+                ?? 1;
+
+            $charge = $this->createFromCatalogService(
+                $service,
+                $hospitalId,
+                $encounter->patient_id,
+                $encounter->id,
+                ProcedureOrder::class,
+                $order->id,
+                $order->quantity ?: 1,
+                $request,
+                null,
+                $encounter->practitioner_id,
+            );
+
+            if ($order->payment_mode === ProcedureOrder::PAYMENT_MODE_NHIF || $encounter->patient?->currentNhifInsurance()) {
+                $this->postAndInvoiceForInsuredPatient($charge, $encounter->patient_id, $request);
+            } else {
+                $this->postAndInvoiceForCashPatient($charge, $request);
+            }
+
+            $charge = $charge->fresh();
+
+            $order->update([
+                'charge_id' => $charge->id,
+                'invoice_id' => $charge->invoice_id,
+                'unit_price' => $charge->unit_price ?? $order->unit_price,
+                'total_price' => $charge->net_amount ?? $order->total_price ?? 0.00,
+            ]);
+
+            return $charge;
+        } catch (ValidationException $e) {
+            $this->recordCaptureSkipped(ProcedureOrder::class, $order->id, $e, $request);
+
+            return null;
+        }
+    }
+
+    /**
+     * For uninsured (cash) patients: post the charge and create/post a patient invoice
+     * so that the cashier can collect payment against it.
+     */
+    public function postAndInvoiceForCashPatient(Charge $charge, Request $request): ?Invoice
+    {
+        try {
+            $posted = $charge->status === Charge::STATUS_POSTED ? $charge : $this->charges->post($charge, $request);
+            $account = $posted->patientAccount;
+            if (! $account) {
+                return null;
+            }
+
+            $invoice = $this->invoices->createDraft($account, [$posted->id], 'Clinical procedure charge', $request);
+            $this->invoices->post($invoice, $request);
+
+            return $invoice;
+        } catch (\Throwable $e) {
+            Log::warning('Auto-invoice for cash procedure failed; charge remains pending/unattached.', [
+                'charge_id' => $charge->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
      * Capture a consultation charge for a clinical encounter (Step 62, spec
      * §2/§4, payment-gating audit follow-up). The consultation service is
      * resolved via resolveConsultationService() — the practitioner's own
@@ -272,6 +358,40 @@ class ChargeCaptureService
             return null;
         }
     }
+
+    /**
+     * Capture a charge for a reception walk-in visit using an explicitly
+     * selected catalog service (e.g., department service or consultation tier).
+     * Resolves the facility price (or practitioner price if a practitioner is assigned).
+     */
+    public function captureFromSelectedService(
+        ReceptionVisit $visit,
+        ?Practitioner $practitioner,
+        Service $service,
+        Request $request,
+    ): ?Charge {
+        try {
+            $visit->loadMissing('department');
+
+            return $this->createFromCatalogService(
+                $service,
+                $visit->department->hospital_id,
+                $visit->patient_id,
+                null,
+                ReceptionVisit::class,
+                $visit->id,
+                1,
+                $request,
+                null,
+                $practitioner?->id,
+            );
+        } catch (ValidationException $e) {
+            $this->recordCaptureSkipped(ReceptionVisit::class, $visit->id, $e, $request);
+
+            return null;
+        }
+    }
+
 
     /**
      * Capture a charge for an NHIF-funded reception visit using the NHIF API

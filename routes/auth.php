@@ -15,6 +15,14 @@ Route::middleware('guest')->group(function () {
 
     Route::post('login', [AuthenticatedSessionController::class, 'store']);
 
+    Route::match(['put', 'patch', 'delete'], 'login', function (\Illuminate\Http\Request $request) {
+        if ($request->header('X-Inertia')) {
+            return \Inertia\Inertia::location(route('login'));
+        }
+
+        return redirect()->route('login');
+    });
+
     Route::get('forgot-password', [PasswordResetLinkController::class, 'create'])
         ->name('password.request');
 
@@ -26,6 +34,12 @@ Route::middleware('guest')->group(function () {
 
     Route::post('reset-password', [NewPasswordController::class, 'store'])
         ->name('password.store');
+
+    Route::get('account-activation/{token}', [\App\Http\Controllers\Auth\StaffAccountActivationController::class, 'create'])
+        ->name('activation.create');
+
+    Route::post('account-activation/{token}', [\App\Http\Controllers\Auth\StaffAccountActivationController::class, 'store'])
+        ->name('activation.store');
 });
 
 Route::middleware('auth')->group(function () {

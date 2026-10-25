@@ -4,6 +4,7 @@ import { CompleteEncounterDialog } from '@/components/clinical-encounters/comple
 import { LaboratoryOrdersSection } from '@/components/clinical-encounters/laboratory-orders-section';
 import { LaboratoryResultsSection } from '@/components/clinical-encounters/laboratory-results-section';
 import { PrescriptionOrdersSection } from '@/components/clinical-encounters/prescription-orders-section';
+import { ProcedureOrdersSection } from '@/components/clinical-encounters/procedure-orders-section';
 import { RadiologyOrdersSection } from '@/components/clinical-encounters/radiology-orders-section';
 import { RadiologyResultsSection } from '@/components/clinical-encounters/radiology-results-section';
 import { WorkflowStatus } from '@/components/clinical-encounters/workflow-status';
@@ -33,6 +34,7 @@ import { type EncounterDiagnosis } from '@/types/diagnosis';
 import { type LaboratoryOrder, type LaboratoryReport } from '@/types/laboratory';
 import { type NhifInsuranceSummary, type NhifPendingItems, type NhifPreApprovalSession } from '@/types/nhif';
 import { type MedicationSafetyWarning, type PrescriptionOrder } from '@/types/prescription';
+import { type ProcedureOrder } from '@/types/procedure';
 import { type RadiologyOrder, type RadiologyResult } from '@/types/radiology';
 import { type TriageAssessment } from '@/types/triage';
 import { NhifClaimFinalizeDialog } from '@/components/nhif/nhif-claim-finalize-dialog';
@@ -52,6 +54,7 @@ interface EncounterShowProps {
     radiologyOrders: RadiologyOrder[];
     radiologyResults: RadiologyResult[];
     prescriptionOrders: PrescriptionOrder[];
+    procedureOrders: ProcedureOrder[];
     clinicalNotes: ClinicalNote[];
     medicationSafetyRules: Record<number, MedicationSafetyWarning[]>;
     departments: ClinicalEncounterDepartment[];
@@ -105,6 +108,7 @@ export default function EncounterShow({
     radiologyOrders,
     radiologyResults,
     prescriptionOrders,
+    procedureOrders = [],
     clinicalNotes,
     medicationSafetyRules,
     departments,
@@ -137,9 +141,15 @@ export default function EncounterShow({
         storeTab(encounter.id, tab);
     };
 
-    const orderCount = laboratoryOrders.length + radiologyOrders.length + prescriptionOrders.length;
-    const resultCount = laboratoryResults.length + radiologyResults.length;
-    const hasPendingNhif = nhifPendingItems && ((nhifPendingItems.lab_items?.length ?? 0) + (nhifPendingItems.medication_items?.length ?? 0)) > 0;
+    const completedProcedures = procedureOrders.filter((o) => o.status === 'completed');
+    const orderCount = laboratoryOrders.length + radiologyOrders.length + prescriptionOrders.length + procedureOrders.length;
+    const resultCount = laboratoryResults.length + radiologyResults.length + completedProcedures.length;
+    const hasPendingNhif = nhifPendingItems && (
+        (nhifPendingItems.lab_items?.length ?? 0) +
+        (nhifPendingItems.medication_items?.length ?? 0) +
+        (nhifPendingItems.radiology_items?.length ?? 0) +
+        ((nhifPendingItems as any).procedure_items?.length ?? 0)
+    ) > 0;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -380,7 +390,7 @@ export default function EncounterShow({
                         <DiagnosisSection encounterId={encounter.id} consultation={consultation} diagnoses={diagnoses} nhifEligible={nhifEligible} />
                     </TabsContent>
 
-                    {/* ── Orders: Lab → Radiology → Prescriptions ── */}
+                    {/* ── Orders: Lab → Radiology → Prescriptions → Procedures ── */}
                     <TabsContent value="orders" className="flex flex-col gap-6">
                         <LaboratoryOrdersSection encounterId={encounter.id} consultation={consultation} laboratoryOrders={laboratoryOrders} />
                         <RadiologyOrdersSection
@@ -402,12 +412,83 @@ export default function EncounterShow({
                             nhifPreApprovalSessions={nhifPreApprovalSessions}
                             patientName={patientName}
                         />
+                        <ProcedureOrdersSection
+                            encounterId={encounter.id}
+                            consultation={consultation}
+                            procedureOrders={procedureOrders}
+                            nhifEligible={nhifEligible}
+                            nhifInsurance={nhifInsurance}
+                            nhifPreApprovalSessions={nhifPreApprovalSessions}
+                            patientName={patientName}
+                        />
                     </TabsContent>
 
-                    {/* ── Results: Lab Results → Radiology Results ── */}
+                    {/* ── Results: Lab Results → Radiology Results → Procedure Execution Records ── */}
                     <TabsContent value="results" className="flex flex-col gap-6">
                         <LaboratoryResultsSection laboratoryResults={laboratoryResults} />
                         <RadiologyResultsSection radiologyResults={radiologyResults} />
+
+                        {completedProcedures.length > 0 && (
+                            <Card>
+                                <CardHeader>
+                                    <div className="flex items-center justify-between">
+                                        <CardTitle className="text-base flex items-center gap-2">
+                                            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                                            Clinical Procedure Records ({completedProcedures.length})
+                                        </CardTitle>
+                                        <Badge variant="outline" className="text-emerald-700 border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/20">
+                                            Official Documentation
+                                        </Badge>
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <div className="divide-y rounded-md border">
+                                        {completedProcedures.map((proc) => (
+                                            <div key={proc.id} className="p-4 space-y-2">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <div>
+                                                        <span className="font-semibold text-base">{proc.procedure_name}</span>
+                                                        <span className="text-xs text-muted-foreground ml-2 font-mono">
+                                                            #{proc.order_number}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        Performed: {proc.performed_at ? new Date(proc.performed_at).toLocaleString() : '—'} by{' '}
+                                                        <strong>{proc.performer?.UserName ?? 'Clinician'}</strong>
+                                                    </span>
+                                                </div>
+
+                                                {proc.procedure_notes && (
+                                                    <div className="text-xs">
+                                                        <span className="font-medium text-muted-foreground">Technique & Notes:</span>{' '}
+                                                        {proc.procedure_notes}
+                                                    </div>
+                                                )}
+
+                                                {proc.findings && (
+                                                    <div className="text-xs">
+                                                        <span className="font-medium text-muted-foreground">Findings:</span>{' '}
+                                                        {proc.findings}
+                                                    </div>
+                                                )}
+
+                                                {proc.results && (
+                                                    <div className="text-xs text-emerald-800 dark:text-emerald-300 bg-emerald-50/60 dark:bg-emerald-950/30 p-2 rounded">
+                                                        <span className="font-semibold">Results & Clinical Plan:</span> {proc.results}
+                                                    </div>
+                                                )}
+
+                                                {proc.complications && (
+                                                    <div className="text-xs text-destructive bg-destructive/10 p-2 rounded">
+                                                        <span className="font-semibold">Complications:</span> {proc.complications}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )}
                     </TabsContent>
 
                     {/* ── Care Plan & NHIF ── */}

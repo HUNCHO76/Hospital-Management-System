@@ -13,7 +13,8 @@ export interface StaffDepartment {
 export interface StaffUser {
     id: number;
     UserName: string;
-    email: string;
+    email: string | null;
+    status?: string;
 }
 
 export interface Staff {

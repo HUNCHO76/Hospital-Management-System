@@ -1,3 +1,6 @@
+import { type BloodGroup, type PatientGender } from './patient';
+import { type PatientInsurance } from './patient-insurance';
+
 export type AdmissionStatus = 'pending' | 'under_review' | 'approved' | 'rejected' | 'active' | 'discharged' | 'cancelled' | 'transferred';
 
 export type ClinicalStatus = 'stable' | 'under_observation' | 'improving' | 'deteriorating' | 'critical';
@@ -13,6 +16,9 @@ export interface AdmissionPatient {
     middle_name: string | null;
     last_name: string;
     phone?: string | null;
+    gender?: PatientGender | string | null;
+    date_of_birth?: string | null;
+    blood_group?: BloodGroup | string | null;
 }
 
 export interface AdmissionHospital {
@@ -102,6 +108,9 @@ export interface Admission {
     approvedBy?: AdmissionUser | null;
     rejectedBy?: AdmissionUser | null;
     nhifAdmission?: NhifAdmissionRecord | null;
+    patient_insurance_id?: number | null;
+    patient_insurance?: PatientInsurance | null;
+    patientInsurance?: PatientInsurance | null;
     // Phase 9, Step 74 — inpatient clinical status
     clinical_status?: ClinicalStatus | null;
     clinical_status_updated_at?: string | null;

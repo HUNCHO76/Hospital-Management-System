@@ -53,7 +53,7 @@ class InvoiceService
                 'status' => Invoice::STATUS_DRAFT,
                 'currency' => $account->currency,
                 'notes' => $notes,
-                'created_by' => $request->user()->id,
+                'created_by' => $request->user()?->id ?? auth()->id() ?? 1,
             ]);
 
             foreach (array_unique($chargeIds) as $chargeId) {

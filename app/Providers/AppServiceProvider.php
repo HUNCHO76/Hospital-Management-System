@@ -30,6 +30,18 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::before(function (User $user, string $ability) {
+            // 1. Explicit user-specific overrides take highest precedence:
+            $overrides = $user->getCachedPermissionOverrides();
+            if (isset($overrides[$ability])) {
+                if ($overrides[$ability] === \App\Models\UserPermissionOverride::EFFECT_DENY) {
+                    return false;
+                }
+                if ($overrides[$ability] === \App\Models\UserPermissionOverride::EFFECT_ALLOW) {
+                    return true;
+                }
+            }
+
+            // 2. Super-admin default bypass:
             return $user->hasRole('super-admin') ? true : null;
         });
 

@@ -80,7 +80,7 @@ function CollapsibleNavItem({
                             return (
                                 <SidebarMenuSubItem key={subItem.url + subItem.title}>
                                     <SidebarMenuSubButton asChild isActive={isSubActive}>
-                                        <Link href={subItem.url} prefetch onClick={onLinkClick}>
+                                        <Link href={subItem.url} onClick={onLinkClick}>
                                             {subItem.icon && <subItem.icon className="size-3.5 shrink-0" />}
                                             <span className="truncate">{subItem.title}</span>
                                         </Link>
@@ -109,7 +109,7 @@ function SingleNavItem({
     return (
         <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={isActive} tooltip={item.title}>
-                <Link href={item.url} prefetch onClick={onLinkClick}>
+                <Link href={item.url} onClick={onLinkClick}>
                     {item.icon && <item.icon className="size-4 shrink-0" />}
                     <span className="truncate">{item.title}</span>
                 </Link>

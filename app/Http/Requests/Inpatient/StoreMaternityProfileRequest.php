@@ -33,10 +33,13 @@ class StoreMaternityProfileRequest extends FormRequest
             'vdrl_rpr_status' => ['nullable', 'string', 'max:20'],
             'risk_factors' => ['nullable', 'array'],
             'care_stage' => ['nullable', 'string', Rule::in(array_keys(MaternityProfile::CARE_STAGES))],
+            'care_pathway' => ['nullable', 'string', Rule::in(['outpatient', 'emergency', 'inpatient'])],
             'labour_stage' => ['nullable', 'string', Rule::in(MaternityProfile::LABOUR_STAGES)],
             'assigned_midwife_id' => ['nullable', 'integer', 'exists:users,id'],
             'primary_clinician_id' => ['nullable', 'integer', 'exists:users,id'],
             'clinical_exception_reason' => ['nullable', 'string', 'max:2000'],
+            'is_emergency' => ['nullable', 'boolean'],
+            'emergency_reason' => ['nullable', 'string', 'max:1000'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];
     }

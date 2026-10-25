@@ -46,7 +46,13 @@ export interface ReceptionPractitioner {
     consultation_service_id: number | null;
     practitioner_type: string | null;
     nhif_practitioner_no: string | null;
-    staff?: { first_name: string; last_name: string };
+    staff?: {
+        id?: number;
+        first_name: string;
+        last_name: string;
+        department_id?: number | null;
+        job_title?: string | null;
+    };
     consultation_service?: { id: number; code: string; name: string } | null;
 }
 
@@ -152,11 +158,21 @@ export interface NhifInsuranceSummary {
     hours_remaining?: number | null;
 }
 
+export interface DepartmentCatalogService {
+    id: number;
+    code: string;
+    name: string;
+    category: string;
+    price: number | null;
+    currency: string;
+}
+
 export interface WalkInFormData {
     patient_id: string;
     department_id: string;
     visit_type: ReceptionVisitType | '';
     practitioner_id: string;
+    service_id: string;
     nhif_item_code: string;
     clinical_notes: string;
     practitioner_remarks: string;
