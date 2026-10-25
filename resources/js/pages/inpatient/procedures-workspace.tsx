@@ -62,7 +62,7 @@ interface ProcedureOrderData {
     notes: string | null;
     created_at: string;
     prescribed_by?: { id: number; UserName: string };
-    service?: { id: number; code: string; name: string; price: number };
+    service?: { id: number; code: string; name: string; price?: number };
     surgical_case?: SurgicalCaseData | null;
     bedside_events?: BedsideEventData[];
 }
@@ -230,15 +230,15 @@ export default function ProceduresWorkspace({
 
     // 3. WHO Surgical Checklist Form
     const checklistForm = useForm({
-        identity_confirmed: false,
-        site_marked: false,
-        consent_confirmed: false,
-        anesthesia_safety_check_completed: false,
-        pulse_oximeter_functioning: false,
-        allergy_screened: false,
-        difficult_airway_risk_assessed: false,
-        blood_loss_risk_assessed: false,
-        fasting_npo_hours_confirmed: false,
+        identity_confirmed: false as boolean,
+        site_marked: false as boolean,
+        consent_confirmed: false as boolean,
+        anesthesia_safety_check_completed: false as boolean,
+        pulse_oximeter_functioning: false as boolean,
+        allergy_screened: false as boolean,
+        difficult_airway_risk_assessed: false as boolean,
+        blood_loss_risk_assessed: false as boolean,
+        fasting_npo_hours_confirmed: false as boolean,
     });
 
     const openChecklistModal = (surgCase: SurgicalCaseData) => {
@@ -276,7 +276,7 @@ export default function ProceduresWorkspace({
         intraoperative_findings: '',
         implants_used: '',
         drains_placed: '',
-        swab_instrument_count_correct: true,
+        swab_instrument_count_correct: true as boolean,
         specimens_sent_to_lab: '',
         estimated_blood_loss_ml: '100',
         complications: '',

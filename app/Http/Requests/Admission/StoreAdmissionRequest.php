@@ -28,6 +28,7 @@ class StoreAdmissionRequest extends FormRequest
             'hospital_id' => ['required', 'integer', 'exists:hospitals,id'],
             'patient_id' => ['required', 'integer', 'exists:patients,id'],
             'clinical_encounter_id' => ['nullable', 'integer', 'exists:clinical_encounters,id'],
+            'reception_visit_id' => ['nullable', 'integer', 'exists:reception_visits,id'],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'patient_insurance_id' => ['nullable', 'integer', 'exists:patient_insurances,id'],
             'practitioner_id' => ['nullable', 'integer', 'exists:practitioners,id'],

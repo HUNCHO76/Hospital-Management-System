@@ -11,9 +11,12 @@ use App\Http\Requests\Admission\StoreAdmissionRequest;
 use App\Http\Requests\Admission\StoreTransferRequest;
 use App\Models\Admission;
 use App\Models\AdmissionTransfer;
+use App\Models\ClinicalEncounter;
 use App\Models\Department;
 use App\Models\Hospital;
+use App\Models\Patient;
 use App\Models\Practitioner;
+use App\Models\ReceptionVisit;
 use App\Models\Service;
 use App\Services\AdmissionService;
 use Illuminate\Http\RedirectResponse;
@@ -68,15 +71,114 @@ class AdmissionController extends Controller
     {
         $this->authorize('viewAny', Admission::class);
 
+        $patientId = $request->query('patient_id');
+        $departmentId = $request->query('department_id');
+        $practitionerId = $request->query('practitioner_id');
+        $visitId = $request->query('reception_visit_id');
+        $encounterId = $request->query('clinical_encounter_id');
+        $preset = $request->query('preset');
+
+        $preloadedPatient = null;
+        $initialData = [
+            'preset' => $preset,
+        ];
+
+        if ($patientId) {
+            $patient = Patient::query()->find($patientId);
+            if ($patient) {
+                $preloadedPatient = [
+                    'id' => $patient->id,
+                    'patient_number' => $patient->patient_number,
+                    'first_name' => $patient->first_name,
+                    'middle_name' => $patient->middle_name,
+                    'last_name' => $patient->last_name,
+                    'phone' => $patient->phone,
+                    'gender' => $patient->gender,
+                    'date_of_birth' => $patient->date_of_birth?->toDateString(),
+                ];
+                $initialData['patient_id'] = (string) $patient->id;
+
+                $insurance = $patient->activeNhifInsurance();
+                if ($insurance && $insurance->nhif_authorization_no) {
+                    $initialData['nhif_authorization_no'] = $insurance->nhif_authorization_no;
+                    $initialData['patient_insurance_id'] = (string) $insurance->id;
+                }
+            }
+        }
+
+        if ($visitId) {
+            $visit = ReceptionVisit::with(['department', 'practitioner'])->find($visitId);
+            if ($visit) {
+                $initialData['reception_visit_id'] = (string) $visit->id;
+                $initialData['department_id'] = (string) ($visit->department_id ?? $departmentId);
+                $initialData['practitioner_id'] = (string) ($visit->practitioner_id ?? $practitionerId);
+                $initialData['hospital_id'] = (string) ($visit->department?->hospital_id ?? 1);
+                if ($visit->clinical_notes) {
+                    $initialData['diagnosis_at_admission'] = $visit->clinical_notes;
+                }
+            }
+        }
+
+        if ($encounterId) {
+            $encounter = ClinicalEncounter::find($encounterId);
+            if ($encounter) {
+                $initialData['clinical_encounter_id'] = (string) $encounter->id;
+                $initialData['department_id'] = (string) ($encounter->department_id ?? $departmentId);
+                $initialData['practitioner_id'] = (string) ($encounter->practitioner_id ?? $practitionerId);
+                $initialData['hospital_id'] = (string) ($encounter->department?->hospital_id ?? 1);
+                if ($encounter->notes) {
+                    $initialData['diagnosis_at_admission'] = $encounter->notes;
+                }
+            }
+        }
+
+        if ($departmentId && empty($initialData['department_id'])) {
+            $initialData['department_id'] = (string) $departmentId;
+            $dept = Department::find($departmentId);
+            if ($dept) {
+                $initialData['hospital_id'] = (string) $dept->hospital_id;
+            }
+        }
+
+        if ($practitionerId && empty($initialData['practitioner_id'])) {
+            $initialData['practitioner_id'] = (string) $practitionerId;
+        }
+
+        if (empty($initialData['hospital_id'])) {
+            $initialData['hospital_id'] = (string) ($this->scopedHospitalId($request) ?? 1);
+        }
+
+        // Smart Maternity defaults
+        if ($preset === 'maternity' || ($initialData['department_id'] ?? null) === '7') {
+            $initialData['admission_type'] = $initialData['admission_type'] ?? 'emergency';
+            $defaultWardService = Service::where('code', 'WARD-GENERAL')->value('id');
+            if ($defaultWardService) {
+                $initialData['service_id'] = (string) $defaultWardService;
+            }
+            if (empty($initialData['diagnosis_at_admission'])) {
+                $initialData['diagnosis_at_admission'] = 'Maternity / Labour Ward Admission';
+            }
+        }
+
         return Inertia::render('admissions/create', [
             'hospitals' => Hospital::query()->active()->orderBy('name')->get(['id', 'name']),
             'departments' => Department::query()->active()->orderBy('name')->get(['id', 'name', 'hospital_id']),
-            'practitioners' => Practitioner::query()->where('status', 'active')->with('staff:id,first_name,last_name')->get(['id', 'practitioner_number', 'staff_id']),
-            'services' => Service::query()->where('status', Service::STATUS_ACTIVE)->where('is_billable', true)->where('category', 'inpatient')->orderBy('name')->get(['id', 'code', 'name']),
+            'practitioners' => Practitioner::query()
+                ->where('status', 'active')
+                ->with('staff:id,first_name,last_name,job_title,department_id')
+                ->get(['id', 'practitioner_number', 'staff_id', 'practitioner_type']),
+            'services' => Service::query()
+                ->where('status', Service::STATUS_ACTIVE)
+                ->where('is_billable', true)
+                ->where('category', 'inpatient')
+                ->orderBy('name')
+                ->get(['id', 'code', 'name']),
             'admissionTypes' => Admission::ADMISSION_TYPES,
             'nhifAdmissionTypes' => $service->getNhifAdmissionTypes(),
             'nhifWardTypes' => $service->getNhifWardTypes(),
             'nhifRoomTypes' => $service->getNhifRoomTypes(),
+            'initialData' => $initialData,
+            'preloadedPatient' => $preloadedPatient,
         ]);
     }
 

@@ -49,7 +49,7 @@ class InpatientProcedureController extends Controller
             ->where('admission_id', $admission->id)
             ->with([
                 'prescribedBy:id,UserName',
-                'service:id,code,name,price',
+                'service:id,code,name',
                 'surgicalCase.leadSurgeon:id,UserName',
                 'surgicalCase.assistantSurgeon:id,UserName',
                 'surgicalCase.anesthetist:id,UserName',

@@ -15,7 +15,7 @@ import { type BreadcrumbItem } from '@/types';
 import { type Admission, type DischargeType } from '@/types/admission';
 import { NhifClaimFinalizeDialog } from '@/components/nhif/nhif-claim-finalize-dialog';
 import { Head, Link, router } from '@inertiajs/react';
-import { AlertTriangle, CheckCircle2, ClipboardCheck, FileText, Loader2, LogOut, RotateCcw, Send, ShieldCheck, ThumbsDown, XCircle } from 'lucide-react';
+import { AlertTriangle, Baby, CheckCircle2, ClipboardCheck, FileText, HeartPulse, Loader2, LogOut, RotateCcw, Send, ShieldCheck, ThumbsDown, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 interface AdmissionShowProps {
@@ -192,6 +192,15 @@ export default function AdmissionShow({
                                 }
                             />
                         )}
+
+                        {(admission.department_id === 7 || admission.department?.name?.toLowerCase().includes('maternity')) && (
+                            <Button size="sm" className="bg-pink-600 hover:bg-pink-700 text-white gap-1.5" asChild>
+                                <Link href={route('inpatient.maternity.show', admission.id)}>
+                                    <Baby className="h-4 w-4" />
+                                    Maternity Workspace
+                                </Link>
+                            </Button>
+                        )}
                     </div>
                 </div>
 
@@ -260,6 +269,40 @@ export default function AdmissionShow({
                             <span className="font-semibold">Patient admitted</span> — cleared and admitted at {formatDateTime(admission.admitted_at)}.
                         </AlertDescription>
                     </Alert>
+                )}
+
+                {(admission.department_id === 7 || admission.department?.name?.toLowerCase().includes('maternity')) && (
+                    <Card className="border-pink-200 dark:border-pink-900/60 bg-gradient-to-r from-pink-50 via-rose-50 to-amber-50 dark:from-pink-950/30 dark:via-rose-950/20 dark:to-background">
+                        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 gap-3">
+                            <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-full bg-pink-100 dark:bg-pink-900/50 flex items-center justify-center text-pink-600 dark:text-pink-300">
+                                    <Baby className="h-6 w-6" />
+                                </div>
+                                <div>
+                                    <CardTitle className="text-base text-pink-950 dark:text-pink-100 flex items-center gap-2">
+                                        Maternity & Labour Clinical Workspace
+                                        <Badge className="bg-pink-600 hover:bg-pink-700 text-white text-xs">Labour Ward</Badge>
+                                    </CardTitle>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Real-time WHO Partograph, fetal heart monitoring, contractions, cervical dilatation, and delivery records.
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Button size="sm" className="bg-pink-600 hover:bg-pink-700 text-white gap-1.5 shadow-sm" asChild>
+                                    <Link href={route('inpatient.maternity.show', admission.id)}>
+                                        <HeartPulse className="h-4 w-4" />
+                                        Open Labour & Partograph Workspace
+                                    </Link>
+                                </Button>
+                                <Button size="sm" variant="outline" asChild>
+                                    <Link href={route('inpatient.nursing.workspace', admission.id)}>
+                                        Nursing Care & Vitals
+                                    </Link>
+                                </Button>
+                            </div>
+                        </CardHeader>
+                    </Card>
                 )}
 
                 <div className="grid gap-4 md:grid-cols-2">

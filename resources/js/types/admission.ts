@@ -36,7 +36,13 @@ export interface AdmissionPractitioner {
     id: number;
     practitioner_number: string;
     staff_id: number;
-    staff?: { first_name: string; last_name: string };
+    practitioner_type?: string | null;
+    staff?: {
+        first_name: string;
+        last_name: string;
+        job_title?: string | null;
+        department_id?: number | null;
+    };
 }
 
 export interface AdmissionService {
@@ -135,6 +141,8 @@ export interface AdmissionFormData {
     nhif_ward_type_id?: string;
     nhif_room_type_id?: string;
     nhif_admission_type_id?: string;
+    clinical_encounter_id?: string;
+    reception_visit_id?: string;
     patient_insurance_id?: string;
     [key: string]: string | undefined;
 }

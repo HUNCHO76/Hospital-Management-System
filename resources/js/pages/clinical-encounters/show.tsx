@@ -38,9 +38,8 @@ import { type ProcedureOrder } from '@/types/procedure';
 import { type RadiologyOrder, type RadiologyResult } from '@/types/radiology';
 import { type TriageAssessment } from '@/types/triage';
 import { NhifClaimFinalizeDialog } from '@/components/nhif/nhif-claim-finalize-dialog';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Head, Link, router } from '@inertiajs/react';
-import { AlertCircle, AlertTriangle, PlayCircle, Send, XCircle } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Baby, Bed, PlayCircle, Send, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 interface EncounterShowProps {
@@ -192,6 +191,42 @@ export default function EncounterShow({
                                     </Button>
                                 }
                             />
+                        )}
+
+                        {can('admissions.create') && encounter.status !== 'cancelled' && (
+                            encounter.admission_id ? (
+                                <Button size="sm" variant="outline" asChild>
+                                    <Link href={route('admissions.show', encounter.admission_id)}>
+                                        <Bed className="h-4 w-4" />
+                                        View Admission
+                                    </Link>
+                                </Button>
+                            ) : (
+                                <Button
+                                    size="sm"
+                                    variant={encounter.department?.id === 7 || encounter.department?.name?.toLowerCase().includes('maternity') ? 'default' : 'outline'}
+                                    className={encounter.department?.id === 7 || encounter.department?.name?.toLowerCase().includes('maternity') ? 'bg-pink-600 hover:bg-pink-700 text-white' : ''}
+                                    asChild
+                                >
+                                    <Link
+                                        href={route('admissions.create', {
+                                            patient_id: encounter.patient?.id,
+                                            department_id: encounter.department?.id,
+                                            clinical_encounter_id: encounter.id,
+                                            reception_visit_id: encounter.reception_visit?.id,
+                                            practitioner_id: encounter.practitioner?.id,
+                                            preset: (encounter.department?.id === 7 || encounter.department?.name?.toLowerCase().includes('maternity')) ? 'maternity' : undefined,
+                                        })}
+                                    >
+                                        {(encounter.department?.id === 7 || encounter.department?.name?.toLowerCase().includes('maternity')) ? (
+                                            <Baby className="h-4 w-4" />
+                                        ) : (
+                                            <Bed className="h-4 w-4" />
+                                        )}
+                                        {(encounter.department?.id === 7 || encounter.department?.name?.toLowerCase().includes('maternity')) ? 'Admit to Maternity Ward' : 'Admit Patient'}
+                                    </Link>
+                                </Button>
+                            )
                         )}
 
                         {nhifEligible && can('claims.create') && (

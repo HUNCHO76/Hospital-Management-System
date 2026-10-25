@@ -19,8 +19,8 @@ import {
 } from '@/types/admission';
 import { type PatientSearchResult } from '@/types/patient';
 import { Head, useForm } from '@inertiajs/react';
-import { AlertTriangle, ExternalLink, LoaderCircle, ShieldCheck } from 'lucide-react';
-import { type FormEventHandler, useState } from 'react';
+import { AlertTriangle, Baby, CheckCircle2, ExternalLink, LoaderCircle, ShieldCheck, Sparkles, Stethoscope } from 'lucide-react';
+import { type FormEventHandler, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -39,6 +39,8 @@ interface AdmissionCreateProps {
     nhifAdmissionTypes: Array<{ AdmissionTypeID: number; AdmissionTypeName: string }>;
     nhifWardTypes: Array<{ WardTypeID: number; WardTypeName: string }>;
     nhifRoomTypes: Array<{ RoomTypeID: number; RoomTypeName: string }>;
+    initialData?: Partial<AdmissionFormData> & { preset?: string };
+    preloadedPatient?: PatientSearchResult | null;
 }
 
 /**
@@ -46,10 +48,21 @@ interface AdmissionCreateProps {
  * → submit), mirroring reception/walk-in/create.tsx's own precedent for
  * this app's request-style forms.
  */
-export default function AdmissionCreate({ hospitals, departments, practitioners, services, admissionTypes, nhifAdmissionTypes, nhifWardTypes, nhifRoomTypes }: AdmissionCreateProps) {
-    const [selectedPatient, setSelectedPatient] = useState<PatientSearchResult | null>(null);
+export default function AdmissionCreate({
+    hospitals,
+    departments,
+    practitioners,
+    services,
+    admissionTypes,
+    nhifAdmissionTypes,
+    nhifWardTypes,
+    nhifRoomTypes,
+    initialData,
+    preloadedPatient,
+}: AdmissionCreateProps) {
+    const [selectedPatient, setSelectedPatient] = useState<PatientSearchResult | null>(preloadedPatient ?? null);
     const [authChecking, setAuthChecking] = useState(false);
-    const [activeAuth, setActiveAuth] = useState<string | null>(null);
+    const [activeAuth, setActiveAuth] = useState<string | null>(initialData?.nhif_authorization_no ?? null);
     const [authExpiredInfo, setAuthExpiredInfo] = useState<{
         expired: boolean;
         previous_auth_no?: string;
@@ -86,23 +99,53 @@ export default function AdmissionCreate({ hospitals, departments, practitioners,
     };
 
     const { data, setData, post, processing, errors } = useForm<AdmissionFormData>({
-        hospital_id: '',
-        patient_id: '',
-        department_id: '',
-        practitioner_id: '',
-        service_id: '',
-        admission_type: '',
-        ward_type: '',
-        room_type: '',
-        nhif_admission_type_id: '',
-        nhif_ward_type_id: '',
-        nhif_room_type_id: '',
-        nhif_authorization_no: '',
-        diagnosis_at_admission: '',
-        notes: '',
+        hospital_id: initialData?.hospital_id ?? '',
+        patient_id: initialData?.patient_id ?? '',
+        department_id: initialData?.department_id ?? '',
+        practitioner_id: initialData?.practitioner_id ?? '',
+        service_id: initialData?.service_id ?? '',
+        admission_type: (initialData?.admission_type as AdmissionType) ?? '',
+        ward_type: initialData?.ward_type ?? '',
+        room_type: initialData?.room_type ?? '',
+        nhif_admission_type_id: initialData?.nhif_admission_type_id ?? '',
+        nhif_ward_type_id: initialData?.nhif_ward_type_id ?? '',
+        nhif_room_type_id: initialData?.nhif_room_type_id ?? '',
+        nhif_authorization_no: initialData?.nhif_authorization_no ?? '',
+        clinical_encounter_id: initialData?.clinical_encounter_id ?? '',
+        reception_visit_id: initialData?.reception_visit_id ?? '',
+        diagnosis_at_admission: initialData?.diagnosis_at_admission ?? '',
+        notes: initialData?.notes ?? '',
     });
 
+    useEffect(() => {
+        if (initialData?.nhif_authorization_no) {
+            checkExistingNhifAdmission(initialData.nhif_authorization_no);
+        }
+    }, [initialData?.nhif_authorization_no]);
+
     const filteredDepartments = data.hospital_id ? departments.filter((d) => String(d.hospital_id) === data.hospital_id) : departments;
+
+    const isMaternityAdmission = initialData?.preset === 'maternity' || data.department_id === '7';
+
+    const filteredPractitioners = useMemo(() => {
+        if (isMaternityAdmission) {
+            const maternityStaff = practitioners.filter(
+                (p) =>
+                    p.staff?.department_id === 7 ||
+                    p.practitioner_type === 'nurse' ||
+                    p.practitioner_type === 'doctor' ||
+                    p.staff?.job_title?.toLowerCase().includes('midwife') ||
+                    p.staff?.job_title?.toLowerCase().includes('nurse') ||
+                    p.staff?.job_title?.toLowerCase().includes('obstetric')
+            );
+            return maternityStaff.length > 0 ? maternityStaff : practitioners;
+        }
+        if (data.department_id) {
+            const deptStaff = practitioners.filter((p) => String(p.staff?.department_id) === data.department_id);
+            return deptStaff.length > 0 ? deptStaff : practitioners;
+        }
+        return practitioners;
+    }, [practitioners, data.department_id, isMaternityAdmission]);
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
@@ -115,12 +158,42 @@ export default function AdmissionCreate({ hospitals, departments, practitioners,
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="New Admission Request" />
 
-            <div className="p-4">
-                <Card className="max-w-2xl">
+            <div className="p-4 sm:p-6 lg:p-8">
+                <Card className="max-w-3xl mx-auto shadow-sm">
                     <CardHeader>
-                        <CardTitle>New Admission Request</CardTitle>
+                        <div className="flex items-center justify-between">
+                            <CardTitle>New Admission Request</CardTitle>
+                            {isMaternityAdmission && (
+                                <Badge className="bg-pink-600 hover:bg-pink-700 text-white gap-1">
+                                    <Baby className="h-3.5 w-3.5" />
+                                    Maternity / Labour Ward
+                                </Badge>
+                            )}
+                        </div>
                     </CardHeader>
                     <CardContent>
+                        {isMaternityAdmission && (
+                            <div className="mb-6 rounded-xl border border-pink-200 bg-pink-50/70 p-4 dark:border-pink-900/50 dark:bg-pink-950/30">
+                                <div className="flex items-start gap-3">
+                                    <div className="rounded-lg bg-pink-100 p-2 text-pink-700 dark:bg-pink-900/50 dark:text-pink-300">
+                                        <Sparkles className="h-5 w-5" />
+                                    </div>
+                                    <div className="flex-1 space-y-1">
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="text-sm font-bold text-pink-900 dark:text-pink-200">
+                                                Maternity Fast-Track Admission
+                                            </h3>
+                                            <Badge variant="outline" className="border-pink-300 text-[10px] text-pink-800 dark:text-pink-300">
+                                                Continuous Clinical Care
+                                            </Badge>
+                                        </div>
+                                        <p className="text-xs text-pink-800/90 dark:text-pink-300/90">
+                                            Patient context, verified NHIF coverage, Maternity Department, and attending midwives/obstetricians have been automatically pre-populated. Once confirmed, you can directly open the WHO Partograph and Labour Monitoring Workspace.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                         <form onSubmit={submit} className="space-y-6">
                             <div className="grid gap-2">
                                 <Label htmlFor="patient_id">Patient *</Label>
@@ -337,9 +410,9 @@ export default function AdmissionCreate({ hospitals, departments, practitioners,
                                         </SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="none">No practitioner selected</SelectItem>
-                                            {practitioners.map((p) => (
+                                            {filteredPractitioners.map((p) => (
                                                 <SelectItem key={p.id} value={String(p.id)}>
-                                                    {p.staff ? `${p.staff.first_name} ${p.staff.last_name}` : p.practitioner_number}
+                                                    {p.staff ? `${p.staff.first_name} ${p.staff.last_name}${p.staff.job_title ? ` (${p.staff.job_title})` : ''}` : p.practitioner_number}
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>

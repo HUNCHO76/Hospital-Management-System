@@ -9,7 +9,7 @@ import { allowedReceptionActions, receptionStatusLabel, receptionStatusVariant }
 import { type BreadcrumbItem } from '@/types';
 import { type ConsultationCharge, type ConsultationFinancialStatus, type NhifPreApprovalItem, type ReceptionVisit } from '@/types/reception';
 import { Head, Link, router } from '@inertiajs/react';
-import { AlertTriangle, CheckCircle2, ClipboardPlus, Clock, PlayCircle, Send, ShieldCheck, ShieldX, XCircle } from 'lucide-react';
+import { AlertTriangle, Baby, Bed, CheckCircle2, ClipboardPlus, Clock, PlayCircle, Send, ShieldCheck, ShieldX, XCircle } from 'lucide-react';
 
 interface VisitShowProps {
     visit: ReceptionVisit;
@@ -101,6 +101,32 @@ export default function VisitShow({ visit, consultationFinancialStatus, consulta
                                 <Link href={route('clinical-encounters.create', { patient_id: visit.patient_id, reception_visit_id: visit.id })}>
                                     <ClipboardPlus className="h-4 w-4" />
                                     Open Clinical Encounter
+                                </Link>
+                            </Button>
+                        )}
+
+                        {visit.status !== 'cancelled' && can('admissions.create') && (
+                            <Button
+                                size="sm"
+                                variant={visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity') ? 'default' : 'outline'}
+                                className={visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity') ? 'bg-pink-600 hover:bg-pink-700 text-white' : ''}
+                                asChild
+                            >
+                                <Link
+                                    href={route('admissions.create', {
+                                        patient_id: visit.patient_id,
+                                        department_id: visit.department_id,
+                                        reception_visit_id: visit.id,
+                                        practitioner_id: visit.practitioner_id || undefined,
+                                        preset: (visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity')) ? 'maternity' : undefined,
+                                    })}
+                                >
+                                    {(visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity')) ? (
+                                        <Baby className="h-4 w-4" />
+                                    ) : (
+                                        <Bed className="h-4 w-4" />
+                                    )}
+                                    {(visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity')) ? 'Admit to Maternity Ward' : 'Admit Patient'}
                                 </Link>
                             </Button>
                         )}

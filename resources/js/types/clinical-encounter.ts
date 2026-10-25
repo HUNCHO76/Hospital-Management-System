@@ -72,6 +72,7 @@ export interface ClinicalEncounter {
     reception_visit?: ClinicalEncounterReceptionVisit | null;
     appointment?: ClinicalEncounterAppointment | null;
     consultation?: ClinicalEncounterConsultationSummary | null;
+    admission_id?: number | null;
     encounter_type: ClinicalEncounterType;
     status: ClinicalEncounterStatus;
     disposition: ClinicalEncounterDisposition | null;
