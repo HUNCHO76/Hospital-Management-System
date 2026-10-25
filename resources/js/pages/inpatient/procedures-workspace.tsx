@@ -421,12 +421,14 @@ export default function ProceduresWorkspace({
                                     MAR Sheet
                                 </Link>
                             </Button>
-                            <Button variant="outline" size="sm" asChild>
-                                <Link href={route('inpatient.maternity.show', admission.id)}>
-                                    <Baby className="mr-1.5 h-4 w-4 text-pink-600" />
-                                    Maternity
-                                </Link>
-                            </Button>
+                            {(admission.patient?.gender?.toLowerCase() === 'female' || admission.maternity_profile) && (
+                                <Button variant="outline" size="sm" asChild>
+                                    <Link href={route('inpatient.maternity.show', admission.id)}>
+                                        <Baby className="mr-1.5 h-4 w-4 text-pink-600" />
+                                        Maternity
+                                    </Link>
+                                </Button>
+                            )}
                             <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={() => setOrderDialogOpen(true)}>
                                 <Plus className="mr-1.5 h-4 w-4" />
                                 Order Procedure

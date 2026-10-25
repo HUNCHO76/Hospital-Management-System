@@ -348,12 +348,14 @@ export default function NursingWorkspace({
                                 MAR Worklist
                             </Link>
                         </Button>
-                        <Button size="sm" variant="outline" className="border-pink-300 text-pink-700 hover:bg-pink-50 dark:hover:bg-pink-950/40" asChild>
-                            <Link href={route('inpatient.maternity.show', admission.id)} className="gap-1.5">
-                                <Baby className="h-4 w-4 text-pink-600" />
-                                Maternity & Labour
-                            </Link>
-                        </Button>
+                        {(admission.patient?.gender?.toLowerCase() === 'female' || admission.maternity_profile) && (
+                            <Button size="sm" variant="outline" className="border-pink-300 text-pink-700 hover:bg-pink-50 dark:hover:bg-pink-950/40" asChild>
+                                <Link href={route('inpatient.maternity.show', admission.id)} className="gap-1.5">
+                                    <Baby className="h-4 w-4 text-pink-600" />
+                                    Maternity & Labour
+                                </Link>
+                            </Button>
+                        )}
                         <Button size="sm" variant="outline" className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/40" asChild>
                             <Link href={route('inpatient.procedures.index', admission.id)} className="gap-1.5">
                                 <Scissors className="h-4 w-4 text-indigo-600" />

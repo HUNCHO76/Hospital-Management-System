@@ -46,8 +46,13 @@ import { useState } from 'react';
 
 interface MaternityProfileData {
     id: number;
+    episode_number?: string;
     admission_id: number;
     patient_id: number;
+    care_stage?: string;
+    assigned_midwife_id?: number | null;
+    primary_clinician_id?: number | null;
+    clinical_exception_reason?: string | null;
     gravida: number;
     para: number;
     living_children: number;
@@ -67,6 +72,11 @@ interface MaternityProfileData {
     status: string;
     notes: string | null;
     recorded_by?: { id: number; UserName: string };
+    assigned_midwife?: { id: number; UserName: string };
+    primary_clinician?: { id: number; UserName: string };
+    exception_authorized_by?: { id: number; UserName: string };
+    stage_updated_by?: { id: number; UserName: string };
+    stage_updated_at?: string | null;
     created_at: string;
 }
 
@@ -140,9 +150,20 @@ interface PractitionerOption {
 interface MaternityWorkspaceProps {
     admission: Admission;
     profile: MaternityProfileData | null;
+    eligibility?: {
+        eligible: boolean;
+        message: string;
+        requires_exception: boolean;
+        existing_active_episode: any | null;
+    };
     partographEntries: PartographReading[];
     deliveryRecord: DeliverySummary | null;
+    latestVital?: any;
+    medications?: any[];
+    clinicalAlerts?: any[];
+    insurance?: any;
     practitioners: PractitionerOption[];
+    canAuthorizeException?: boolean;
     constants: {
         amniotic_fluid_states: Record<string, string>;
         moulding_grades: Record<string, string>;
@@ -150,6 +171,7 @@ interface MaternityWorkspaceProps {
         presentations: string[];
         membrane_statuses: string[];
         hiv_statuses: string[];
+        care_stages: Record<string, string>;
         labour_stages: string[];
         delivery_modes: Record<string, string>;
         perineal_statuses: Record<string, string>;
@@ -173,15 +195,22 @@ const COMMON_RISK_FACTORS = [
 export default function MaternityWorkspace({
     admission,
     profile,
+    eligibility,
     partographEntries,
     deliveryRecord,
+    latestVital,
+    medications,
+    clinicalAlerts,
+    insurance,
     practitioners,
+    canAuthorizeException,
     constants,
 }: MaternityWorkspaceProps) {
     const { flash } = usePage().props as { flash?: { success?: string; error?: string } };
 
-    const [activeTab, setActiveTab] = useState<'partograph' | 'profile' | 'delivery'>('partograph');
+    const [activeTab, setActiveTab] = useState<'partograph' | 'profile' | 'delivery' | 'orders'>('partograph');
     const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+    const [stageDialogOpen, setStageDialogOpen] = useState(false);
     const [partographDialogOpen, setPartographDialogOpen] = useState(false);
     const [deliveryDialogOpen, setDeliveryDialogOpen] = useState(false);
 
@@ -202,7 +231,11 @@ export default function MaternityWorkspace({
         hiv_status: profile?.hiv_status ?? 'unknown',
         vdrl_rpr_status: profile?.vdrl_rpr_status ?? 'non_reactive',
         risk_factors: profile?.risk_factors ?? ([] as string[]),
+        care_stage: profile?.care_stage ?? 'awaiting_assessment',
         labour_stage: profile?.labour_stage ?? 'latent_phase',
+        assigned_midwife_id: profile?.assigned_midwife_id ? String(profile.assigned_midwife_id) : '',
+        primary_clinician_id: profile?.primary_clinician_id ? String(profile.primary_clinician_id) : '',
+        clinical_exception_reason: profile?.clinical_exception_reason ?? '',
         notes: profile?.notes ?? '',
     });
 
@@ -211,6 +244,21 @@ export default function MaternityWorkspace({
         profileForm.post(route('inpatient.maternity.profile.store', admission.id), {
             preserveScroll: true,
             onSuccess: () => setProfileDialogOpen(false),
+        });
+    };
+
+    // Stage Transition Form
+    const stageForm = useForm({
+        care_stage: profile?.care_stage ?? 'awaiting_assessment',
+        notes: '',
+    });
+
+    const submitStageTransition = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!profile) return;
+        stageForm.post(route('inpatient.maternity.stage.update', [admission.id, profile.id]), {
+            preserveScroll: true,
+            onSuccess: () => setStageDialogOpen(false),
         });
     };
 
