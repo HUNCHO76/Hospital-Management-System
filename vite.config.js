@@ -16,10 +16,10 @@ export default defineConfig({
         tailwindcss(),
     ],
     server: {
-        host: 'localhost',
+        host: '192.168.50.205',
         cors: true,
         hmr: {
-            host: 'localhost',
+            host: '192.168.50.205',
         },
     },
     esbuild: {

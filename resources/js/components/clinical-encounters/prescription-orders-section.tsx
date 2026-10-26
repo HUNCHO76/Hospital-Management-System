@@ -30,10 +30,18 @@ import {
     type PrescriptionRoute,
 } from '@/types/prescription';
 import { BiometricIssueDialog } from '@/components/nhif/biometric-issue-dialog';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { type NhifInsuranceSummary, type NhifPreApprovalSession } from '@/types/nhif';
 import { Link, router, useForm } from '@inertiajs/react';
-import { AlertTriangle, ClipboardPlus, Fingerprint, LoaderCircle, Plus, RotateCcw, Send, XCircle } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, ClipboardPlus, Fingerprint, Info, LoaderCircle, Package, Plus, RotateCcw, Send, XCircle } from 'lucide-react';
 import { type FormEventHandler, useState } from 'react';
 
 interface PrescriptionOrdersSectionProps {
@@ -461,16 +469,39 @@ function AddPrescriptionOrderForm({
         });
     };
 
-    const submit: FormEventHandler = (e) => {
-        e.preventDefault();
+    const [stockConfirmOpen, setStockConfirmOpen] = useState(false);
+
+    const requestedQtyNum = Number(quantity) || 0;
+    const availableStockNum = medication?.available_stock ?? 0;
+    const isMedicationOutOfStock = Boolean(medication && (medication.is_out_of_stock || availableStockNum === 0));
+    const isQuantityExceedingStock = Boolean(medication && !isMedicationOutOfStock && requestedQtyNum > availableStockNum);
+    const isMedicationLowStock = Boolean(medication && !isMedicationOutOfStock && !isQuantityExceedingStock && medication.is_low_stock);
+
+    const stockDeficits = addedItems.filter((item) => {
+        const avail = item.medication.available_stock ?? 0;
+        const req = Number(item.quantity) || 0;
+        return item.medication.is_out_of_stock || avail === 0 || req > avail;
+    });
+
+    const submitOrder = () => {
         post(route('clinical-encounters.prescription-orders.store', encounterId), {
             preserveScroll: true,
             onSuccess: () => {
                 reset();
                 setAddedItems([]);
                 resetDraft();
+                setStockConfirmOpen(false);
             },
         });
+    };
+
+    const submit: FormEventHandler = (e) => {
+        e.preventDefault();
+        if (stockDeficits.length > 0) {
+            setStockConfirmOpen(true);
+            return;
+        }
+        submitOrder();
     };
 
     return (
@@ -485,18 +516,38 @@ function AddPrescriptionOrderForm({
                         return (
                             <li key={index} className="bg-muted/50 space-y-2 rounded-md px-3 py-2 text-sm">
                                 <div className="flex items-center justify-between gap-2">
-                                    <span>
-                                        {itemSummary({
-                                            medication_name_snapshot: item.medication.generic_name,
-                                            strength_snapshot: item.medication.strength,
-                                            dose: item.dose,
-                                            dose_unit: item.dose_unit || null,
-                                            route: item.route,
-                                            frequency: item.frequency,
-                                            duration: item.duration ? Number(item.duration) : null,
-                                            duration_unit: item.duration_unit || null,
-                                        })}
-                                    </span>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span>
+                                            {itemSummary({
+                                                medication_name_snapshot: item.medication.generic_name,
+                                                strength_snapshot: item.medication.strength,
+                                                dose: item.dose,
+                                                dose_unit: item.dose_unit || null,
+                                                route: item.route,
+                                                frequency: item.frequency,
+                                                duration: item.duration ? Number(item.duration) : null,
+                                                duration_unit: item.duration_unit || null,
+                                            })}
+                                        </span>
+                                        {item.medication.available_stock !== undefined && (
+                                            (item.medication.is_out_of_stock || (item.medication.available_stock ?? 0) === 0) ? (
+                                                <span className="inline-flex items-center gap-1 rounded bg-red-100 dark:bg-red-950/60 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300 border border-red-300 dark:border-red-900">
+                                                    <AlertCircle className="h-3 w-3" />
+                                                    Out of stock (0 avail)
+                                                </span>
+                                            ) : Number(item.quantity) > (item.medication.available_stock ?? 0) ? (
+                                                <span className="inline-flex items-center gap-1 rounded bg-amber-100 dark:bg-amber-950/60 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-900">
+                                                    <AlertTriangle className="h-3 w-3" />
+                                                    Exceeds stock ({item.quantity} req / {item.medication.available_stock} avail)
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1 rounded bg-emerald-100 dark:bg-emerald-950/60 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-900">
+                                                    <CheckCircle2 className="h-3 w-3" />
+                                                    In stock ({item.medication.available_stock} avail)
+                                                </span>
+                                            )
+                                        )}
+                                    </div>
                                     <Button type="button" size="sm" variant="ghost" onClick={() => removeItem(index)}>
                                         <XCircle className="h-4 w-4" />
                                         Remove
@@ -534,11 +585,47 @@ function AddPrescriptionOrderForm({
                 </ul>
             )}
             <InputError message={errors.items} />
-
             <div className="grid gap-4 rounded-md border p-3">
                 <div className="grid gap-1.5">
                     <label className="text-sm font-medium">Medication</label>
-                    <MedicationSearch selected={medication} onSelect={setMedication} />
+                    <MedicationSearch
+                        selected={medication}
+                        onSelect={setMedication}
+                        onClear={() => setMedication(null)}
+                        clinicalEncounterId={encounterId}
+                    />
+
+                    {medication && (
+                        <div className="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-xs bg-muted/40">
+                            <div className="flex items-center gap-1.5">
+                                <Package className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className="font-medium text-foreground">{medication.generic_name}</span>
+                                {medication.brand_name && <span className="text-muted-foreground">({medication.brand_name})</span>}
+                            </div>
+                            <div>
+                                {medication.available_stock !== undefined ? (
+                                    medication.is_out_of_stock ? (
+                                        <span className="inline-flex items-center gap-1 rounded bg-red-100 dark:bg-red-950/60 text-red-800 dark:text-red-300 px-2 py-0.5 font-semibold border border-red-300 dark:border-red-900">
+                                            <AlertCircle className="h-3 w-3" />
+                                            Out of Stock (0 units available)
+                                        </span>
+                                    ) : medication.is_low_stock ? (
+                                        <span className="inline-flex items-center gap-1 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 font-semibold border border-amber-300 dark:border-amber-900">
+                                            <AlertTriangle className="h-3 w-3" />
+                                            Low Stock ({medication.available_stock} available, Reorder level: {medication.reorder_level ?? 0})
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 font-semibold border border-emerald-300 dark:border-emerald-900">
+                                            <CheckCircle2 className="h-3 w-3" />
+                                            In Stock ({medication.available_stock} units available)
+                                        </span>
+                                    )
+                                ) : (
+                                    <span className="text-muted-foreground">Stock inventory unlinked</span>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -609,6 +696,33 @@ function AddPrescriptionOrderForm({
                     </div>
                 </div>
 
+                {medication && isMedicationOutOfStock && (
+                    <div className="flex items-center gap-2 rounded border border-red-500/40 bg-red-500/10 p-2.5 text-xs text-red-900 dark:text-red-200">
+                        <AlertCircle className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+                        <span>
+                            <strong>Out of Stock Alert:</strong> The hospital pharmacy currently has <strong>0 units</strong> of {medication.generic_name}. If requested, the patient may need outside purchasing or pharmacy restock.
+                        </span>
+                    </div>
+                )}
+
+                {medication && isQuantityExceedingStock && requestedQtyNum > 0 && (
+                    <div className="flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-900 dark:text-amber-200">
+                        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                        <span>
+                            <strong>Insufficient Stock Alert:</strong> You requested <strong>{requestedQtyNum}</strong> units, but only <strong>{availableStockNum}</strong> units are currently available in the pharmacy.
+                        </span>
+                    </div>
+                )}
+
+                {medication && isMedicationLowStock && requestedQtyNum > 0 && (
+                    <div className="flex items-center gap-2 rounded border border-blue-500/40 bg-blue-500/10 p-2.5 text-xs text-blue-900 dark:text-blue-200">
+                        <Info className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                        <span>
+                            <strong>Low Stock Notice:</strong> Pharmacy has only <strong>{availableStockNum}</strong> units remaining of this medication.
+                        </span>
+                    </div>
+                )}
+
                 <div className="grid gap-1.5">
                     <label className="text-sm font-medium">Instructions</label>
                     <Textarea rows={2} value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="e.g. Take after meals" />
@@ -655,6 +769,61 @@ function AddPrescriptionOrderForm({
                     Create Prescription
                 </Button>
             </div>
+
+            <Dialog open={stockConfirmOpen} onOpenChange={setStockConfirmOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                            <AlertTriangle className="h-5 w-5" />
+                            Insufficient Stock Warning
+                        </DialogTitle>
+                        <DialogDescription>
+                            One or more prescribed medications currently have insufficient stock in the hospital pharmacy:
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-2">
+                        <ul className="divide-y rounded-md border border-amber-500/30 bg-amber-500/5 text-xs">
+                            {stockDeficits.map((item, idx) => {
+                                const avail = item.medication.available_stock ?? 0;
+                                const req = Number(item.quantity) || 0;
+                                return (
+                                    <li key={idx} className="flex items-center justify-between p-2.5">
+                                        <div>
+                                            <span className="font-semibold text-foreground">{item.medication.generic_name}</span>
+                                            {item.medication.brand_name && (
+                                                <span className="text-muted-foreground text-[11px]"> ({item.medication.brand_name})</span>
+                                            )}
+                                        </div>
+                                        <div className="text-right">
+                                            {avail === 0 ? (
+                                                <span className="font-bold text-red-600 dark:text-red-400">Out of Stock (0 avail)</span>
+                                            ) : (
+                                                <span className="font-bold text-amber-700 dark:text-amber-400">
+                                                    Req: {req} · Avail: {avail}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                        <p className="text-muted-foreground text-xs">
+                            The pharmacy may not be able to immediately dispense the requested quantity without procuring stock or issuing an alternative. Do you still wish to submit this prescription request?
+                        </p>
+                    </div>
+
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button type="button" variant="outline" size="sm" onClick={() => setStockConfirmOpen(false)}>
+                            Adjust Prescription
+                        </Button>
+                        <Button type="button" size="sm" onClick={submitOrder} disabled={processing}>
+                            {processing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ClipboardPlus className="h-4 w-4" />}
+                            Confirm & Send Request
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </form>
     );
 }

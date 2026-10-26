@@ -317,10 +317,18 @@ class RadiologyOrderService
      * exactly). Deliberately does NOT require a diagnosis — urgent imaging
      * must not be blocked on a final diagnosis not yet being entered.
      *
+     * Inpatient encounters (created via InpatientClinicalService::openEncounter)
+     * have no consultation context — the clinician opens the encounter directly
+     * against the admission during a ward round, so the requirement is bypassed.
+     *
      * @throws ValidationException
      */
-    protected function assertConsultationEligible(ClinicalEncounter $encounter): Consultation
+    protected function assertConsultationEligible(ClinicalEncounter $encounter): ?Consultation
     {
+        if ($encounter->encounter_type === 'inpatient') {
+            return null;
+        }
+
         $consultation = $encounter->consultation;
 
         if (! $consultation || ! in_array($consultation->status, [Consultation::STATUS_IN_PROGRESS, Consultation::STATUS_COMPLETED], true)) {

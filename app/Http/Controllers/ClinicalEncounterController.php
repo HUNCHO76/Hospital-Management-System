@@ -211,7 +211,11 @@ class ClinicalEncounterController extends Controller
             // RadiologyResultResource needs it for procedure_code/name — set
             // it explicitly rather than triggering a second query per row.
             ->flatMap(fn ($item) => $item->radiologyAppointments->each(fn (RadiologyAppointment $appointment) => $appointment->setRelation('radiologyOrderItem', $item)))
-            ->filter(fn (RadiologyAppointment $appointment) => $appointment->report?->status === RadiologyReport::STATUS_RELEASED)
+            ->filter(fn (RadiologyAppointment $appointment) => in_array($appointment->report?->status, [
+                RadiologyReport::STATUS_SUBMITTED,
+                RadiologyReport::STATUS_VERIFIED,
+                RadiologyReport::STATUS_RELEASED,
+            ], true))
             ->map(fn (RadiologyAppointment $appointment) => (new RadiologyResultResource($appointment))->resolve($request))
             ->values();
 

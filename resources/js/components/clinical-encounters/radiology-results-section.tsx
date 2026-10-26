@@ -44,7 +44,18 @@ export function RadiologyResultsSection({ radiologyResults }: RadiologyResultsSe
                                     <div className="flex flex-wrap items-center gap-2">
                                         <span className="font-medium">{result.procedure_name}</span>
                                         {result.modality && <Badge variant="outline">{radiologyModalityLabel[result.modality]}</Badge>}
-                                        <Badge variant="secondary">Released</Badge>
+                                        <Badge
+                                            variant={result.status === 'released' ? 'secondary' : 'default'}
+                                            className={
+                                                result.status === 'released'
+                                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 uppercase text-[10px]'
+                                                    : result.status === 'verified'
+                                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200 uppercase text-[10px]'
+                                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 uppercase text-[10px]'
+                                            }
+                                        >
+                                            {result.status === 'submitted' ? 'Submitted (Preliminary)' : result.status}
+                                        </Badge>
                                     </div>
                                     <div className="flex items-center gap-3">
                                         {result.images.length > 0 && (

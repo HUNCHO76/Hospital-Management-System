@@ -39,6 +39,7 @@ import {
     Check,
     CheckCircle2,
     Clock,
+    Eye,
     FileSpreadsheet,
     FileText,
     FlaskConical,
@@ -55,6 +56,7 @@ import {
     User,
     X,
 } from 'lucide-react';
+import { ViewRadiologyReportDialog, type ViewRadiologyReportData, type ViewRadiologyReportProcedure } from '@/components/radiology/view-radiology-report-dialog';
 import { useState } from 'react';
 
 interface MaternityProfileData {
@@ -282,6 +284,8 @@ export default function MaternityWorkspace({
     const [labOrderDialogOpen, setLabOrderDialogOpen] = useState(false);
     const [prescriptionDialogOpen, setPrescriptionDialogOpen] = useState(false);
     const [radiologyDialogOpen, setRadiologyDialogOpen] = useState(false);
+    const [selectedReport, setSelectedReport] = useState<ViewRadiologyReportData | null>(null);
+    const [selectedReportProcedure, setSelectedReportProcedure] = useState<ViewRadiologyReportProcedure | null>(null);
 
     // Radiology Order Form
     const radiologyForm = useForm({
@@ -1423,16 +1427,39 @@ export default function MaternityWorkspace({
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell>
-                                                        <div className="flex flex-col gap-0.5">
+                                                        <div className="flex flex-col gap-1.5">
                                                             {order.items?.map((item: any) => {
-                                                                const rpt = item.active_radiology_appointment?.report ?? item.activeRadiologyAppointment?.report;
+                                                                const appt = item.active_radiology_appointment ?? item.activeRadiologyAppointment;
+                                                                const rpt = appt?.report;
                                                                 return rpt ? (
-                                                                    <span key={item.id} className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1">
-                                                                        <Check className="h-3 w-3" />
-                                                                        Report {rpt.status ?? 'Released'}
-                                                                    </span>
+                                                                    <div key={item.id} className="flex items-center gap-1.5">
+                                                                        <Button
+                                                                            type="button"
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            className="h-6 px-2 text-[11px] font-medium gap-1 border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 hover:text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-800 shadow-none"
+                                                                            onClick={() => {
+                                                                                setSelectedReport(rpt);
+                                                                                setSelectedReportProcedure({
+                                                                                    procedure_name: item.radiology_procedure?.name ?? item.radiologyProcedure?.name ?? item.procedure_name,
+                                                                                    procedure_code: item.radiology_procedure?.code ?? item.radiologyProcedure?.code ?? item.procedure_code,
+                                                                                    modality: item.radiology_procedure?.modality ?? item.radiologyProcedure?.modality ?? appt?.modality,
+                                                                                    body_site_snapshot: item.body_site_snapshot,
+                                                                                    appointment_id: appt?.id,
+                                                                                    images: appt?.images ?? [],
+                                                                                });
+                                                                            }}
+                                                                        >
+                                                                            <Eye className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                                                                            <span>View Report</span>
+                                                                            <span className="text-[9px] uppercase font-bold px-1 py-0.5 rounded bg-emerald-200/80 dark:bg-emerald-800/80 text-emerald-900 dark:text-emerald-100 ml-0.5">
+                                                                                {rpt.status ?? 'Result'}
+                                                                            </span>
+                                                                        </Button>
+                                                                    </div>
                                                                 ) : (
-                                                                    <span key={item.id} className="text-[10px] text-muted-foreground">
+                                                                    <span key={item.id} className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                                                        <Clock className="h-2.5 w-2.5" />
                                                                         Awaiting Scan
                                                                     </span>
                                                                 );
@@ -3093,6 +3120,14 @@ export default function MaternityWorkspace({
                     </DialogHeader>
 
                     <form onSubmit={submitRadiologyOrder} className="flex flex-col gap-4">
+                        {radiologyForm.hasErrors && (
+                            <div className="rounded-md bg-destructive/10 p-3 text-xs text-destructive space-y-1">
+                                {Object.values(radiologyForm.errors).map((err, idx) => (
+                                    <p key={idx}>{err}</p>
+                                ))}
+                            </div>
+                        )}
+
                         {/* Procedure Selection */}
                         <div>
                             <Label className="text-xs font-semibold">Select Radiology / Ultrasound Procedures *</Label>
@@ -3233,6 +3268,21 @@ export default function MaternityWorkspace({
                     </form>
                 </DialogContent>
             </Dialog>
+
+            {/* View Radiology Report Dialog */}
+            <ViewRadiologyReportDialog
+                open={selectedReport !== null}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setSelectedReport(null);
+                        setSelectedReportProcedure(null);
+                    }
+                }}
+                report={selectedReport}
+                procedure={selectedReportProcedure}
+                patientName={admission?.patient ? [admission.patient.first_name, admission.patient.middle_name, admission.patient.last_name].filter(Boolean).join(' ') : undefined}
+                patientNumber={admission?.patient?.patient_number}
+            />
         </AppLayout>
     );
 }

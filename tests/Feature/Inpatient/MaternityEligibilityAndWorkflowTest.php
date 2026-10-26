@@ -459,3 +459,27 @@ test('15. general inpatient nursing, vitals, notes, and MAR remain fully functio
     ]);
     $handover->assertRedirect();
 });
+
+test('16. eligible maternity patient can have ultrasound and radiology orders placed without consultation requirement', function () {
+    $ctx = maternityEligibilityContext('female');
+    $admission = $ctx['admission'];
+    $nurse = $ctx['user'];
+
+    $proc = \App\Models\RadiologyProcedure::factory()->create(['status' => \App\Models\RadiologyProcedure::STATUS_ACTIVE]);
+
+    $response = $this->actingAs($nurse)->post(route('inpatient.maternity.radiology-orders.store', $admission->id), [
+        'procedure_ids' => [$proc->id],
+        'priority' => 'routine',
+        'clinical_indication' => 'Obstetric ultrasound for fetal well-being',
+    ]);
+
+    $response->assertSessionHasNoErrors();
+    $response->assertRedirect();
+
+    $this->assertDatabaseHas('radiology_orders', [
+        'status' => \App\Models\RadiologyOrder::STATUS_ORDERED,
+        'priority' => 'routine',
+        'clinical_indication' => 'Obstetric ultrasound for fetal well-being',
+    ]);
+});
+

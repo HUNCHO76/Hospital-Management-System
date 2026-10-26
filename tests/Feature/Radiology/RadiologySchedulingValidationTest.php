@@ -130,3 +130,47 @@ test('a missing cancellation reason is rejected over HTTP', function () {
 
     expect($appointment->fresh()->status)->toBe(RadiologyAppointment::STATUS_SCHEDULED);
 });
+
+test('scheduling an appointment on the same day succeeds over HTTP', function () {
+    $ctx = radiologyOrderReadyForScheduling();
+    $scheduler = userWithRole('radiology-technician');
+
+    $response = $this->actingAs($scheduler)->post(route('radiology-scheduling.store'), [
+        'radiology_order_item_id' => $ctx['item']->id,
+        'resource_name' => 'Ultrasound Room 1',
+        'scheduled_start' => now()->startOfDay()->addHours(14)->toDateTimeString(),
+        'scheduled_end' => now()->startOfDay()->addHours(14)->addMinutes(30)->toDateTimeString(),
+    ]);
+
+    $response->assertSessionHasNoErrors();
+    $response->assertRedirect();
+
+    $this->assertDatabaseHas('radiology_appointments', [
+        'radiology_order_item_id' => $ctx['item']->id,
+        'resource_name' => 'Ultrasound Room 1',
+        'status' => RadiologyAppointment::STATUS_SCHEDULED,
+    ]);
+});
+
+test('rescheduling an appointment to the same day succeeds over HTTP', function () {
+    $ctx = radiologyOrderReadyForScheduling();
+    $scheduler = userWithRole('radiology-technician');
+
+    $appointment = app(RadiologySchedulingService::class)->schedule($ctx['item'], [
+        'resource_name' => 'Ultrasound Room 1',
+        'scheduled_start' => now()->addDay()->setTime(9, 0),
+        'scheduled_end' => now()->addDay()->setTime(9, 30),
+    ], requestAs($scheduler));
+
+    $response = $this->actingAs($scheduler)->post(route('radiology-scheduling.reschedule', $appointment), [
+        'scheduled_start' => now()->startOfDay()->addHours(15)->toDateTimeString(),
+        'scheduled_end' => now()->startOfDay()->addHours(15)->addMinutes(30)->toDateTimeString(),
+        'reason' => 'Patient requested same day walk-in examination',
+    ]);
+
+    $response->assertSessionHasNoErrors();
+    $response->assertRedirect();
+
+    expect($appointment->fresh()->scheduled_start->format('H:i'))->toBe('15:00');
+});
+

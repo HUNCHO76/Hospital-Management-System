@@ -21,7 +21,7 @@ interface MedicationSearchProps {
  * and sheets. Renders an active search Input directly in the form DOM, with
  * an absolute dropdown and outside-click handling.
  */
-export function MedicationSearch({ selected, onSelect, disabled, clinicalEncounterId }: MedicationSearchProps) {
+export function MedicationSearch({ selected, onSelect, onClear, disabled, clinicalEncounterId }: MedicationSearchProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<MedicationSearchResult[]>([]);
@@ -49,6 +49,7 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
 
         fetch(route('medications.search-json', params), {
             headers: { Accept: 'application/json' },
+            credentials: 'same-origin',
         })
             .then((response) => response.json())
             .then((payload: { data: MedicationSearchResult[]; nhif_catalog?: NhifMedicationCatalogItem[] }) => {
@@ -92,6 +93,10 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
                 brand_name: null,
                 strength: null,
                 form: null,
+                available_stock: item.local_medication.available_stock,
+                reorder_level: item.local_medication.reorder_level,
+                is_low_stock: item.local_medication.is_low_stock,
+                is_out_of_stock: item.local_medication.is_out_of_stock,
             });
             setIsOpen(false);
             setQuery('');
@@ -102,6 +107,7 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
 
         fetch(route('medications.resolve-nhif-item', { item_code: item.item_code, item_name: item.item_name }), {
             headers: { Accept: 'application/json' },
+            credentials: 'same-origin',
         })
             .then((r) => r.json())
             .then((med: MedicationSearchResult) => {
@@ -228,15 +234,32 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
                             onClick={() => handleSelectMedication(medication)}
                             className="hover:bg-accent hover:text-accent-foreground flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left text-xs transition-colors"
                         >
-                            <span className="flex items-center gap-2">
-                                <span className="font-medium text-foreground">
-                                    {medication.generic_name}
-                                    {medication.brand_name && <span className="text-muted-foreground"> ({medication.brand_name})</span>}
+                            <span className="flex w-full items-center justify-between gap-2">
+                                <span className="flex items-center gap-2">
+                                    <span className="font-medium text-foreground">
+                                        {medication.generic_name}
+                                        {medication.brand_name && <span className="text-muted-foreground"> ({medication.brand_name})</span>}
+                                    </span>
+                                    {medication.nhif_code && (
+                                        <Badge variant="outline" className="border-green-300 px-1 py-0 text-[10px] text-green-700">
+                                            NHIF
+                                        </Badge>
+                                    )}
                                 </span>
-                                {medication.nhif_code && (
-                                    <Badge variant="outline" className="border-green-300 px-1 py-0 text-[10px] text-green-700">
-                                        NHIF
-                                    </Badge>
+                                {medication.available_stock !== undefined && (
+                                    medication.is_out_of_stock ? (
+                                        <span className="inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900">
+                                            Out of Stock
+                                        </span>
+                                    ) : medication.is_low_stock ? (
+                                        <span className="inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900">
+                                            Low Stock ({medication.available_stock})
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900">
+                                            {medication.available_stock} in stock
+                                        </span>
+                                    )
                                 )}
                             </span>
                             {(medication.strength || medication.form) && (
@@ -271,8 +294,17 @@ export function MedicationSearch({ selected, onSelect, disabled, clinicalEncount
                                         )}
                                     </span>
                                     {item.local_medication && (
-                                        <span className="text-muted-foreground text-[11px]">
-                                            → {item.local_medication.code} — {item.local_medication.generic_name}
+                                        <span className="flex items-center gap-2 text-muted-foreground text-[11px]">
+                                            <span>→ {item.local_medication.code} — {item.local_medication.generic_name}</span>
+                                            {item.local_medication.available_stock !== undefined && (
+                                                item.local_medication.is_out_of_stock ? (
+                                                    <span className="text-[10px] text-red-600 font-medium">(Out of stock)</span>
+                                                ) : item.local_medication.is_low_stock ? (
+                                                    <span className="text-[10px] text-amber-600 font-medium">({item.local_medication.available_stock} in stock - Low)</span>
+                                                ) : (
+                                                    <span className="text-[10px] text-emerald-600 font-medium">({item.local_medication.available_stock} in stock)</span>
+                                                )
+                                            )}
                                         </span>
                                     )}
                                 </button>

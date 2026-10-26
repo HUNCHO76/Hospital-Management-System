@@ -9,6 +9,8 @@ use App\Http\Requests\PrescriptionOrder\UpdatePrescriptionOrderRequest;
 use App\Models\ClinicalEncounter;
 use App\Models\PrescriptionOrder;
 use App\Models\PrescriptionOrderItem;
+use App\Models\StockBatch;
+use App\Models\StockItem;
 use App\Services\NHIF\NhifEncounterPreApprovalService;
 use App\Services\PrescriptionOrderService;
 use Illuminate\Http\RedirectResponse;
@@ -58,7 +60,38 @@ class EncounterPrescriptionOrderController extends Controller
             }
         }
 
-        $message = $preApprovalMessage ? "Prescription written. {$preApprovalMessage}" : 'Prescription written.';
+        $hospitalId = $clinicalEncounter->department?->hospital_id ?? $request->user()?->staff?->hospital_id;
+        $stockNotice = null;
+
+        if ($hospitalId) {
+            $deficits = [];
+            foreach ($order->items as $item) {
+                if ($item->status === PrescriptionOrderItem::STATUS_CANCELLED) {
+                    continue;
+                }
+                $stockItem = StockItem::where('hospital_id', $hospitalId)
+                    ->where('medication_id', $item->medication_id)
+                    ->first();
+                $available = $stockItem ? (int) $stockItem->batches()
+                    ->where('status', StockBatch::STATUS_ACTIVE)
+                    ->where('expiry_date', '>=', now()->toDateString())
+                    ->sum('quantity') : 0;
+
+                $req = (int) $item->quantity;
+                if ($available === 0) {
+                    $deficits[] = "{$item->medication_name_snapshot} (Out of Stock)";
+                } elseif ($req > $available) {
+                    $deficits[] = "{$item->medication_name_snapshot} (Req: {$req}, Avail: {$available})";
+                }
+            }
+
+            if (! empty($deficits)) {
+                $stockNotice = 'Note: Pharmacy stock alert for ' . implode('; ', $deficits) . '.';
+            }
+        }
+
+        $parts = array_filter(['Prescription written.', $preApprovalMessage, $stockNotice]);
+        $message = implode(' ', $parts);
 
         return back()->with('success', $message);
     }

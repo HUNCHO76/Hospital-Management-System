@@ -7,6 +7,8 @@ use App\Http\Requests\Medication\UpdateMedicationRequest;
 use App\Models\ClinicalEncounter;
 use App\Models\Medication;
 use App\Models\NhifSchemeService;
+use App\Models\StockBatch;
+use App\Models\StockItem;
 use App\Services\MedicationSearchService;
 use App\Services\MedicationService;
 use Illuminate\Http\JsonResponse;
@@ -76,24 +78,84 @@ class MedicationController extends Controller
                 ->whereIn('nhif_code', $catalogItems->pluck('item_code'))
                 ->get(['id', 'code', 'generic_name', 'nhif_code'])
                 ->keyBy('nhif_code');
+        }
 
-            $nhifCatalog = $catalogItems->map(function ($item) use ($mappedMedications) {
+        $hospitalId = $this->resolveHospitalId($request);
+        $stockItems = collect();
+
+        if ($hospitalId !== null) {
+            $allMedicationIds = $medications->pluck('id');
+            if ($nhifSchemeId !== null && isset($mappedMedications)) {
+                $allMedicationIds = $allMedicationIds->merge($mappedMedications->pluck('id'))->unique();
+            }
+
+            if ($allMedicationIds->isNotEmpty()) {
+                $stockItems = StockItem::query()
+                    ->where('hospital_id', $hospitalId)
+                    ->whereIn('medication_id', $allMedicationIds)
+                    ->with(['batches' => function ($query) {
+                        $query->where('status', StockBatch::STATUS_ACTIVE)
+                            ->where('expiry_date', '>=', now()->toDateString());
+                    }])
+                    ->get()
+                    ->keyBy('medication_id');
+            }
+        }
+
+        $medicationData = $medications->map(function ($medication) use ($stockItems, $hospitalId) {
+            $stockItem = $stockItems->get($medication->id);
+            $availableStock = $stockItem ? (int) $stockItem->batches->sum('quantity') : 0;
+            $reorderLevel = $stockItem ? (int) $stockItem->reorder_level : 0;
+            $isOutOfStock = $hospitalId !== null ? ($availableStock === 0) : false;
+            $isLowStock = $hospitalId !== null && ! $isOutOfStock && ($availableStock <= $reorderLevel);
+
+            return [
+                'id' => $medication->id,
+                'code' => $medication->code,
+                'generic_name' => $medication->generic_name,
+                'brand_name' => $medication->brand_name,
+                'strength' => $medication->strength,
+                'form' => $medication->form,
+                'nhif_code' => $medication->nhif_code,
+                'available_stock' => $availableStock,
+                'reorder_level' => $reorderLevel,
+                'is_low_stock' => $isLowStock,
+                'is_out_of_stock' => $isOutOfStock,
+            ];
+        });
+
+        if ($nhifSchemeId !== null) {
+            $nhifCatalog = $catalogItems->map(function ($item) use ($mappedMedications, $stockItems, $hospitalId) {
                 $localMed = $mappedMedications->get($item->item_code);
+                $localMedData = null;
+                if ($localMed) {
+                    $stockItem = $stockItems->get($localMed->id);
+                    $availableStock = $stockItem ? (int) $stockItem->batches->sum('quantity') : 0;
+                    $reorderLevel = $stockItem ? (int) $stockItem->reorder_level : 0;
+                    $isOutOfStock = $hospitalId !== null ? ($availableStock === 0) : false;
+                    $isLowStock = $hospitalId !== null && ! $isOutOfStock && ($availableStock <= $reorderLevel);
+
+                    $localMedData = [
+                        'id' => $localMed->id,
+                        'code' => $localMed->code,
+                        'generic_name' => $localMed->generic_name,
+                        'available_stock' => $availableStock,
+                        'reorder_level' => $reorderLevel,
+                        'is_low_stock' => $isLowStock,
+                        'is_out_of_stock' => $isOutOfStock,
+                    ];
+                }
 
                 return [
                     'item_code' => $item->item_code,
                     'item_name' => $item->item_name,
-                    'local_medication' => $localMed ? [
-                        'id' => $localMed->id,
-                        'code' => $localMed->code,
-                        'generic_name' => $localMed->generic_name,
-                    ] : null,
+                    'local_medication' => $localMedData,
                 ];
             })->values();
         }
 
         return response()->json([
-            'data' => $medications,
+            'data' => $medicationData,
             'nhif_catalog' => $nhifCatalog,
             'nhif_filtered' => $nhifSchemeId !== null,
         ]);
@@ -256,6 +318,31 @@ class MedicationController extends Controller
         $insurance = $encounter->patient?->currentNhifInsurance();
 
         return $insurance?->nhif_scheme_id ? (int) $insurance->nhif_scheme_id : null;
+    }
+
+    /**
+     * Resolve the hospital ID for inventory balance queries from the encounter's
+     * department, authenticated staff profile, or explicit query param.
+     */
+    private function resolveHospitalId(Request $request): ?int
+    {
+        $encounterId = $request->query('clinical_encounter_id');
+        if ($encounterId) {
+            $encounter = ClinicalEncounter::with('department')->find((int) $encounterId);
+            if ($encounter?->department?->hospital_id) {
+                return (int) $encounter->department->hospital_id;
+            }
+        }
+
+        if ($staffHospitalId = $request->user()?->staff?->hospital_id) {
+            return (int) $staffHospitalId;
+        }
+
+        if ($hospitalId = $request->query('hospital_id')) {
+            return (int) $hospitalId;
+        }
+
+        return null;
     }
 
     /**

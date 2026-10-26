@@ -154,7 +154,10 @@ class InpatientMaternityController extends Controller
                 ->whereIn('clinical_encounter_id', $encounterIds)
                 ->with([
                     'items.radiologyProcedure',
-                    'items.activeRadiologyAppointment.report',
+                    'items.activeRadiologyAppointment.report.reportingPractitioner.staff.user',
+                    'items.activeRadiologyAppointment.report.verifyingPractitioner.staff.user',
+                    'items.activeRadiologyAppointment.report.releasedBy:id,UserName',
+                    'items.activeRadiologyAppointment.images.uploadedBy:id,UserName',
                     'orderedBy:id,UserName',
                 ])
                 ->latest('ordered_at')

@@ -587,6 +587,10 @@ function AddCarePlanItemForm({
                                     setSelectedMedication(medication);
                                     setPrescriptionField('medication_id', String(medication.id));
                                 }}
+                                onClear={() => {
+                                    setSelectedMedication(null);
+                                    setPrescriptionField('medication_id', '');
+                                }}
                                 clinicalEncounterId={encounterId}
                             />
                             <InputError message={errors['prescription.medication_id']} />

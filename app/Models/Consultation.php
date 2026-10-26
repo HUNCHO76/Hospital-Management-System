@@ -51,7 +51,7 @@ class Consultation extends Model
      *
      * @var list<string>
      */
-    public const ELIGIBLE_PRACTITIONER_TYPES = ['doctor', 'clinical-officer', 'dentist'];
+    public const ELIGIBLE_PRACTITIONER_TYPES = ['doctor', 'clinical-officer', 'dentist', 'nurse'];
 
     /**
      * The attributes that are mass assignable.

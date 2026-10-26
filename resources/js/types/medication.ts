@@ -38,6 +38,10 @@ export interface MedicationSearchResult {
     strength: string | null;
     form: MedicationForm | null;
     nhif_code?: string | null;
+    available_stock?: number;
+    reorder_level?: number;
+    is_low_stock?: boolean;
+    is_out_of_stock?: boolean;
 }
 
 export interface NhifMedicationCatalogItem {

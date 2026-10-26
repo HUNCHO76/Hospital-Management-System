@@ -10,7 +10,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { allowedConsultationActions, CONSULTATION_FIELDS, consultationStatusLabel, consultationStatusVariant } from '@/lib/consultation-status';
 import { type Consultation, type ConsultationFormData } from '@/types/consultation';
 import { type TriageAssessment } from '@/types/triage';
-import { router, useForm } from '@inertiajs/react';
+import { router, useForm, usePage } from '@inertiajs/react';
 import { CheckCircle2, ClipboardPlus, LoaderCircle, PenLine, PlayCircle, XCircle } from 'lucide-react';
 import { type FormEventHandler } from 'react';
 
@@ -33,6 +33,7 @@ function formatDateTime(value: string): string {
  */
 export function ConsultationPanel({ encounterId, encounterStatus, triage, consultation }: ConsultationPanelProps) {
     const { can } = usePermissions();
+    const { errors } = usePage().props as { errors?: Record<string, string> };
     const triageCompleted = triage?.status === 'completed';
     const encounterClosed = encounterStatus === 'completed' || encounterStatus === 'cancelled';
 
@@ -41,23 +42,32 @@ export function ConsultationPanel({ encounterId, encounterStatus, triage, consul
     };
 
     if (!consultation) {
+        const consultationError = errors?.practitioner_id || errors?.financial_authorization || errors?.clinical_encounter_id;
+
         return (
             <Card>
                 <CardHeader>
                     <CardTitle className="text-base">Consultation</CardTitle>
                 </CardHeader>
-                <CardContent className="flex items-center justify-between gap-4">
-                    <p className="text-muted-foreground text-sm">
-                        {triageCompleted
-                            ? 'No consultation has been started for this encounter yet.'
-                            : 'Triage must be completed before a consultation can be started.'}
-                    </p>
-                    {can('consultation.create') && triageCompleted && !encounterClosed && (
-                        <Button size="sm" onClick={startConsultation}>
-                            <ClipboardPlus className="h-4 w-4" />
-                            Start Consultation
-                        </Button>
+                <CardContent className="space-y-4">
+                    {consultationError && (
+                        <div className="rounded-md bg-destructive/10 p-3 text-xs text-destructive">
+                            {consultationError}
+                        </div>
                     )}
+                    <div className="flex items-center justify-between gap-4">
+                        <p className="text-muted-foreground text-sm">
+                            {triageCompleted
+                                ? 'No consultation has been started for this encounter yet.'
+                                : 'Triage must be completed before a consultation can be started.'}
+                        </p>
+                        {can('consultation.create') && triageCompleted && !encounterClosed && (
+                            <Button size="sm" onClick={startConsultation}>
+                                <ClipboardPlus className="h-4 w-4" />
+                                Start Consultation
+                            </Button>
+                        )}
+                    </div>
                 </CardContent>
             </Card>
         );

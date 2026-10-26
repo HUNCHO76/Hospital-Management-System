@@ -13,6 +13,7 @@ import { ConsultationPanel } from '@/components/consultation/consultation-panel'
 import { DiagnosisSection } from '@/components/diagnosis/diagnosis-section';
 import { NhifPreApprovalSection } from '@/components/nhif/nhif-pre-approval-section';
 import { TriagePanel } from '@/components/triage/triage-panel';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,7 +40,7 @@ import { type RadiologyOrder, type RadiologyResult } from '@/types/radiology';
 import { type TriageAssessment } from '@/types/triage';
 import { NhifClaimFinalizeDialog } from '@/components/nhif/nhif-claim-finalize-dialog';
 import { Head, Link, router } from '@inertiajs/react';
-import { AlertCircle, AlertTriangle, Baby, Bed, PlayCircle, Send, XCircle } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Baby, Bed, CheckCircle2, PlayCircle, Send, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 interface EncounterShowProps {

@@ -90,6 +90,10 @@ export default function PharmacyStockReceive({ hospitals }: PharmacyStockReceive
                                             setSelectedMedication(medication);
                                             setData('medication_id', String(medication.id));
                                         }}
+                                        onClear={() => {
+                                            setSelectedMedication(null);
+                                            setData('medication_id', '');
+                                        }}
                                     />
                                     <InputError message={errors.medication_id} />
                                 </div>

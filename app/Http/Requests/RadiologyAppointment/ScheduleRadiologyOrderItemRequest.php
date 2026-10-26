@@ -41,7 +41,7 @@ class ScheduleRadiologyOrderItemRequest extends FormRequest
         return [
             'radiology_order_item_id' => ['required', 'integer', 'exists:radiology_order_items,id'],
             'resource_name' => ['required', 'string', 'max:255'],
-            'scheduled_start' => ['required', 'date', 'after_or_equal:now'],
+            'scheduled_start' => ['required', 'date', 'after_or_equal:today'],
             'scheduled_end' => ['required', 'date', 'after:scheduled_start'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];

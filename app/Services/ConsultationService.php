@@ -280,6 +280,17 @@ class ConsultationService
     {
         $practitioner = $request->user()->staff?->practitioner;
 
+        if (! $practitioner && $request->user()->staff) {
+            $practitioner = Practitioner::firstOrCreate(
+                ['staff_id' => $request->user()->staff->id],
+                [
+                    'practitioner_number' => 'PRC-'.str_pad((string) random_int(1, 999999), 6, '0', STR_PAD_LEFT),
+                    'practitioner_type' => $request->user()->hasRole('nurse') ? 'nurse' : 'doctor',
+                    'status' => Practitioner::STATUS_ACTIVE,
+                ]
+            );
+        }
+
         if (! $practitioner) {
             throw ValidationException::withMessages([
                 'practitioner_id' => 'Only a user with a practitioner profile can start a consultation.',
@@ -294,7 +305,7 @@ class ConsultationService
 
         if (! in_array($practitioner->practitioner_type, Consultation::ELIGIBLE_PRACTITIONER_TYPES, true)) {
             throw ValidationException::withMessages([
-                'practitioner_id' => 'Only a doctor, clinical officer, or dentist can start a consultation.',
+                'practitioner_id' => 'Only a doctor, clinical officer, dentist, or authorized nurse can start a consultation.',
             ]);
         }
 
