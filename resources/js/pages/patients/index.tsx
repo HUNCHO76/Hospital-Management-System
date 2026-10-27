@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { usePermissions } from '@/hooks/use-permissions';
 import AppLayout from '@/layouts/app-layout';
-import { calculateAge } from '@/lib/date';
+import { calculateAge, formatDate } from '@/lib/date';
 import { type BreadcrumbItem, type Paginated } from '@/types';
 import { type PatientFilters, type PatientListItem } from '@/types/patient';
 import { Head, Link, router } from '@inertiajs/react';
@@ -222,19 +222,15 @@ export default function PatientsIndex({ patients, filters }: PatientsIndexProps)
                                         <Link href={route('patients.show', patient.id)} className="font-medium hover:underline">
                                             {[patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ')}
                                         </Link>
-                                        {patient.date_of_birth && (
-                                            <span className="text-muted-foreground block text-xs">
-                                                {new Date(patient.date_of_birth).toLocaleDateString()}
-                                            </span>
-                                        )}
                                     </TableCell>
+                                    <TableCell>{formatDate(patient.date_of_birth)}</TableCell>
                                     <TableCell>{calculateAge(patient.date_of_birth)}</TableCell>
                                     <TableCell className="capitalize">{patient.gender}</TableCell>
                                     <TableCell>{patient.phone ?? '—'}</TableCell>
                                     <TableCell>
                                         <Badge variant={statusVariant[patient.status]}>{patient.status}</Badge>
                                     </TableCell>
-                                    <TableCell>{patient.created_at.slice(0, 10)}</TableCell>
+                                    <TableCell>{formatDate(patient.created_at)}</TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-1">
                                             <Button variant="ghost" size="icon" asChild>
@@ -262,7 +258,7 @@ export default function PatientsIndex({ patients, filters }: PatientsIndexProps)
 
                             {patients.data.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="p-0">
+                                    <TableCell colSpan={9} className="p-0">
                                         <EmptyState
                                             icon={UserRoundSearch}
                                             title={hasFilters ? 'No patients match your search or filters' : 'No patients found'}

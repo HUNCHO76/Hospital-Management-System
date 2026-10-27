@@ -4,7 +4,7 @@ export function formatDate(value: string | null | undefined): string {
         return '—';
     }
 
-    const date = new Date(value);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
 
     if (Number.isNaN(date.getTime())) {
         return '—';
@@ -19,7 +19,7 @@ export function calculateAge(dateOfBirth: string | null | undefined): string {
         return '—';
     }
 
-    const dob = new Date(dateOfBirth);
+    const dob = /^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth) ? new Date(`${dateOfBirth}T00:00:00`) : new Date(dateOfBirth);
 
     if (Number.isNaN(dob.getTime())) {
         return '—';
@@ -30,3 +30,4 @@ export function calculateAge(dateOfBirth: string | null | undefined): string {
 
     return `${age}y`;
 }
+
