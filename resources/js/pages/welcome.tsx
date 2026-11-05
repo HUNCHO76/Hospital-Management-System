@@ -16,7 +16,6 @@ import {
     ClipboardCheck,
     FileCheck2,
     FileSpreadsheet,
-    FileText,
     FlaskConical,
     HeartPulse,
     HelpCircle,

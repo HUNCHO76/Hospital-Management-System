@@ -93,6 +93,7 @@ export default function WalkInCreate({
         patient_id: '',
         department_id: '',
         visit_type: 'walk_in',
+        visit_purpose: '',
         practitioner_id: '',
         service_id: '',
         nhif_item_code: '',
@@ -144,7 +145,11 @@ export default function WalkInCreate({
             if (isMaternity) {
                 return (
                     cat === 'maternity' ||
+                    code.startsWith('MAT') ||
+                    code.startsWith('ANC') ||
+                    code.startsWith('PNC') ||
                     name.includes('maternity') ||
+                    name.includes('maten') ||
                     name.includes('antenatal') ||
                     name.includes('delivery') ||
                     name.includes('obstetric') ||
@@ -477,12 +482,15 @@ export default function WalkInCreate({
 
     // Handler when changing department: reset service and practitioner
     const handleDepartmentChange = (deptId: string) => {
+        const dept = departments.find((d) => String(d.id) === deptId);
+        const isMat = dept?.code?.toUpperCase() === 'MATERNITY' || (dept?.name ?? '').toLowerCase().includes('maternity');
         setData((prev) => ({
             ...prev,
             department_id: deptId,
             service_id: '',
             nhif_item_code: '',
             practitioner_id: '',
+            visit_purpose: isMat ? (prev.visit_purpose || 'antenatal_care') : '',
         }));
         setConsultationPrice(null);
     };
@@ -509,7 +517,13 @@ export default function WalkInCreate({
     };
 
     // Computed display price
-    const cashDisplayPrice = selectedCashService?.price ?? consultationPrice?.price ?? null;
+    const isSelectedServiceFree = Boolean(
+        selectedCashService &&
+        (selectedCashService.price === null || selectedCashService.price === 0 || !selectedCashService.is_billable)
+    );
+    const cashDisplayPrice = selectedCashService
+        ? (selectedCashService.price ?? 0)
+        : (consultationPrice?.price ?? null);
     const nhifPrice =
         consultationPrice?.nhif_unit_price ??
         (selectedNhifService?.unit_price ? parseFloat(selectedNhifService.unit_price) : null) ??
@@ -748,6 +762,56 @@ export default function WalkInCreate({
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
+                                {/* Quick Service Type Shortcuts */}
+                                <div>
+                                    <Label className="text-xs text-muted-foreground mb-1.5 block">Service Type Shortcuts</Label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(() => {
+                                            const opdDept = departments.find((d) => d.code?.toUpperCase() === 'OPD' || d.name.toLowerCase().includes('outpatient'));
+                                            const matDept = departments.find((d) => d.code?.toUpperCase() === 'MATERNITY' || d.name.toLowerCase().includes('maternity'));
+                                            const emgDept = departments.find((d) => d.code?.toUpperCase() === 'EMERGENCY' || d.name.toLowerCase().includes('emergency'));
+
+                                            return (
+                                                <>
+                                                    {opdDept && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant={data.department_id === String(opdDept.id) ? 'default' : 'outline'}
+                                                            onClick={() => handleDepartmentChange(String(opdDept.id))}
+                                                            className="text-xs h-8"
+                                                        >
+                                                            General Outpatient
+                                                        </Button>
+                                                    )}
+                                                    {matDept && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant={data.department_id === String(matDept.id) ? 'default' : 'outline'}
+                                                            onClick={() => handleDepartmentChange(String(matDept.id))}
+                                                            className={`text-xs h-8 ${data.department_id === String(matDept.id) ? 'bg-pink-600 hover:bg-pink-700 text-white' : 'hover:border-pink-300'}`}
+                                                        >
+                                                            Maternity Outpatient
+                                                        </Button>
+                                                    )}
+                                                    {emgDept && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant={data.department_id === String(emgDept.id) ? 'default' : 'outline'}
+                                                            onClick={() => handleDepartmentChange(String(emgDept.id))}
+                                                            className="text-xs h-8"
+                                                        >
+                                                            Emergency
+                                                        </Button>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+
                                 <div className="grid gap-2">
                                     <Label htmlFor="department_select">Clinical Department *</Label>
                                     <Select
@@ -773,6 +837,57 @@ export default function WalkInCreate({
                                     </Select>
                                     <InputError message={errors.department_id} />
                                 </div>
+
+                                {/* Maternity Visit Purpose Selector */}
+                                {isMaternity && (
+                                    <div className="rounded-xl border border-pink-200 bg-pink-50/50 p-4 dark:border-pink-900/50 dark:bg-pink-950/20 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <Label htmlFor="visit_purpose" className="text-sm font-semibold text-pink-900 dark:text-pink-200">
+                                                Maternity Visit Purpose *
+                                            </Label>
+                                            <Badge variant="outline" className="border-pink-300 text-pink-700 dark:text-pink-300 text-[10px]">
+                                                Outpatient Care
+                                            </Badge>
+                                        </div>
+                                        <Select
+                                            value={data.visit_purpose || 'antenatal_care'}
+                                            onValueChange={(val) => setData('visit_purpose', val)}
+                                        >
+                                            <SelectTrigger id="visit_purpose" className="h-10 bg-background border-pink-200 dark:border-pink-800">
+                                                <SelectValue placeholder="Select purpose (ANC, Labour Assessment...)" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="antenatal_care">
+                                                    <div className="flex flex-col text-left py-0.5">
+                                                        <span className="font-medium">Antenatal Care (ANC)</span>
+                                                        <span className="text-[11px] text-muted-foreground">Routine pregnancy check-up, gestational tracking & prophylaxis</span>
+                                                    </div>
+                                                </SelectItem>
+                                                <SelectItem value="maternity_assessment">
+                                                    <div className="flex flex-col text-left py-0.5">
+                                                        <span className="font-medium">Maternity Assessment</span>
+                                                        <span className="text-[11px] text-muted-foreground">Midwife evaluation for acute symptoms or pregnancy review</span>
+                                                    </div>
+                                                </SelectItem>
+                                                <SelectItem value="labour_assessment">
+                                                    <div className="flex flex-col text-left py-0.5">
+                                                        <span className="font-medium">Labour Assessment</span>
+                                                        <span className="text-[11px] text-muted-foreground">Contractions, cervical check, membrane observation (admission optional)</span>
+                                                    </div>
+                                                </SelectItem>
+                                                <SelectItem value="postnatal_care">
+                                                    <div className="flex flex-col text-left py-0.5">
+                                                        <span className="font-medium">Postnatal Care</span>
+                                                        <span className="text-[11px] text-muted-foreground">Postpartum mother follow-up and newborn review</span>
+                                                    </div>
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <p className="text-[11px] text-pink-800/80 dark:text-pink-300/80">
+                                            The patient will proceed directly to maternity nursing/midwife assessment without requiring inpatient admission. Admission remains optional and is initiated only if clinically indicated.
+                                        </p>
+                                    </div>
+                                )}
 
                                 {/* Department highlight badge/guidance */}
                                 {selectedDepartment && (
@@ -890,9 +1005,13 @@ export default function WalkInCreate({
                                                             <SelectItem key={svc.id} value={String(svc.id)}>
                                                                 <div className="flex items-center justify-between gap-4">
                                                                     <span>{svc.name}</span>
-                                                                    {svc.price !== null && (
+                                                                    {svc.price !== null ? (
                                                                         <span className="text-xs font-mono font-semibold text-amber-700 dark:text-amber-400">
                                                                             {svc.currency} {svc.price.toLocaleString()}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                                                                            Free / No charge
                                                                         </span>
                                                                     )}
                                                                 </div>
@@ -925,9 +1044,13 @@ export default function WalkInCreate({
                                                     <span className="text-muted-foreground">Category: </span>
                                                     <span className="capitalize">{selectedCashService.category}</span>
                                                 </div>
-                                                {selectedCashService.price !== null && (
+                                                {selectedCashService.price !== null ? (
                                                     <div className="font-bold text-amber-700 dark:text-amber-400 text-sm">
                                                         Fee: {selectedCashService.currency} {selectedCashService.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                    </div>
+                                                ) : (
+                                                    <div className="font-semibold text-emerald-700 dark:text-emerald-400 text-xs bg-emerald-100/60 dark:bg-emerald-950/40 px-2 py-1 rounded">
+                                                        Free Consultation / No Charge
                                                     </div>
                                                 )}
                                             </div>
@@ -1150,6 +1273,27 @@ export default function WalkInCreate({
                                     </div>
                                 </div>
 
+                                {isMaternity && (
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="step5_maternity_purpose">Maternity Visit Purpose</Label>
+                                        <Select
+                                            value={data.visit_purpose || 'antenatal_care'}
+                                            onValueChange={(val) => setData('visit_purpose', val)}
+                                        >
+                                            <SelectTrigger id="step5_maternity_purpose" className="h-10">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="antenatal_care">Antenatal Care (ANC)</SelectItem>
+                                                <SelectItem value="maternity_assessment">Maternity Assessment</SelectItem>
+                                                <SelectItem value="labour_assessment">Labour Assessment</SelectItem>
+                                                <SelectItem value="postnatal_care">Postnatal Care</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <InputError message={errors.visit_purpose} />
+                                    </div>
+                                )}
+
                                 <div className="grid gap-2">
                                     <Label htmlFor="clinical_notes">Reception Clinical Notes / Chief Complaint</Label>
                                     <Textarea
@@ -1232,9 +1376,16 @@ export default function WalkInCreate({
                                                 </div>
                                             ) : (
                                                 <div className="text-sm font-bold text-amber-700 dark:text-amber-400">
-                                                    {cashDisplayPrice !== null
-                                                        ? `${currency} ${cashDisplayPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
-                                                        : 'Fee configured per hospital rate'}
+                                                    {isSelectedServiceFree ? (
+                                                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5">
+                                                            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+                                                            Free / No Charge (0.00 TZS)
+                                                        </span>
+                                                    ) : cashDisplayPrice !== null ? (
+                                                        `${currency} ${cashDisplayPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                                                    ) : (
+                                                        'Fee configured per hospital rate'
+                                                    )}
                                                 </div>
                                             )}
                                         </div>

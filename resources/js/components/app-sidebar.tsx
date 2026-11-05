@@ -15,6 +15,7 @@ import { type NavGroup, type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
 import {
     Activity,
+    Baby,
     BarChart3,
     BedDouble,
     Building2,
@@ -168,6 +169,19 @@ export function AppSidebar() {
                             ...(can('inpatient-nursing.view')
                                 ? [{ title: 'Nursing Station', url: '/inpatient/nursing' }]
                                 : []),
+                        ],
+                    },
+                ]
+                : []),
+            ...(can('maternity.view') || can('maternity.manage') || can('inpatient-nursing.view')
+                ? [
+                    {
+                        title: 'Maternity',
+                        url: '/maternity/dashboard',
+                        icon: Baby,
+                        items: [
+                            { title: 'Maternity Dashboard', url: '/maternity/dashboard' },
+                            { title: 'Maternity Queue', url: '/maternity/queue' },
                         ],
                     },
                 ]

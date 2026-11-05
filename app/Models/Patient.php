@@ -64,6 +64,7 @@ class Patient extends Model
         'district',
         'ward',
         'status',
+        'mother_patient_id',
     ];
 
     /**
@@ -163,6 +164,21 @@ class Patient extends Model
     public function currentNhifInsurance(): ?PatientInsurance
     {
         return $this->activeNhifInsurance() ?? $this->latestNhifInsurance();
+    }
+
+    public function children(): HasMany
+    {
+        return $this->hasMany(Patient::class, 'mother_patient_id');
+    }
+
+    public function mother(): BelongsTo
+    {
+        return $this->belongsTo(Patient::class, 'mother_patient_id');
+    }
+
+    public function newbornGrowthRecords(): HasMany
+    {
+        return $this->hasMany(NewbornGrowthRecord::class, 'patient_id');
     }
 
     /**

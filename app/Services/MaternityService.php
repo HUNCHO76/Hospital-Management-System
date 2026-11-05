@@ -6,11 +6,13 @@ use App\Models\Admission;
 use App\Models\ClinicalEncounter;
 use App\Models\DeliveryRecord;
 use App\Models\MaternityProfile;
+use App\Models\NewbornGrowthRecord;
 use App\Models\ObservationEscalation;
 use App\Models\PartographEntry;
 use App\Models\Patient;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -315,8 +317,9 @@ class MaternityService
         $entry = PartographEntry::create([
             ...$data,
             'maternity_profile_id' => $profile->id,
-            'admission_id' => $profile->admission_id,
-            'clinical_encounter_id' => $profile->clinical_encounter_id,
+            'admission_id' => $data['admission_id'] ?? $profile->admission_id,
+            'clinical_encounter_id' => $data['clinical_encounter_id'] ?? $profile->clinical_encounter_id,
+            'reception_visit_id' => $data['reception_visit_id'] ?? $profile->reception_visit_id,
             'patient_id' => $profile->patient_id,
             'recorded_at' => $recordedAt,
             'alert_line_dilation_cm' => $alertLineDilation ? round($alertLineDilation, 1) : null,
@@ -348,16 +351,18 @@ class MaternityService
 
         if (! empty($criticalTriggers)) {
             $reasonSummary = implode('; ', $criticalTriggers);
-            ObservationEscalation::create([
-                'admission_id' => $profile->admission_id,
-                'patient_id' => $profile->patient_id,
-                'source' => ObservationEscalation::SOURCE_AUTO,
-                'reason' => "Maternity/Labour Alert: {$reasonSummary}",
-                'flags' => $criticalTriggers,
-                'raised_by' => $request->user()->id,
-                'raised_at' => now(),
-                'status' => ObservationEscalation::STATUS_OPEN,
-            ]);
+            if ($profile->admission_id) {
+                ObservationEscalation::create([
+                    'admission_id' => $profile->admission_id,
+                    'patient_id' => $profile->patient_id,
+                    'source' => ObservationEscalation::SOURCE_AUTO,
+                    'reason' => "Maternity/Labour Alert: {$reasonSummary}",
+                    'flags' => $criticalTriggers,
+                    'raised_by' => $request->user()->id,
+                    'raised_at' => now(),
+                    'status' => ObservationEscalation::STATUS_OPEN,
+                ]);
+            }
         }
 
         $this->auditLog->record(
@@ -383,15 +388,17 @@ class MaternityService
         $isEmergency = ! empty($data['is_emergency']);
         $emergencyReason = $data['emergency_reason'] ?? null;
 
-        // Enforce activity gate and NHIF financial clearance
-        $this->eligibilityService->assertActivityAllowed(
-            $profile->admission,
-            $profile,
-            $isEmergency,
-            $emergencyReason,
-            $request->user(),
-            $request
-        );
+        // Enforce activity gate and NHIF financial clearance if admitted
+        if ($profile->admission) {
+            $this->eligibilityService->assertActivityAllowed(
+                $profile->admission,
+                $profile,
+                $isEmergency,
+                $emergencyReason,
+                $request->user(),
+                $request
+            );
+        }
 
         $deliveredAt = isset($data['delivered_at']) ? Carbon::parse($data['delivered_at']) : now();
         $bloodLoss = isset($data['blood_loss_ml']) ? (int) $data['blood_loss_ml'] : 0;
@@ -406,49 +413,138 @@ class MaternityService
             $isPph = true;
         }
 
-        $record = DeliveryRecord::create([
+        return DB::transaction(function () use ($profile, $data, $request, $deliveredAt, $bloodLoss, $mode, $isPph, $isEmergency, $emergencyReason) {
+            $mother = $profile->patient;
+            $babyOutcome = $data['baby_outcome'] ?? 'live_birth';
+            $babyGender = $data['baby_gender'] ?? 'female';
+            $birthOrder = $data['birth_order'] ?? 1;
+            $babyName = $data['baby_name'] ?? "Baby of {$mother->first_name} {$mother->last_name}";
+            $babyPatientId = $data['baby_patient_id'] ?? null;
+
+            // If live birth and no baby patient ID is supplied, create an independent clinical Patient record for the newborn
+            if ($babyOutcome === 'live_birth' && empty($babyPatientId)) {
+                $babyPatient = Patient::create([
+                    'first_name' => $babyName,
+                    'middle_name' => $mother->last_name,
+                    'last_name' => $mother->last_name,
+                    'gender' => $babyGender,
+                    'date_of_birth' => $deliveredAt->toDateString(),
+                    'mother_patient_id' => $mother->id,
+                    'phone' => $mother->phone,
+                    'address' => $mother->address,
+                    'region' => $mother->region,
+                    'district' => $mother->district,
+                    'status' => 'active',
+                ]);
+                $babyPatientId = $babyPatient->id;
+            }
+
+            $record = DeliveryRecord::create([
+                ...$data,
+                'maternity_profile_id' => $profile->id,
+                'admission_id' => $data['admission_id'] ?? $profile->admission_id,
+                'reception_visit_id' => $data['reception_visit_id'] ?? $profile->reception_visit_id,
+                'clinical_encounter_id' => $data['clinical_encounter_id'] ?? $profile->clinical_encounter_id,
+                'patient_id' => $profile->patient_id,
+                'baby_patient_id' => $babyPatientId,
+                'baby_name' => $babyName,
+                'birth_order' => $birthOrder,
+                'delivered_at' => $deliveredAt,
+                'blood_loss_ml' => $bloodLoss,
+                'postpartum_hemorrhage' => $isPph,
+                'is_emergency' => $isEmergency,
+                'emergency_reason' => $emergencyReason,
+                'emergency_authorized_by' => $isEmergency ? $request->user()->id : null,
+                'recorded_by' => $request->user()->id,
+            ]);
+
+            // Auto-create initial birth growth observation for the newborn (Phase 8)
+            if ($babyOutcome === 'live_birth' && $babyPatientId && ! empty($data['birth_weight_grams'])) {
+                NewbornGrowthRecord::create([
+                    'patient_id' => $babyPatientId,
+                    'mother_patient_id' => $mother->id,
+                    'maternity_profile_id' => $profile->id,
+                    'delivery_record_id' => $record->id,
+                    'reception_visit_id' => $record->reception_visit_id,
+                    'clinical_encounter_id' => $record->clinical_encounter_id,
+                    'recorded_at' => $deliveredAt,
+                    'age_days' => 0,
+                    'weight_kg' => round($data['birth_weight_grams'] / 1000, 2),
+                    'length_height_cm' => $data['birth_length_cm'] ?? 50.0,
+                    'head_circumference_cm' => $data['head_circumference_cm'] ?? 35.0,
+                    'temperature_c' => 36.8,
+                    'feeding_method' => 'exclusive_breastfeeding',
+                    'immunizations_given' => array_values(array_filter([
+                        ! empty($data['vitamin_k_given']) ? 'Vitamin K' : null,
+                        ! empty($data['eye_ointment_given']) ? 'Tetracycline Eye Ointment' : null,
+                        ! empty($data['bcg_given']) ? 'BCG' : null,
+                        ! empty($data['polio_0_given']) ? 'Polio 0' : null,
+                    ])),
+                    'clinical_notes' => "Birth observations: APGAR 1m: {$record->apgar_1min}/10, 5m: {$record->apgar_5min}/10.",
+                    'growth_reference_standard' => NewbornGrowthRecord::REFERENCE_STANDARD,
+                    'recorded_by' => $request->user()->id,
+                ]);
+            }
+
+            // Transition maternity profile labour stage to delivered and care_stage to postpartum_care
+            $profile->update([
+                'labour_stage' => 'delivered',
+                'care_stage' => MaternityProfile::CARE_STAGE_POSTPARTUM_CARE,
+                'status' => 'completed',
+            ]);
+
+            if ($isPph && $profile->admission_id) {
+                ObservationEscalation::create([
+                    'admission_id' => $profile->admission_id,
+                    'patient_id' => $profile->patient_id,
+                    'source' => ObservationEscalation::SOURCE_AUTO,
+                    'reason' => "Postpartum Hemorrhage documented (EBL: {$bloodLoss} ml)",
+                    'flags' => ['PPH', "EBL: {$bloodLoss} ml"],
+                    'raised_by' => $request->user()->id,
+                    'raised_at' => now(),
+                    'status' => ObservationEscalation::STATUS_OPEN,
+                ]);
+            }
+
+            $this->auditLog->record(
+                'delivery_record_created',
+                $record,
+                null,
+                ['admission_id' => $profile->admission_id, 'mode' => $record->delivery_mode, 'outcome' => $record->baby_outcome, 'is_emergency' => $isEmergency],
+                $request,
+            );
+
+            return $record;
+        });
+    }
+
+    /**
+     * Record serial growth and developmental monitoring for a newborn/child (Phase 8).
+     */
+    public function recordNewbornGrowth(Patient $babyPatient, array $data, Request $request): NewbornGrowthRecord
+    {
+        $recordedAt = isset($data['recorded_at']) ? Carbon::parse($data['recorded_at']) : now();
+        $dob = $babyPatient->date_of_birth ? Carbon::parse($babyPatient->date_of_birth) : $recordedAt;
+        $ageDays = max(0, $dob->diffInDays($recordedAt));
+
+        $growth = NewbornGrowthRecord::create([
             ...$data,
-            'maternity_profile_id' => $profile->id,
-            'admission_id' => $profile->admission_id,
-            'clinical_encounter_id' => $profile->clinical_encounter_id,
-            'patient_id' => $profile->patient_id,
-            'delivered_at' => $deliveredAt,
-            'blood_loss_ml' => $bloodLoss,
-            'postpartum_hemorrhage' => $isPph,
-            'is_emergency' => $isEmergency,
-            'emergency_reason' => $emergencyReason,
-            'emergency_authorized_by' => $isEmergency ? $request->user()->id : null,
+            'patient_id' => $babyPatient->id,
+            'mother_patient_id' => $data['mother_patient_id'] ?? $babyPatient->mother_patient_id,
+            'recorded_at' => $recordedAt,
+            'age_days' => $ageDays,
+            'growth_reference_standard' => NewbornGrowthRecord::REFERENCE_STANDARD,
             'recorded_by' => $request->user()->id,
         ]);
 
-        // Transition maternity profile labour stage to delivered and care_stage to postpartum_care
-        $profile->update([
-            'labour_stage' => 'delivered',
-            'care_stage' => MaternityProfile::CARE_STAGE_POSTPARTUM_CARE,
-            'status' => 'completed',
-        ]);
-
-        if ($isPph) {
-            ObservationEscalation::create([
-                'admission_id' => $profile->admission_id,
-                'patient_id' => $profile->patient_id,
-                'source' => ObservationEscalation::SOURCE_AUTO,
-                'reason' => "Postpartum Hemorrhage documented (EBL: {$bloodLoss} ml)",
-                'flags' => ['PPH', "EBL: {$bloodLoss} ml"],
-                'raised_by' => $request->user()->id,
-                'raised_at' => now(),
-                'status' => ObservationEscalation::STATUS_OPEN,
-            ]);
-        }
-
         $this->auditLog->record(
-            'delivery_record_created',
-            $record,
+            'newborn_growth_recorded',
+            $growth,
             null,
-            ['admission_id' => $profile->admission_id, 'mode' => $record->delivery_mode, 'outcome' => $record->baby_outcome, 'is_emergency' => $isEmergency],
+            ['patient_id' => $babyPatient->id, 'weight_kg' => $growth->weight_kg, 'age_days' => $ageDays],
             $request,
         );
 
-        return $record;
+        return $growth;
     }
 }

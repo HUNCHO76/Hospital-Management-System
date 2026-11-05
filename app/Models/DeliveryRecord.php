@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Delivery summary documenting maternal delivery and newborn outcome.
@@ -38,6 +39,7 @@ class DeliveryRecord extends Model
     protected $fillable = [
         'maternity_profile_id',
         'admission_id',
+        'reception_visit_id',
         'clinical_encounter_id',
         'patient_id',
         'delivered_at',
@@ -54,6 +56,8 @@ class DeliveryRecord extends Model
         'suture_materials_used',
         'oxytocic_given',
         'baby_outcome',
+        'birth_order',
+        'baby_name',
         'baby_gender',
         'birth_weight_grams',
         'birth_length_cm',
@@ -111,6 +115,16 @@ class DeliveryRecord extends Model
     public function patient(): BelongsTo
     {
         return $this->belongsTo(Patient::class);
+    }
+
+    public function receptionVisit(): BelongsTo
+    {
+        return $this->belongsTo(ReceptionVisit::class);
+    }
+
+    public function newbornGrowthRecords(): HasMany
+    {
+        return $this->hasMany(NewbornGrowthRecord::class);
     }
 
     public function babyPatient(): BelongsTo

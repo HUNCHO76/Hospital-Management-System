@@ -82,6 +82,20 @@ export interface NhifPreApprovalItem {
     nhif_percent_covered: number | null;
 }
 
+export type MaternityVisitPurpose = 'antenatal_care' | 'maternity_assessment' | 'labour_assessment' | 'postnatal_care';
+
+export type MaternityQueueStatus =
+    | 'waiting_for_assessment'
+    | 'assessment_in_progress'
+    | 'awaiting_clinician'
+    | 'consultation_in_progress'
+    | 'awaiting_investigation'
+    | 'treatment_in_progress'
+    | 'follow_up_required'
+    | 'completed'
+    | 'admission_recommended'
+    | 'admitted';
+
 export interface ReceptionVisit {
     id: number;
     visit_number: string;
@@ -90,7 +104,9 @@ export interface ReceptionVisit {
     department_id?: number;
     practitioner_id?: number | null;
     visit_type: ReceptionVisitType;
+    visit_purpose?: MaternityVisitPurpose | string | null;
     status: ReceptionVisitStatus;
+    maternity_status?: MaternityQueueStatus | string | null;
     completed_at: string | null;
     cancelled_at: string | null;
     cancellation_reason: string | null;
@@ -163,6 +179,7 @@ export interface DepartmentCatalogService {
     code: string;
     name: string;
     category: string;
+    is_billable?: boolean;
     price: number | null;
     currency: string;
 }
@@ -171,12 +188,13 @@ export interface WalkInFormData {
     patient_id: string;
     department_id: string;
     visit_type: ReceptionVisitType | '';
+    visit_purpose?: string;
     practitioner_id: string;
     service_id: string;
     nhif_item_code: string;
     clinical_notes: string;
     practitioner_remarks: string;
-    [key: string]: string;
+    [key: string]: string | undefined;
 }
 
 export interface ReceptionVisitFilters {

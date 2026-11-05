@@ -63,13 +63,20 @@ class ReceptionVisitService
                 ? Practitioner::query()->find($appointment->practitioner_id)
                 : null;
 
+            $dept = Department::find($departmentId);
+            $deptCode = strtoupper(trim((string) ($dept?->code ?? '')));
+            $deptName = strtolower(trim((string) ($dept?->name ?? '')));
+            $isMaternity = $deptCode === 'MATERNITY' || str_contains($deptName, 'maternity');
+
             $visit = ReceptionVisit::create([
                 'patient_id' => $appointment->patient_id,
                 'appointment_id' => $appointment->id,
                 'department_id' => $departmentId,
                 'practitioner_id' => $practitioner?->id,
                 'visit_type' => 'appointment',
+                'visit_purpose' => $isMaternity ? ReceptionVisit::PURPOSE_MATERNITY_ASSESSMENT : null,
                 'status' => ReceptionVisit::STATUS_CHECKED_IN,
+                'maternity_status' => $isMaternity ? ReceptionVisit::MATERNITY_STATUS_WAITING : null,
             ]);
 
             if ($practitioner) {
@@ -203,13 +210,20 @@ class ReceptionVisitService
 
             $this->assertNoActiveVisit($data['patient_id']);
 
+            $dept = Department::find($data['department_id']);
+            $deptCode = strtoupper(trim((string) ($dept?->code ?? '')));
+            $deptName = strtolower(trim((string) ($dept?->name ?? '')));
+            $isMaternity = $deptCode === 'MATERNITY' || str_contains($deptName, 'maternity') || ! empty($data['visit_purpose']);
+
             $visit = ReceptionVisit::create([
                 'patient_id' => $data['patient_id'],
                 'appointment_id' => null,
                 'department_id' => $data['department_id'],
                 'practitioner_id' => $data['practitioner_id'] ?? null,
                 'visit_type' => $data['visit_type'],
+                'visit_purpose' => $data['visit_purpose'] ?? ($isMaternity ? ReceptionVisit::PURPOSE_MATERNITY_ASSESSMENT : null),
                 'status' => ReceptionVisit::STATUS_CHECKED_IN,
+                'maternity_status' => $isMaternity ? ReceptionVisit::MATERNITY_STATUS_WAITING : null,
             ]);
 
             $charge = null;
@@ -238,16 +252,14 @@ class ReceptionVisitService
                     $charge = $this->chargeCapture->captureFromSelectedService(
                         $visit, $practitioner, $selectedService, $request
                     );
-                }
-
-                if ($charge === null && $practitioner) {
+                } elseif ($practitioner) {
                     $charge = $this->chargeCapture->captureFromReceptionVisit($visit, $practitioner, $request);
                 }
             }
 
             if ($charge !== null) {
                 $this->postAndInvoiceReceptionCharge($charge, $request);
-            } elseif (! $nhifItemCode && ($practitioner || $selectedService)) {
+            } elseif (! $nhifItemCode && (($selectedService && $selectedService->is_billable) || (! $selectedService && $practitioner))) {
                 $visit->billing_warning = 'No consultation price is configured for this practitioner or facility — the visit was created without a billing charge. Notify billing/admin to configure pricing.';
             }
 

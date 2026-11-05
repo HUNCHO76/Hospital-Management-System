@@ -164,11 +164,14 @@ class ReceptionVisitController extends Controller
 
         $services = Service::query()
             ->where('status', Service::STATUS_ACTIVE)
-            ->where('is_billable', true)
+            ->where(function ($q) {
+                $q->where('is_billable', true)
+                    ->orWhereIn('category', ['consultation', 'maternity', 'emergency']);
+            })
             ->whereIn('category', ['consultation', 'dental', 'maternity', 'emergency', 'inpatient', 'procedure', 'other'])
             ->with(['prices' => fn ($q) => $q->where('status', ServicePrice::STATUS_ACTIVE)->whereNull('practitioner_id')])
             ->orderBy('name')
-            ->get(['id', 'code', 'name', 'category', 'description']);
+            ->get(['id', 'code', 'name', 'category', 'description', 'is_billable']);
 
         $departmentServices = $services->map(function ($s) {
             $price = $s->prices->first();
@@ -178,6 +181,7 @@ class ReceptionVisitController extends Controller
                 'code' => $s->code,
                 'name' => $s->name,
                 'category' => $s->category,
+                'is_billable' => (bool) $s->is_billable,
                 'price' => $price ? (float) $price->amount : null,
                 'currency' => $price?->currency ?? 'TZS',
             ];

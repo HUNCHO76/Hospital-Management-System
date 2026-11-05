@@ -449,7 +449,7 @@ class PrescriptionOrderService
             throw ValidationException::withMessages([
                 'status' => 'Cannot modify a prescription that has already been verified.',
             ]);
-        }
+    }
     }
 
     /**
@@ -459,7 +459,7 @@ class PrescriptionOrderService
      */
     protected function assertPrescriberAuthorized(User $user): void
     {
-        if ($user->hasRole('nurse') && ! $user->can('prescriptions.nurse-prescribe')) {
+        if ($user->hasRole('nurse') && ! $user->can('prescriptions.nurse-prescribe') && ! $user->can('maternity.manage')) {
             throw ValidationException::withMessages([
                 'prescriber' => 'Nurses are not authorized to prescribe medications without explicit prescribing privileges.',
             ]);

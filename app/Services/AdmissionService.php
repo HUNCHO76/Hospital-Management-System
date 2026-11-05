@@ -81,6 +81,29 @@ class AdmissionService
                     ->update(['admission_id' => $admission->id]);
             }
 
+            // Link existing outpatient maternity profile and update visit status
+            $maternityProfile = \App\Models\MaternityProfile::query()
+                ->where('clinical_encounter_id', $clinicalEncounterId)
+                ->orWhere(function ($q) use ($data) {
+                    $q->where('patient_id', $data['patient_id'])
+                        ->where('status', 'active');
+                })
+                ->latest()
+                ->first();
+
+            if ($maternityProfile) {
+                $maternityProfile->update([
+                    'admission_id' => $admission->id,
+                    'care_pathway' => \App\Models\MaternityProfile::CARE_PATHWAY_INPATIENT,
+                ]);
+
+                $visitId = $data['reception_visit_id'] ?? $maternityProfile->reception_visit_id;
+                if ($visitId) {
+                    \App\Models\ReceptionVisit::where('id', $visitId)
+                        ->update(['maternity_status' => \App\Models\ReceptionVisit::MATERNITY_STATUS_ADMITTED]);
+                }
+            }
+
             $charge = $this->chargeCapture->captureFromAdmission($admission, $request);
 
             if ($charge !== null) {

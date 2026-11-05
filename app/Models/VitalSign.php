@@ -72,6 +72,18 @@ class VitalSign extends Model
     ];
 
     /**
+     * Maternity and bedside biochemical observations.
+     *
+     * @var list<string>
+     */
+    public const MATERNITY_OBSERVATION_FIELDS = [
+        'urine_protein',
+        'urine_glucose',
+        'urine_acetone',
+        'blood_glucose_mmol',
+    ];
+
+    /**
      * The attributes that are mass assignable. `bmi` is deliberately absent
      * — it is always calculated server-side from weight_kg/height_cm, never
      * accepted as direct input (spec §7).
@@ -82,6 +94,8 @@ class VitalSign extends Model
         'clinical_encounter_id',
         'triage_assessment_id',
         'admission_id',
+        'maternity_profile_id',
+        'reception_visit_id',
         'recorded_by',
         'recorded_at',
         'temperature_c',
@@ -102,6 +116,10 @@ class VitalSign extends Model
         'oxygen_flow_lpm',
         'intake_ml',
         'output_ml',
+        'urine_protein',
+        'urine_glucose',
+        'urine_acetone',
+        'blood_glucose_mmol',
         'observation_notes',
     ];
 
@@ -120,6 +138,7 @@ class VitalSign extends Model
             'weight_kg' => 'decimal:2',
             'height_cm' => 'decimal:1',
             'bmi' => 'decimal:2',
+            'blood_glucose_mmol' => 'decimal:1',
         ];
     }
 
@@ -168,6 +187,16 @@ class VitalSign extends Model
     public function triageAssessment(): BelongsTo
     {
         return $this->belongsTo(TriageAssessment::class);
+    }
+
+    public function maternityProfile(): BelongsTo
+    {
+        return $this->belongsTo(MaternityProfile::class);
+    }
+
+    public function receptionVisit(): BelongsTo
+    {
+        return $this->belongsTo(ReceptionVisit::class);
     }
 
     /**

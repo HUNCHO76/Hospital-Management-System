@@ -7,6 +7,8 @@ use Database\Factories\ReceptionVisitFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ReceptionVisit extends Model
 {
@@ -57,6 +59,60 @@ class ReceptionVisit extends Model
     public const TYPES = ['appointment', 'walk_in', 'follow_up', 'other'];
 
     /**
+     * Dedicated visit purposes for Maternity Outpatient visits.
+     */
+    public const PURPOSE_ANC = 'antenatal_care';
+
+    public const PURPOSE_MATERNITY_ASSESSMENT = 'maternity_assessment';
+
+    public const PURPOSE_LABOUR_ASSESSMENT = 'labour_assessment';
+
+    public const PURPOSE_POSTNATAL_CARE = 'postnatal_care';
+
+    public const VISIT_PURPOSES = [
+        self::PURPOSE_ANC => 'Antenatal Care (ANC)',
+        self::PURPOSE_MATERNITY_ASSESSMENT => 'Maternity Assessment',
+        self::PURPOSE_LABOUR_ASSESSMENT => 'Labour Assessment',
+        self::PURPOSE_POSTNATAL_CARE => 'Postnatal Care',
+    ];
+
+    /**
+     * Maternity queue statuses — separate from inpatient admission statuses.
+     */
+    public const MATERNITY_STATUS_WAITING = 'waiting_for_assessment';
+
+    public const MATERNITY_STATUS_ASSESSMENT_IN_PROGRESS = 'assessment_in_progress';
+
+    public const MATERNITY_STATUS_AWAITING_CLINICIAN = 'awaiting_clinician';
+
+    public const MATERNITY_STATUS_CONSULTATION_IN_PROGRESS = 'consultation_in_progress';
+
+    public const MATERNITY_STATUS_AWAITING_INVESTIGATION = 'awaiting_investigation';
+
+    public const MATERNITY_STATUS_TREATMENT_IN_PROGRESS = 'treatment_in_progress';
+
+    public const MATERNITY_STATUS_FOLLOW_UP_REQUIRED = 'follow_up_required';
+
+    public const MATERNITY_STATUS_COMPLETED = 'completed';
+
+    public const MATERNITY_STATUS_ADMISSION_RECOMMENDED = 'admission_recommended';
+
+    public const MATERNITY_STATUS_ADMITTED = 'admitted';
+
+    public const MATERNITY_STATUSES = [
+        self::MATERNITY_STATUS_WAITING => 'Waiting for Assessment',
+        self::MATERNITY_STATUS_ASSESSMENT_IN_PROGRESS => 'Assessment in Progress',
+        self::MATERNITY_STATUS_AWAITING_CLINICIAN => 'Awaiting Clinician',
+        self::MATERNITY_STATUS_CONSULTATION_IN_PROGRESS => 'Consultation in Progress',
+        self::MATERNITY_STATUS_AWAITING_INVESTIGATION => 'Awaiting Investigation',
+        self::MATERNITY_STATUS_TREATMENT_IN_PROGRESS => 'Treatment in Progress',
+        self::MATERNITY_STATUS_FOLLOW_UP_REQUIRED => 'Follow-up Required',
+        self::MATERNITY_STATUS_COMPLETED => 'Completed',
+        self::MATERNITY_STATUS_ADMISSION_RECOMMENDED => 'Admission Recommended',
+        self::MATERNITY_STATUS_ADMITTED => 'Admitted',
+    ];
+
+    /**
      * The single source of truth for valid status transitions. Enforced by
      * ReceptionVisitService — never trust a status change supplied directly
      * by the frontend.
@@ -83,7 +139,9 @@ class ReceptionVisit extends Model
         'department_id',
         'practitioner_id',
         'visit_type',
+        'visit_purpose',
         'status',
+        'maternity_status',
         'completed_at',
         'cancelled_at',
         'cancellation_reason',
@@ -154,5 +212,28 @@ class ReceptionVisit extends Model
     public function practitioner(): BelongsTo
     {
         return $this->belongsTo(Practitioner::class);
+    }
+
+    public function clinicalEncounters(): HasMany
+    {
+        return $this->hasMany(ClinicalEncounter::class);
+    }
+
+    public function clinicalEncounter(): HasOne
+    {
+        return $this->hasOne(ClinicalEncounter::class)->latestOfMany();
+    }
+
+    public function maternityProfile(): HasOne
+    {
+        return $this->hasOne(MaternityProfile::class);
+    }
+
+    public function isMaternity(): bool
+    {
+        $deptCode = strtoupper(trim((string) ($this->department?->code ?? '')));
+        $deptName = strtolower(trim((string) ($this->department?->name ?? '')));
+
+        return $deptCode === 'MATERNITY' || str_contains($deptName, 'maternity') || filled($this->visit_purpose);
     }
 }

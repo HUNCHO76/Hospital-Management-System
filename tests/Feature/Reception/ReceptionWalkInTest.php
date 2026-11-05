@@ -2,6 +2,7 @@
 
 use App\Models\Charge;
 use App\Models\ReceptionVisit;
+use App\Models\Service;
 
 test('an authorized user can register a walk-in for an existing patient', function () {
     $user = userWithRole('receptionist');
@@ -111,4 +112,87 @@ test('a walk-in with a properly priced consultation service captures a charge, p
     expect($charge->source_id)->toBe($visit->id);
     expect($charge->service_id)->toBe($service->id);
     expect((float) $charge->unit_price)->toBe(20000.0);
+});
+
+test('walk-in create page includes non-billable consultation and maternity services in departmentServices catalog', function () {
+    $user = userWithRole('receptionist');
+    $ctx = appointmentBookingContext();
+
+    $freeMaternityService = serviceFor([
+        'code' => 'MAT-FREE',
+        'name' => 'Free Maternity Consultation',
+        'description' => 'Free maternity care',
+        'category' => 'consultation',
+        'is_billable' => false,
+        'status' => 'active',
+    ]);
+
+    $response = $this->actingAs($user)->get(route('reception.walk-in.create'));
+
+    $response->assertOk();
+    $response->assertInertia(fn ($page) => $page
+        ->component('reception/walk-in/create')
+        ->where('departmentServices', fn ($services) => collect($services)->contains('id', $freeMaternityService->id))
+    );
+});
+
+test('a walk-in with a non-billable consultation service registers the visit without charging the patient', function () {
+    $user = userWithRole('receptionist');
+    $ctx = appointmentBookingContext();
+
+    $freeMaternityService = serviceFor([
+        'code' => 'MAT-FREE-2',
+        'name' => 'Free Maternity Consultation',
+        'category' => 'consultation',
+        'is_billable' => false,
+        'status' => 'active',
+    ]);
+
+    $response = $this->actingAs($user)->post(route('reception.walk-in.store'), [
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'visit_type' => 'walk_in',
+        'visit_purpose' => 'antenatal_care',
+        'service_id' => $freeMaternityService->id,
+    ]);
+
+    $visit = ReceptionVisit::first();
+    $response->assertRedirect(route('reception.visits.show', $visit));
+
+    expect($visit)->not->toBeNull();
+    expect($visit->status)->toBe(ReceptionVisit::STATUS_CHECKED_IN);
+    $this->assertDatabaseCount('charges', 0);
+});
+
+test('a walk-in with a practitioner assigned and a non-billable service selected does not charge the practitioner fee', function () {
+    $user = userWithRole('receptionist');
+    $ctx = appointmentBookingContext();
+    $pricedService = billableConsultationService($ctx['hospital'], ['amount' => 2000]);
+    $ctx['practitioner']->update(['consultation_service_id' => $pricedService->id]);
+
+    $freeMaternityService = serviceFor([
+        'code' => 'MAT-FREE-3',
+        'name' => 'Free Maternity Consultation',
+        'category' => 'consultation',
+        'is_billable' => false,
+        'status' => 'active',
+    ]);
+
+    $response = $this->actingAs($user)->post(route('reception.walk-in.store'), [
+        'patient_id' => $ctx['patient']->id,
+        'department_id' => $ctx['department']->id,
+        'visit_type' => 'walk_in',
+        'visit_purpose' => 'antenatal_care',
+        'practitioner_id' => $ctx['practitioner']->id,
+        'service_id' => $freeMaternityService->id,
+    ]);
+
+    $visit = ReceptionVisit::first();
+    $response->assertRedirect(route('reception.visits.show', $visit));
+
+    expect($visit)->not->toBeNull();
+    expect($visit->status)->toBe(ReceptionVisit::STATUS_CHECKED_IN);
+    // Explicitly selected non-billable service takes precedence over practitioner fee
+    $this->assertDatabaseCount('charges', 0);
+    $this->assertDatabaseCount('patient_accounts', 0);
 });

@@ -35,6 +35,7 @@ class PartographEntry extends Model
     protected $fillable = [
         'maternity_profile_id',
         'admission_id',
+        'reception_visit_id',
         'clinical_encounter_id',
         'patient_id',
         'recorded_at',
@@ -86,6 +87,11 @@ class PartographEntry extends Model
     public function admission(): BelongsTo
     {
         return $this->belongsTo(Admission::class);
+    }
+
+    public function receptionVisit(): BelongsTo
+    {
+        return $this->belongsTo(ReceptionVisit::class);
     }
 
     public function clinicalEncounter(): BelongsTo

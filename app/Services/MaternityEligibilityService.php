@@ -186,11 +186,8 @@ class MaternityEligibilityService
                 $insurance = $admission->patientInsurance;
             }
         } elseif ($encounter) {
-            $encounter->load(['patientInsurance.insuranceProvider', 'patient']);
-            if (! empty($encounter->patient_insurance_id)) {
-                $isUsingNhif = true;
-                $insurance = $encounter->patientInsurance;
-            }
+            $encounter->load(['patient']);
+            $patient = $encounter->patient;
         }
 
         // If not explicitly set on admission/encounter, check if outpatient patient has active NHIF

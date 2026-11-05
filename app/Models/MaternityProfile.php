@@ -112,6 +112,16 @@ class MaternityProfile extends Model
         'complicated',
     ];
 
+    public const LABOUR_ONSET_SPONTANEOUS = 'spontaneous';
+    public const LABOUR_ONSET_INDUCED = 'induced';
+    public const LABOUR_ONSET_AUGMENTED = 'augmented';
+
+    public const LABOUR_ONSET_TYPES = [
+        self::LABOUR_ONSET_SPONTANEOUS => 'Spontaneous',
+        self::LABOUR_ONSET_INDUCED => 'Induced',
+        self::LABOUR_ONSET_AUGMENTED => 'Augmented',
+    ];
+
     public const PRESENTATIONS = [
         'cephalic',
         'breech',
@@ -133,18 +143,34 @@ class MaternityProfile extends Model
         'unknown',
     ];
 
+    public const RISK_LOW = 'low_risk';
+
+    public const RISK_MODERATE = 'moderate_risk';
+
+    public const RISK_HIGH = 'high_risk';
+
+    public const RISK_CLASSIFICATIONS = [
+        self::RISK_LOW => 'Low Risk',
+        self::RISK_MODERATE => 'Moderate Risk',
+        self::RISK_HIGH => 'High Risk',
+    ];
+
     /** @var list<string> */
     protected $fillable = [
         'episode_number',
         'admission_id',
         'patient_id',
         'clinical_encounter_id',
+        'reception_visit_id',
         'care_stage',
         'care_pathway',
         'assigned_midwife_id',
         'primary_clinician_id',
         'gravida',
         'para',
+        'previous_pregnancy_history',
+        'medical_history',
+        'obstetric_history',
         'living_children',
         'abortions',
         'last_menstrual_period',
@@ -158,8 +184,17 @@ class MaternityProfile extends Model
         'hiv_status',
         'vdrl_rpr_status',
         'risk_factors',
+        'risk_classification',
+        'allergies',
+        'current_medications',
         'labour_stage',
+        'labour_onset_at',
+        'labour_onset_type',
+        'cervix_effacement_pct',
         'status',
+        'follow_up_date',
+        'follow_up_purpose',
+        'follow_up_notes',
         'recorded_by',
         'notes',
         'clinical_exception_reason',
@@ -175,7 +210,9 @@ class MaternityProfile extends Model
             'estimated_date_of_delivery' => 'date',
             'gestational_age_weeks' => 'float',
             'membrane_ruptured_at' => 'datetime',
+            'labour_onset_at' => 'datetime',
             'stage_updated_at' => 'datetime',
+            'follow_up_date' => 'date',
             'risk_factors' => 'array',
         ];
     }
@@ -243,6 +280,21 @@ class MaternityProfile extends Model
         return $this->belongsTo(User::class, 'stage_updated_by');
     }
 
+    public function receptionVisit(): BelongsTo
+    {
+        return $this->belongsTo(ReceptionVisit::class);
+    }
+
+    public function vitalSigns(): HasMany
+    {
+        return $this->hasMany(VitalSign::class)->orderBy('recorded_at', 'desc');
+    }
+
+    public function fetalAssessments(): HasMany
+    {
+        return $this->hasMany(FetalAssessment::class)->orderBy('assessed_at', 'desc');
+    }
+
     public function partographEntries(): HasMany
     {
         return $this->hasMany(PartographEntry::class)->orderBy('recorded_at');
@@ -251,5 +303,10 @@ class MaternityProfile extends Model
     public function deliveryRecord(): HasOne
     {
         return $this->hasOne(DeliveryRecord::class);
+    }
+
+    public function deliveryRecords(): HasMany
+    {
+        return $this->hasMany(DeliveryRecord::class);
     }
 }

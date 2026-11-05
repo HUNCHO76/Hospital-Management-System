@@ -47,6 +47,7 @@ use App\Http\Controllers\LaboratoryTestCategoryController;
 use App\Http\Controllers\LaboratoryTestController;
 use App\Http\Controllers\LaboratoryTestParameterController;
 use App\Http\Controllers\MaternityEpisodeController;
+use App\Http\Controllers\MaternityQueueController;
 use App\Http\Controllers\MedicationAdministrationController;
 use App\Http\Controllers\MedicationController;
 use App\Http\Controllers\NhifAdmissionController;
@@ -96,6 +97,7 @@ use App\Http\Controllers\RadiologyWorklistController;
 use App\Http\Controllers\ReceptionVisitController;
 use App\Http\Controllers\ServiceCatalogController;
 use App\Http\Controllers\ServicePricingController;
+use App\Http\Controllers\StaffActivationAdminController;
 use App\Http\Controllers\StaffController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\Stores\DepartmentStockRequestController;
@@ -122,7 +124,7 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('hospitals', HospitalController::class);
     Route::resource('departments', DepartmentController::class);
     Route::resource('staff', StaffController::class);
-    Route::post('staff/{staff}/activation', [\App\Http\Controllers\StaffActivationAdminController::class, 'store'])->name('staff.activation.store');
+    Route::post('staff/{staff}/activation', [StaffActivationAdminController::class, 'store'])->name('staff.activation.store');
 
     // User Permission Overrides Management
     Route::prefix('users/{user}/permissions')->name('users.permissions.')->group(function () {
@@ -157,6 +159,26 @@ Route::middleware(['auth'])->group(function () {
 
     // Maternity episode registration (standalone / outpatient / emergency / inpatient)
     Route::post('maternity/episodes', [MaternityEpisodeController::class, 'store'])->name('maternity.episodes.store');
+
+    // Dedicated Maternity Outpatient Workflow & Queue
+    Route::prefix('maternity')->name('maternity.')->group(function () {
+        Route::get('/', fn () => redirect()->route('maternity.dashboard'));
+        Route::get('dashboard', [\App\Http\Controllers\MaternityDashboardController::class, 'index'])->name('dashboard');
+        Route::get('queue', [MaternityQueueController::class, 'index'])->name('queue');
+        Route::post('queue/{visit}/status', [MaternityQueueController::class, 'updateStatus'])->name('queue.status.update');
+        Route::get('visits/{visit}/mother-assessment', [\App\Http\Controllers\MaternityAssessmentController::class, 'show'])->name('mother-assessment');
+        Route::post('visits/{visit}/mother-profile', [\App\Http\Controllers\MaternityAssessmentController::class, 'updateProfile'])->name('mother-profile.update');
+        Route::post('visits/{visit}/vital-signs', [\App\Http\Controllers\MaternityAssessmentController::class, 'storeVitalSign'])->name('vital-signs.store');
+        Route::post('visits/{visit}/fetal-assessments', [\App\Http\Controllers\MaternityAssessmentController::class, 'storeFetalAssessment'])->name('fetal-assessments.store');
+        Route::post('visits/{visit}/labour-status', [\App\Http\Controllers\MaternityAssessmentController::class, 'updateLabourStatus'])->name('labour-status.update');
+        Route::post('visits/{visit}/partograph', [\App\Http\Controllers\MaternityAssessmentController::class, 'storePartographEntry'])->name('partograph.store');
+        Route::post('visits/{visit}/deliveries', [\App\Http\Controllers\MaternityAssessmentController::class, 'storeDelivery'])->name('deliveries.store');
+        Route::post('babies/{baby}/growth', [\App\Http\Controllers\MaternityAssessmentController::class, 'storeNewbornGrowth'])->name('newborn-growth.store');
+        Route::post('visits/{visit}/follow-up', [\App\Http\Controllers\MaternityAssessmentController::class, 'updateFollowUp'])->name('follow-up.update');
+        Route::post('visits/{visit}/laboratory-orders', [\App\Http\Controllers\MaternityAssessmentController::class, 'storeLaboratoryOrder'])->name('laboratory-orders.store');
+        Route::post('visits/{visit}/radiology-orders', [\App\Http\Controllers\MaternityAssessmentController::class, 'storeRadiologyOrder'])->name('radiology-orders.store');
+        Route::post('visits/{visit}/prescription-orders', [\App\Http\Controllers\MaternityAssessmentController::class, 'storePrescriptionOrder'])->name('prescriptions.store');
+    });
 
     // Phase 9, Step 74 — inpatient ward dashboard and patient clinical profile
     // Phase 9, Step 75 — medication administration record (MAR)

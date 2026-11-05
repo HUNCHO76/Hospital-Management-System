@@ -9,7 +9,7 @@ import { allowedReceptionActions, receptionStatusLabel, receptionStatusVariant }
 import { type BreadcrumbItem } from '@/types';
 import { type ConsultationCharge, type ConsultationFinancialStatus, type NhifPreApprovalItem, type ReceptionVisit } from '@/types/reception';
 import { Head, Link, router } from '@inertiajs/react';
-import { AlertTriangle, Baby, Bed, CheckCircle2, ClipboardPlus, Clock, PlayCircle, Send, ShieldCheck, ShieldX, XCircle } from 'lucide-react';
+import { AlertTriangle, Baby, Bed, CheckCircle2, ClipboardPlus, Clock, PlayCircle, Send, ShieldCheck, ShieldX, Stethoscope, XCircle } from 'lucide-react';
 
 interface VisitShowProps {
     visit: ReceptionVisit;
@@ -105,11 +105,30 @@ export default function VisitShow({ visit, consultationFinancialStatus, consulta
                             </Button>
                         )}
 
+                        {/* Maternity Mother Assessment for Outpatient Maternity Visits */}
+                        {(visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity') || visit.visit_purpose) && (can('maternity.view') || can('maternity.manage') || can('inpatient-nursing.view')) && (
+                            <Button size="sm" className="bg-pink-600 hover:bg-pink-700 text-white gap-1.5" asChild>
+                                <Link href={route('maternity.mother-assessment', visit.id)}>
+                                    <Stethoscope className="h-4 w-4" />
+                                    Mother Assessment
+                                </Link>
+                            </Button>
+                        )}
+
+                        {/* Maternity Queue Link for Outpatient Maternity Visits */}
+                        {(visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity') || visit.visit_purpose) && (can('maternity.view') || can('maternity.manage') || can('inpatient-nursing.view')) && (
+                            <Button size="sm" variant="outline" className="border-pink-300 text-pink-700 hover:bg-pink-50 dark:border-pink-800 dark:text-pink-300 gap-1.5" asChild>
+                                <Link href={route('maternity.queue')}>
+                                    <Baby className="h-4 w-4" />
+                                    Maternity Queue
+                                </Link>
+                            </Button>
+                        )}
+
                         {visit.status !== 'cancelled' && can('admissions.create') && (
                             <Button
                                 size="sm"
-                                variant={visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity') ? 'default' : 'outline'}
-                                className={visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity') ? 'bg-pink-600 hover:bg-pink-700 text-white' : ''}
+                                variant="outline"
                                 asChild
                             >
                                 <Link
@@ -121,12 +140,8 @@ export default function VisitShow({ visit, consultationFinancialStatus, consulta
                                         preset: (visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity')) ? 'maternity' : undefined,
                                     })}
                                 >
-                                    {(visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity')) ? (
-                                        <Baby className="h-4 w-4" />
-                                    ) : (
-                                        <Bed className="h-4 w-4" />
-                                    )}
-                                    {(visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity')) ? 'Admit to Maternity Ward' : 'Admit Patient'}
+                                    <Bed className="h-4 w-4" />
+                                    {(visit.department_id === 7 || visit.department?.name?.toLowerCase().includes('maternity')) ? 'Admit to Inpatient Ward (Optional)' : 'Admit Patient'}
                                 </Link>
                             </Button>
                         )}
@@ -264,6 +279,27 @@ export default function VisitShow({ visit, consultationFinancialStatus, consulta
                                     <dt className="text-muted-foreground">Type</dt>
                                     <dd>{VISIT_TYPE_LABELS[visit.visit_type] ?? visit.visit_type}</dd>
                                 </div>
+                                {visit.visit_purpose && (
+                                    <div className="flex justify-between gap-4">
+                                        <dt className="text-muted-foreground">Maternity Purpose</dt>
+                                        <dd className="font-semibold text-pink-700 dark:text-pink-300">
+                                            {visit.visit_purpose === 'antenatal_care' ? 'Antenatal Care (ANC)' :
+                                             visit.visit_purpose === 'maternity_assessment' ? 'Maternity Assessment' :
+                                             visit.visit_purpose === 'labour_assessment' ? 'Labour Assessment' :
+                                             visit.visit_purpose === 'postnatal_care' ? 'Postnatal Care' : visit.visit_purpose}
+                                        </dd>
+                                    </div>
+                                )}
+                                {visit.maternity_status && (
+                                    <div className="flex justify-between gap-4">
+                                        <dt className="text-muted-foreground">Maternity Queue</dt>
+                                        <dd>
+                                            <Badge variant="outline" className="border-pink-300 text-pink-700 dark:text-pink-300">
+                                                {visit.maternity_status.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                                            </Badge>
+                                        </dd>
+                                    </div>
+                                )}
                                 <div className="flex justify-between gap-4">
                                     <dt className="text-muted-foreground">Department</dt>
                                     <dd>{visit.department?.name ?? '—'}</dd>
